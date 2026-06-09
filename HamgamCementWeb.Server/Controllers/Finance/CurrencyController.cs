@@ -1,0 +1,777 @@
+using System.ComponentModel.DataAnnotations;
+using System.Security.Claims;
+using HamgamCementWeb.Server.Data;
+using HamgamCementWeb.Server.Data.Models.Finance;
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
+
+namespace HamgamCementWeb.Server.Controllers.Finance;
+
+[ApiController]
+[Route("api/currencies")]
+[Authorize]
+public class CurrencyController : ControllerBase
+{
+    private static readonly Dictionary<int, string> CurrencyOrderColumns = new()
+    {
+        [1] = nameof(Currency.Name),
+        [2] = nameof(Currency.Symbol),
+        [3] = nameof(Currency.CurrencyCode),
+        [4] = nameof(Currency.IsBaseCurrency),
+        [5] = nameof(Currency.DecimalPlaces),
+        [6] = nameof(Currency.IsActive),
+    };
+
+    private static readonly Dictionary<int, string> HistoryOrderColumns = new()
+    {
+        [1] = "CurrencyName",
+        [2] = nameof(CurrencyExchangeHistory.BaseUnitsPerUnit),
+        [3] = nameof(CurrencyExchangeHistory.PreviousBaseUnitsPerUnit),
+        [4] = nameof(CurrencyExchangeHistory.EffectiveFrom),
+        [5] = nameof(CurrencyExchangeHistory.EffectiveTo),
+    };
+
+    private readonly AppDbContext _db;
+
+    public CurrencyController(AppDbContext db)
+    {
+        _db = db;
+    }
+
+    [HttpGet("list")]
+    public async Task<IActionResult> List(CancellationToken cancellationToken)
+    {
+        var items = await _db.Currencies
+            .AsNoTracking()
+            .Where(c => c.IsDeleted != true && c.IsActive == true)
+            .OrderBy(c => c.IsBaseCurrency ? 0 : 1)
+            .ThenBy(c => c.Name)
+            .Select(c => new
+            {
+                c.CurrencyID,
+                c.Name,
+                c.Symbol,
+                c.CurrencyCode,
+                c.IsBaseCurrency,
+                c.DecimalPlaces,
+            })
+            .ToListAsync(cancellationToken);
+
+        return Ok(items);
+    }
+
+    [HttpGet("base")]
+    public async Task<IActionResult> GetBase(CancellationToken cancellationToken)
+    {
+        var baseCurrency = await _db.Currencies
+            .AsNoTracking()
+            .FirstOrDefaultAsync(c => c.IsBaseCurrency && c.IsDeleted != true, cancellationToken);
+
+        if (baseCurrency is null)
+        {
+            return NotFound(new { message = "ارز پایه تعریف نشده است." });
+        }
+
+        return Ok(new
+        {
+            baseCurrency.CurrencyID,
+            baseCurrency.Name,
+            baseCurrency.Symbol,
+            baseCurrency.CurrencyCode,
+        });
+    }
+
+    [HttpPost("datatable")]
+    public async Task<IActionResult> DataTable(
+        [FromBody] DataTableRequest request,
+        CancellationToken cancellationToken)
+    {
+        var draw = request.Draw;
+        var start = Math.Max(request.Start, 0);
+        var length = request.Length <= 0 ? 10 : Math.Min(request.Length, 100);
+
+        var query = _db.Currencies
+            .AsNoTracking()
+            .Where(c => c.IsDeleted != true);
+
+        var recordsTotal = await query.CountAsync(cancellationToken);
+
+        var searchValue = request.Search?.Value?.Trim();
+        if (!string.IsNullOrWhiteSpace(searchValue))
+        {
+            query = query.Where(c =>
+                c.Name.Contains(searchValue) ||
+                c.Symbol.Contains(searchValue) ||
+                c.CurrencyCode.Contains(searchValue) ||
+                (c.Description != null && c.Description.Contains(searchValue)));
+        }
+
+        var recordsFiltered = await query.CountAsync(cancellationToken);
+        var orderedQuery = ApplyCurrencyOrdering(query, request.Order);
+
+        var rows = await orderedQuery
+            .Skip(start)
+            .Take(length)
+            .Select(c => new CurrencyTableRow
+            {
+                CurrencyId = c.CurrencyID,
+                Name = c.Name,
+                Symbol = c.Symbol,
+                CurrencyCode = c.CurrencyCode,
+                Description = c.Description,
+                IsBaseCurrency = c.IsBaseCurrency,
+                DecimalPlaces = c.DecimalPlaces,
+                IsActive = c.IsActive == true,
+                CurrentRate = _db.CurrencyExchangeRates
+                    .Where(r => r.CurrencyID == c.CurrencyID)
+                    .Select(r => (decimal?)r.BaseUnitsPerUnit)
+                    .FirstOrDefault(),
+                RateEffectiveFrom = _db.CurrencyExchangeRates
+                    .Where(r => r.CurrencyID == c.CurrencyID)
+                    .Select(r => (DateTime?)r.EffectiveFrom)
+                    .FirstOrDefault(),
+            })
+            .ToListAsync(cancellationToken);
+
+        for (var i = 0; i < rows.Count; i++)
+        {
+            rows[i].RowNumber = start + i + 1;
+        }
+
+        return Ok(new
+        {
+            draw,
+            recordsTotal,
+            recordsFiltered,
+            data = rows,
+        });
+    }
+
+    [HttpPost("exchange-history/datatable")]
+    public async Task<IActionResult> ExchangeHistoryDataTable(
+        [FromBody] ExchangeHistoryDataTableRequest request,
+        CancellationToken cancellationToken)
+    {
+        var draw = request.Draw;
+        var start = Math.Max(request.Start, 0);
+        var length = request.Length <= 0 ? 10 : Math.Min(request.Length, 100);
+
+        var query = _db.CurrencyExchangeHistories
+            .AsNoTracking()
+            .Where(h => h.IsDeleted != true);
+
+        if (request.CurrencyId is > 0)
+        {
+            query = query.Where(h => h.CurrencyID == request.CurrencyId);
+        }
+
+        var recordsTotal = await query.CountAsync(cancellationToken);
+
+        var searchValue = request.Search?.Value?.Trim();
+        if (!string.IsNullOrWhiteSpace(searchValue))
+        {
+            query = query.Where(h =>
+                h.Currency!.Name.Contains(searchValue) ||
+                h.Currency.CurrencyCode.Contains(searchValue) ||
+                (h.ChangeReason != null && h.ChangeReason.Contains(searchValue)));
+        }
+
+        var recordsFiltered = await query.CountAsync(cancellationToken);
+        var orderedQuery = ApplyHistoryOrdering(query, request.Order);
+
+        var rows = await orderedQuery
+            .Skip(start)
+            .Take(length)
+            .Select(h => new ExchangeHistoryTableRow
+            {
+                HistoryId = h.HistoryID,
+                CurrencyId = h.CurrencyID,
+                CurrencyName = h.Currency!.Name,
+                CurrencyCode = h.Currency.CurrencyCode,
+                BaseCurrencyId = h.BaseCurrencyID,
+                BaseCurrencyName = h.BaseCurrency!.Name,
+                BaseCurrencyCode = h.BaseCurrency.CurrencyCode,
+                BaseUnitsPerUnit = h.BaseUnitsPerUnit,
+                PreviousBaseUnitsPerUnit = h.PreviousBaseUnitsPerUnit,
+                EffectiveFrom = h.EffectiveFrom,
+                EffectiveTo = h.EffectiveTo,
+                ChangeReason = h.ChangeReason,
+            })
+            .ToListAsync(cancellationToken);
+
+        for (var i = 0; i < rows.Count; i++)
+        {
+            rows[i].RowNumber = start + i + 1;
+        }
+
+        return Ok(new
+        {
+            draw,
+            recordsTotal,
+            recordsFiltered,
+            data = rows,
+        });
+    }
+
+    [HttpPost]
+    public async Task<IActionResult> Create(
+        [FromBody] SaveCurrencyRequest request,
+        CancellationToken cancellationToken)
+    {
+        if (!ModelState.IsValid)
+        {
+            return ValidationProblem(ModelState);
+        }
+
+        var code = request.CurrencyCode.Trim().ToUpperInvariant();
+        if (await _db.Currencies.AnyAsync(
+                c => c.CurrencyCode == code && c.IsDeleted != true,
+                cancellationToken))
+        {
+            return BadRequest(new { message = "کد ارز تکراری است." });
+        }
+
+        if (request.IsBaseCurrency)
+        {
+            await ClearBaseCurrencyFlagsAsync(cancellationToken);
+        }
+        else if (!await _db.Currencies.AnyAsync(c => c.IsBaseCurrency && c.IsDeleted != true, cancellationToken))
+        {
+            return BadRequest(new { message = "ابتدا یک ارز پایه تعریف کنید." });
+        }
+
+        var userId = ResolveCurrentUserId();
+        var now = DateTime.Now;
+
+        var currency = new Currency
+        {
+            Name = request.Name.Trim(),
+            Symbol = request.Symbol.Trim(),
+            CurrencyCode = code,
+            Description = request.Description?.Trim(),
+            DecimalPlaces = request.DecimalPlaces,
+            IsBaseCurrency = request.IsBaseCurrency,
+            CreatedBy = userId,
+            CreatedAt = now,
+            IsActive = request.IsActive,
+            IsDeleted = false,
+        };
+
+        _db.Currencies.Add(currency);
+        await _db.SaveChangesAsync(cancellationToken);
+
+        if (!request.IsBaseCurrency && request.BaseUnitsPerUnit is > 0)
+        {
+            var baseCurrency = await GetBaseCurrencyEntityAsync(cancellationToken);
+            if (baseCurrency is null)
+            {
+                return BadRequest(new { message = "ارز پایه یافت نشد." });
+            }
+
+            await ApplyExchangeRateAsync(
+                currency.CurrencyID,
+                baseCurrency.CurrencyID,
+                request.BaseUnitsPerUnit.Value,
+                request.ChangeReason,
+                now,
+                userId,
+                cancellationToken);
+        }
+
+        return CreatedAtAction(
+            nameof(Update),
+            new { id = currency.CurrencyID },
+            new { message = "ارز با موفقیت ایجاد شد." });
+    }
+
+    [HttpPut("{id:int}")]
+    public async Task<IActionResult> Update(
+        int id,
+        [FromBody] SaveCurrencyRequest request,
+        CancellationToken cancellationToken)
+    {
+        if (!ModelState.IsValid)
+        {
+            return ValidationProblem(ModelState);
+        }
+
+        var currency = await _db.Currencies
+            .FirstOrDefaultAsync(c => c.CurrencyID == id && c.IsDeleted != true, cancellationToken);
+
+        if (currency is null)
+        {
+            return NotFound(new { message = "ارز یافت نشد." });
+        }
+
+        var code = request.CurrencyCode.Trim().ToUpperInvariant();
+        if (await _db.Currencies.AnyAsync(
+                c => c.CurrencyCode == code && c.CurrencyID != id && c.IsDeleted != true,
+                cancellationToken))
+        {
+            return BadRequest(new { message = "کد ارز تکراری است." });
+        }
+
+        if (request.IsBaseCurrency && !currency.IsBaseCurrency)
+        {
+            await ClearBaseCurrencyFlagsAsync(cancellationToken);
+        }
+        else if (!request.IsBaseCurrency && currency.IsBaseCurrency)
+        {
+            return BadRequest(new { message = "ارز پایه را نمی‌توان به ارز عادی تبدیل کرد. ابتدا ارز پایه دیگری تعیین کنید." });
+        }
+
+        currency.Name = request.Name.Trim();
+        currency.Symbol = request.Symbol.Trim();
+        currency.CurrencyCode = code;
+        currency.Description = request.Description?.Trim();
+        currency.DecimalPlaces = request.DecimalPlaces;
+        currency.IsBaseCurrency = request.IsBaseCurrency;
+        currency.IsActive = request.IsActive;
+        currency.UpdatedAt = DateTime.Now;
+        currency.IsUpdated = true;
+        currency.UpdatedBy = ResolveCurrentUserId();
+
+        await _db.SaveChangesAsync(cancellationToken);
+
+        return Ok(new { message = "ارز با موفقیت ویرایش شد." });
+    }
+
+    [HttpPut("{id:int}/set-base")]
+    public async Task<IActionResult> SetBase(int id, CancellationToken cancellationToken)
+    {
+        var currency = await _db.Currencies
+            .FirstOrDefaultAsync(c => c.CurrencyID == id && c.IsDeleted != true, cancellationToken);
+
+        if (currency is null)
+        {
+            return NotFound(new { message = "ارز یافت نشد." });
+        }
+
+        if (currency.IsBaseCurrency)
+        {
+            return Ok(new { message = "این ارز از قبل ارز پایه است." });
+        }
+
+        await ClearBaseCurrencyFlagsAsync(cancellationToken);
+
+        currency.IsBaseCurrency = true;
+        currency.UpdatedAt = DateTime.Now;
+        currency.IsUpdated = true;
+        currency.UpdatedBy = ResolveCurrentUserId();
+
+        var rates = await _db.CurrencyExchangeRates
+            .Where(r => r.CurrencyID == id)
+            .ToListAsync(cancellationToken);
+        _db.CurrencyExchangeRates.RemoveRange(rates);
+
+        var openHistories = await _db.CurrencyExchangeHistories
+            .Where(h => h.CurrencyID == id && h.EffectiveTo == null)
+            .ToListAsync(cancellationToken);
+        var now = DateTime.Now;
+        foreach (var history in openHistories)
+        {
+            history.EffectiveTo = now;
+            history.UpdatedAt = now;
+            history.IsUpdated = true;
+            history.UpdatedBy = ResolveCurrentUserId();
+        }
+
+        await _db.SaveChangesAsync(cancellationToken);
+
+        return Ok(new { message = "ارز پایه با موفقیت تغییر کرد." });
+    }
+
+    [HttpPost("{id:int}/exchange-rate")]
+    public async Task<IActionResult> UpdateExchangeRate(
+        int id,
+        [FromBody] UpdateExchangeRateRequest request,
+        CancellationToken cancellationToken)
+    {
+        if (!ModelState.IsValid)
+        {
+            return ValidationProblem(ModelState);
+        }
+
+        var currency = await _db.Currencies
+            .AsNoTracking()
+            .FirstOrDefaultAsync(c => c.CurrencyID == id && c.IsDeleted != true, cancellationToken);
+
+        if (currency is null)
+        {
+            return NotFound(new { message = "ارز یافت نشد." });
+        }
+
+        if (currency.IsBaseCurrency)
+        {
+            return BadRequest(new { message = "برای ارز پایه نرخ تبدیل ثبت نمی‌شود." });
+        }
+
+        var baseCurrency = await GetBaseCurrencyEntityAsync(cancellationToken);
+        if (baseCurrency is null)
+        {
+            return BadRequest(new { message = "ارز پایه تعریف نشده است." });
+        }
+
+        var effectiveFrom = request.EffectiveFrom ?? DateTime.Now;
+        await ApplyExchangeRateAsync(
+            id,
+            baseCurrency.CurrencyID,
+            request.BaseUnitsPerUnit,
+            request.ChangeReason,
+            effectiveFrom,
+            ResolveCurrentUserId(),
+            cancellationToken);
+
+        return Ok(new { message = "نرخ ارز با موفقیت ثبت شد." });
+    }
+
+    [HttpDelete("{id:int}")]
+    public async Task<IActionResult> Delete(int id, CancellationToken cancellationToken)
+    {
+        var currency = await _db.Currencies
+            .FirstOrDefaultAsync(c => c.CurrencyID == id && c.IsDeleted != true, cancellationToken);
+
+        if (currency is null)
+        {
+            return NotFound(new { message = "ارز یافت نشد." });
+        }
+
+        if (currency.IsBaseCurrency)
+        {
+            return BadRequest(new { message = "ارز پایه قابل حذف نیست." });
+        }
+
+        var hasRates = await _db.CurrencyExchangeRates.AnyAsync(r => r.CurrencyID == id, cancellationToken);
+        if (hasRates)
+        {
+            return BadRequest(new { message = "این ارز نرخ تبدیل دارد و قابل حذف نیست." });
+        }
+
+        currency.IsDeleted = true;
+        currency.IsActive = false;
+        currency.DeletedAt = DateTime.Now;
+        currency.DeletedBy = ResolveCurrentUserId();
+
+        await _db.SaveChangesAsync(cancellationToken);
+
+        return Ok(new { message = "ارز با موفقیت حذف شد." });
+    }
+
+    private async Task ApplyExchangeRateAsync(
+        int currencyId,
+        int baseCurrencyId,
+        decimal newRate,
+        string? changeReason,
+        DateTime effectiveFrom,
+        int? userId,
+        CancellationToken cancellationToken)
+    {
+        var openHistory = await _db.CurrencyExchangeHistories
+            .Where(h => h.CurrencyID == currencyId && h.EffectiveTo == null && h.IsDeleted != true)
+            .OrderByDescending(h => h.EffectiveFrom)
+            .FirstOrDefaultAsync(cancellationToken);
+
+        decimal? previousRate = openHistory?.BaseUnitsPerUnit;
+
+        if (openHistory is not null)
+        {
+            openHistory.EffectiveTo = effectiveFrom;
+            openHistory.UpdatedAt = DateTime.Now;
+            openHistory.IsUpdated = true;
+            openHistory.UpdatedBy = userId;
+        }
+
+        var history = new CurrencyExchangeHistory
+        {
+            CurrencyID = currencyId,
+            BaseCurrencyID = baseCurrencyId,
+            BaseUnitsPerUnit = newRate,
+            PreviousBaseUnitsPerUnit = previousRate,
+            EffectiveFrom = effectiveFrom,
+            EffectiveTo = null,
+            ChangeReason = changeReason?.Trim(),
+            CreatedBy = userId,
+            CreatedAt = DateTime.Now,
+            IsActive = true,
+            IsDeleted = false,
+        };
+
+        _db.CurrencyExchangeHistories.Add(history);
+        await _db.SaveChangesAsync(cancellationToken);
+
+        var currentRate = await _db.CurrencyExchangeRates
+            .FirstOrDefaultAsync(r => r.CurrencyID == currencyId, cancellationToken);
+
+        if (currentRate is null)
+        {
+            currentRate = new CurrencyExchangeRate
+            {
+                CurrencyID = currencyId,
+                BaseCurrencyID = baseCurrencyId,
+                CreatedBy = userId,
+                CreatedAt = DateTime.Now,
+                IsActive = true,
+                IsDeleted = false,
+            };
+            _db.CurrencyExchangeRates.Add(currentRate);
+        }
+
+        currentRate.BaseCurrencyID = baseCurrencyId;
+        currentRate.BaseUnitsPerUnit = newRate;
+        currentRate.EffectiveFrom = effectiveFrom;
+        currentRate.SourceHistoryID = history.HistoryID;
+        currentRate.UpdatedAt = DateTime.Now;
+        currentRate.IsUpdated = true;
+        currentRate.UpdatedBy = userId;
+
+        await _db.SaveChangesAsync(cancellationToken);
+    }
+
+    private async Task ClearBaseCurrencyFlagsAsync(CancellationToken cancellationToken)
+    {
+        var baseCurrencies = await _db.Currencies
+            .Where(c => c.IsBaseCurrency && c.IsDeleted != true)
+            .ToListAsync(cancellationToken);
+
+        foreach (var item in baseCurrencies)
+        {
+            item.IsBaseCurrency = false;
+            item.UpdatedAt = DateTime.Now;
+            item.IsUpdated = true;
+            item.UpdatedBy = ResolveCurrentUserId();
+        }
+    }
+
+    private async Task<Currency?> GetBaseCurrencyEntityAsync(CancellationToken cancellationToken)
+    {
+        return await _db.Currencies
+            .FirstOrDefaultAsync(c => c.IsBaseCurrency && c.IsDeleted != true, cancellationToken);
+    }
+
+    private static IQueryable<Currency> ApplyCurrencyOrdering(
+        IQueryable<Currency> query,
+        List<DataTableOrder>? orders)
+    {
+        if (orders is null || orders.Count == 0)
+        {
+            return query.OrderByDescending(c => c.IsBaseCurrency).ThenBy(c => c.Name);
+        }
+
+        IOrderedQueryable<Currency>? ordered = null;
+        foreach (var order in orders)
+        {
+            if (!CurrencyOrderColumns.TryGetValue(order.Column, out var column))
+            {
+                continue;
+            }
+
+            var descending = string.Equals(order.Dir, "desc", StringComparison.OrdinalIgnoreCase);
+
+            ordered = column switch
+            {
+                nameof(Currency.Name) when ordered is null => descending
+                    ? query.OrderByDescending(c => c.Name)
+                    : query.OrderBy(c => c.Name),
+                nameof(Currency.Name) => descending
+                    ? ordered!.ThenByDescending(c => c.Name)
+                    : ordered!.ThenBy(c => c.Name),
+                nameof(Currency.Symbol) when ordered is null => descending
+                    ? query.OrderByDescending(c => c.Symbol)
+                    : query.OrderBy(c => c.Symbol),
+                nameof(Currency.Symbol) => descending
+                    ? ordered!.ThenByDescending(c => c.Symbol)
+                    : ordered!.ThenBy(c => c.Symbol),
+                nameof(Currency.CurrencyCode) when ordered is null => descending
+                    ? query.OrderByDescending(c => c.CurrencyCode)
+                    : query.OrderBy(c => c.CurrencyCode),
+                nameof(Currency.CurrencyCode) => descending
+                    ? ordered!.ThenByDescending(c => c.CurrencyCode)
+                    : ordered!.ThenBy(c => c.CurrencyCode),
+                nameof(Currency.IsBaseCurrency) when ordered is null => descending
+                    ? query.OrderByDescending(c => c.IsBaseCurrency)
+                    : query.OrderBy(c => c.IsBaseCurrency),
+                nameof(Currency.IsBaseCurrency) => descending
+                    ? ordered!.ThenByDescending(c => c.IsBaseCurrency)
+                    : ordered!.ThenBy(c => c.IsBaseCurrency),
+                nameof(Currency.DecimalPlaces) when ordered is null => descending
+                    ? query.OrderByDescending(c => c.DecimalPlaces)
+                    : query.OrderBy(c => c.DecimalPlaces),
+                nameof(Currency.DecimalPlaces) => descending
+                    ? ordered!.ThenByDescending(c => c.DecimalPlaces)
+                    : ordered!.ThenBy(c => c.DecimalPlaces),
+                nameof(Currency.IsActive) when ordered is null => descending
+                    ? query.OrderByDescending(c => c.IsActive)
+                    : query.OrderBy(c => c.IsActive),
+                nameof(Currency.IsActive) => descending
+                    ? ordered!.ThenByDescending(c => c.IsActive)
+                    : ordered!.ThenBy(c => c.IsActive),
+                _ => ordered,
+            };
+        }
+
+        return ordered ?? query.OrderByDescending(c => c.IsBaseCurrency).ThenBy(c => c.Name);
+    }
+
+    private static IQueryable<CurrencyExchangeHistory> ApplyHistoryOrdering(
+        IQueryable<CurrencyExchangeHistory> query,
+        List<DataTableOrder>? orders)
+    {
+        if (orders is null || orders.Count == 0)
+        {
+            return query.OrderByDescending(h => h.EffectiveFrom);
+        }
+
+        IOrderedQueryable<CurrencyExchangeHistory>? ordered = null;
+        foreach (var order in orders)
+        {
+            if (!HistoryOrderColumns.TryGetValue(order.Column, out var column))
+            {
+                continue;
+            }
+
+            var descending = string.Equals(order.Dir, "desc", StringComparison.OrdinalIgnoreCase);
+
+            ordered = column switch
+            {
+                "CurrencyName" when ordered is null => descending
+                    ? query.OrderByDescending(h => h.Currency!.Name)
+                    : query.OrderBy(h => h.Currency!.Name),
+                "CurrencyName" => descending
+                    ? ordered!.ThenByDescending(h => h.Currency!.Name)
+                    : ordered!.ThenBy(c => c.Currency!.Name),
+                nameof(CurrencyExchangeHistory.BaseUnitsPerUnit) when ordered is null => descending
+                    ? query.OrderByDescending(h => h.BaseUnitsPerUnit)
+                    : query.OrderBy(h => h.BaseUnitsPerUnit),
+                nameof(CurrencyExchangeHistory.BaseUnitsPerUnit) => descending
+                    ? ordered!.ThenByDescending(h => h.BaseUnitsPerUnit)
+                    : ordered!.ThenBy(h => h.BaseUnitsPerUnit),
+                nameof(CurrencyExchangeHistory.PreviousBaseUnitsPerUnit) when ordered is null => descending
+                    ? query.OrderByDescending(h => h.PreviousBaseUnitsPerUnit)
+                    : query.OrderBy(h => h.PreviousBaseUnitsPerUnit),
+                nameof(CurrencyExchangeHistory.PreviousBaseUnitsPerUnit) => descending
+                    ? ordered!.ThenByDescending(h => h.PreviousBaseUnitsPerUnit)
+                    : ordered!.ThenBy(h => h.PreviousBaseUnitsPerUnit),
+                nameof(CurrencyExchangeHistory.EffectiveFrom) when ordered is null => descending
+                    ? query.OrderByDescending(h => h.EffectiveFrom)
+                    : query.OrderBy(h => h.EffectiveFrom),
+                nameof(CurrencyExchangeHistory.EffectiveFrom) => descending
+                    ? ordered!.ThenByDescending(h => h.EffectiveFrom)
+                    : ordered!.ThenBy(h => h.EffectiveFrom),
+                nameof(CurrencyExchangeHistory.EffectiveTo) when ordered is null => descending
+                    ? query.OrderByDescending(h => h.EffectiveTo)
+                    : query.OrderBy(h => h.EffectiveTo),
+                nameof(CurrencyExchangeHistory.EffectiveTo) => descending
+                    ? ordered!.ThenByDescending(h => h.EffectiveTo)
+                    : ordered!.ThenBy(h => h.EffectiveTo),
+                _ => ordered,
+            };
+        }
+
+        return ordered ?? query.OrderByDescending(h => h.EffectiveFrom);
+    }
+
+    private int? ResolveCurrentUserId()
+    {
+        var userIdClaim = User.FindFirstValue(ClaimTypes.NameIdentifier);
+        return int.TryParse(userIdClaim, out var userId) ? userId : null;
+    }
+
+    public class DataTableRequest
+    {
+        public int Draw { get; set; }
+        public int Start { get; set; }
+        public int Length { get; set; }
+        public DataTableSearch? Search { get; set; }
+        public List<DataTableOrder>? Order { get; set; }
+    }
+
+    public class ExchangeHistoryDataTableRequest : DataTableRequest
+    {
+        public int? CurrencyId { get; set; }
+    }
+
+    public class DataTableSearch
+    {
+        public string? Value { get; set; }
+        public bool Regex { get; set; }
+    }
+
+    public class DataTableOrder
+    {
+        public int Column { get; set; }
+        public string Dir { get; set; } = "asc";
+    }
+
+    public class CurrencyTableRow
+    {
+        public int RowNumber { get; set; }
+        public int CurrencyId { get; set; }
+        public string Name { get; set; } = string.Empty;
+        public string Symbol { get; set; } = string.Empty;
+        public string CurrencyCode { get; set; } = string.Empty;
+        public string? Description { get; set; }
+        public bool IsBaseCurrency { get; set; }
+        public byte DecimalPlaces { get; set; }
+        public bool IsActive { get; set; }
+        public decimal? CurrentRate { get; set; }
+        public DateTime? RateEffectiveFrom { get; set; }
+    }
+
+    public class ExchangeHistoryTableRow
+    {
+        public int RowNumber { get; set; }
+        public int HistoryId { get; set; }
+        public int CurrencyId { get; set; }
+        public string CurrencyName { get; set; } = string.Empty;
+        public string CurrencyCode { get; set; } = string.Empty;
+        public int BaseCurrencyId { get; set; }
+        public string BaseCurrencyName { get; set; } = string.Empty;
+        public string BaseCurrencyCode { get; set; } = string.Empty;
+        public decimal BaseUnitsPerUnit { get; set; }
+        public decimal? PreviousBaseUnitsPerUnit { get; set; }
+        public DateTime EffectiveFrom { get; set; }
+        public DateTime? EffectiveTo { get; set; }
+        public string? ChangeReason { get; set; }
+    }
+
+    public class SaveCurrencyRequest
+    {
+        [Required(ErrorMessage = "نام ارز الزامی است.")]
+        [MaxLength(100)]
+        public string Name { get; set; } = string.Empty;
+
+        [Required(ErrorMessage = "نماد ارز الزامی است.")]
+        [MaxLength(10)]
+        public string Symbol { get; set; } = string.Empty;
+
+        [Required(ErrorMessage = "کد ارز الزامی است.")]
+        [MaxLength(3)]
+        public string CurrencyCode { get; set; } = string.Empty;
+
+        [MaxLength(500)]
+        public string? Description { get; set; }
+
+        public byte DecimalPlaces { get; set; }
+
+        public bool IsBaseCurrency { get; set; }
+
+        public bool IsActive { get; set; } = true;
+
+        public decimal? BaseUnitsPerUnit { get; set; }
+
+        [MaxLength(500)]
+        public string? ChangeReason { get; set; }
+    }
+
+    public class UpdateExchangeRateRequest
+    {
+        [Range(0.00000001, double.MaxValue, ErrorMessage = "نرخ باید بزرگ‌تر از صفر باشد.")]
+        public decimal BaseUnitsPerUnit { get; set; }
+
+        [MaxLength(500)]
+        public string? ChangeReason { get; set; }
+
+        public DateTime? EffectiveFrom { get; set; }
+    }
+}

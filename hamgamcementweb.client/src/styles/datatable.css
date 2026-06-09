@@ -1,0 +1,281 @@
+.users-page {
+  display: flex;
+  flex-direction: column;
+  height: calc(100dvh - var(--hc-header-height) - 2.5rem);
+  min-height: 520px;
+}
+
+.users-page .content-card {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+
+.users-page .card-body-table {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  padding: 0.75rem 1.25rem 1.25rem;
+}
+
+.users-table-wrapper {
+  flex: 1;
+  min-height: 0;
+  direction: rtl;
+}
+
+.users-table-wrapper .dt-container {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  min-height: 0;
+}
+
+.users-table-wrapper .dt-layout-row {
+  margin: 0 !important;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.users-table-wrapper .dt-layout-row.dt-layout-table {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+}
+
+.users-table-wrapper .dt-layout-cell {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.users-table-wrapper .dt-layout-end {
+  justify-content: flex-end;
+}
+
+.users-table-wrapper .dt-layout-start {
+  justify-content: flex-start;
+}
+
+.users-table-wrapper .dt-layout-full {
+  width: 100%;
+}
+
+.users-table-wrapper table.dataTable {
+  width: 100% !important;
+  margin: 0 !important;
+  border-collapse: separate;
+  border-spacing: 0;
+}
+
+.users-table-wrapper table.dataTable thead th {
+  background: var(--hc-bg-surface);
+  color: var(--hc-text-muted);
+  border-color: var(--hc-border) !important;
+  border-bottom: 1px solid var(--hc-border) !important;
+  font-size: 0.82rem;
+  font-weight: 600;
+  padding: 0.85rem 0.75rem;
+  white-space: nowrap;
+}
+
+.users-table-wrapper table.dataTable tbody td {
+  background: transparent;
+  color: var(--hc-text);
+  border-color: var(--hc-border-subtle) !important;
+  padding: 0.8rem 0.75rem;
+  vertical-align: middle;
+  font-size: 0.875rem;
+}
+
+.users-table-wrapper table.dataTable tbody tr {
+  transition: background-color var(--hc-transition);
+}
+
+.users-table-wrapper table.dataTable tbody tr:hover > * {
+  background: var(--hc-bg-hover) !important;
+}
+
+.users-table-wrapper table.dataTable.stripe tbody tr.odd > * {
+  box-shadow: inset 0 0 0 9999px rgba(255, 255, 255, 0.02);
+}
+
+[data-bs-theme='light'] .users-table-wrapper table.dataTable.stripe tbody tr.odd > * {
+  box-shadow: inset 0 0 0 9999px rgba(0, 0, 0, 0.02);
+}
+
+.users-table-wrapper .dt-action-btn {
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 8px;
+  border: 1px solid var(--hc-border);
+  background: var(--hc-bg-elevated);
+  color: var(--hc-text-muted);
+  transition: color var(--hc-transition), background var(--hc-transition),
+    border-color var(--hc-transition);
+}
+
+.users-table-wrapper .dt-action-btn:hover {
+  color: var(--hc-accent);
+  border-color: var(--hc-accent);
+  background: var(--hc-accent-soft);
+}
+
+.users-table-wrapper .dt-action-btn.btn-delete:hover {
+  color: #f85149;
+  border-color: #f85149;
+  background: rgba(248, 81, 73, 0.12);
+}
+
+.users-table-wrapper .dt-actions {
+  display: flex;
+  gap: 0.4rem;
+  justify-content: center;
+  flex-wrap: nowrap;
+}
+
+.users-table-wrapper .badge-active {
+  background: rgba(46, 160, 67, 0.15);
+  color: #3fb950;
+  font-weight: 500;
+  padding: 0.3rem 0.65rem;
+  border-radius: 999px;
+  font-size: 0.78rem;
+}
+
+.users-table-wrapper .badge-inactive {
+  background: rgba(139, 148, 158, 0.15);
+  color: var(--hc-text-muted);
+  font-weight: 500;
+  padding: 0.3rem 0.65rem;
+  border-radius: 999px;
+  font-size: 0.78rem;
+}
+
+[data-bs-theme='light'] .users-table-wrapper .badge-active {
+  color: #1a7f37;
+}
+
+.users-table-wrapper .dt-info,
+.users-table-wrapper .dt-length label,
+.users-table-wrapper .dt-search label {
+  color: var(--hc-text-muted);
+  font-size: 0.875rem;
+  margin: 0;
+}
+
+.users-table-wrapper .dt-length select,
+.users-table-wrapper .dt-search input {
+  background: var(--hc-bg-surface);
+  border: 1px solid var(--hc-border);
+  color: var(--hc-text);
+  border-radius: 8px;
+  padding: 0.4rem 0.65rem;
+  min-height: 36px;
+}
+
+.users-table-wrapper .dt-search input {
+  min-width: 200px;
+}
+
+.users-table-wrapper .dt-paging .pagination {
+  gap: 0.25rem;
+  margin: 0;
+}
+
+.users-table-wrapper .dt-paging .page-link {
+  background: var(--hc-bg-surface);
+  border: 1px solid var(--hc-border);
+  color: var(--hc-text-muted);
+  border-radius: 8px !important;
+  min-width: 36px;
+  text-align: center;
+  padding: 0.4rem 0.65rem;
+  font-size: 0.85rem;
+}
+
+.users-table-wrapper .dt-paging .page-item.active .page-link {
+  background: var(--hc-bg-hover);
+  border-color: var(--hc-border);
+  color: var(--hc-text);
+  font-weight: 700;
+}
+
+.users-table-wrapper .dt-paging .page-item:not(.active) .page-link:hover {
+  background: var(--hc-bg-hover);
+  color: var(--hc-text);
+  border-color: var(--hc-border);
+}
+
+.users-table-wrapper .dt-paging .page-item.disabled .page-link {
+  opacity: 0.45;
+}
+
+.users-table-wrapper .dt-processing {
+  background: var(--hc-bg-elevated);
+  border: 1px solid var(--hc-border);
+  color: var(--hc-text-muted);
+  border-radius: var(--hc-radius-sm);
+}
+
+.users-table-wrapper .dt-buttons .dt-button {
+  background: var(--hc-bg-surface) !important;
+  border: 1px solid var(--hc-border) !important;
+  color: var(--hc-text) !important;
+  border-radius: 8px !important;
+  padding: 0.4rem 0.9rem !important;
+  font-size: 0.85rem !important;
+  margin-inline-end: 0.35rem;
+}
+
+.users-table-wrapper .dt-buttons .dt-button:hover {
+  background: var(--hc-bg-hover) !important;
+  border-color: var(--hc-border) !important;
+  color: var(--hc-text) !important;
+}
+
+.users-load-error {
+  margin-bottom: 0.75rem;
+}
+
+.users-page .btn-users-new {
+  min-width: 8.5rem;
+  padding-inline: 1.15rem;
+}
+
+.users-modal-backdrop {
+  z-index: 1040;
+}
+
+.users-page .users-modal {
+  z-index: 1050;
+}
+
+.users-page .users-modal .modal-dialog {
+  max-height: calc(100dvh - 2rem);
+  margin: 1rem auto;
+}
+
+.users-page .users-modal .modal-dialog-scrollable .modal-content {
+  max-height: calc(100dvh - 2rem);
+  overflow: hidden;
+}
+
+.users-page .users-modal .modal-dialog-scrollable .modal-body {
+  overflow-y: auto;
+}
+
+.btn-accent {
+  --bs-btn-color: #fff;
+  --bs-btn-bg: var(--hc-accent);
+  --bs-btn-border-color: var(--hc-accent);
+  --bs-btn-hover-bg: var(--hc-accent-hover);
+  --bs-btn-hover-border-color: var(--hc-accent-hover);
+  --bs-btn-hover-color: #fff;
+}

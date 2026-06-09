@@ -93,32 +93,37 @@ body.sidebar-drawer-open {
   overflow: hidden;
 }
 
-/* ── Scrollbar (RTL: appears on inline-start / right) ── */
-.hc-scroll {
-  direction: rtl;
-  overflow-y: auto;
-  overflow-x: hidden;
-  overscroll-behavior: contain;
+/* ── Global scrollbar (یکسان در کل اپ) ── */
+* {
   scrollbar-width: thin;
   scrollbar-color: var(--hc-scrollbar-thumb) var(--hc-scrollbar-track);
 }
 
-.hc-scroll::-webkit-scrollbar {
+*::-webkit-scrollbar {
   width: 8px;
+  height: 8px;
 }
 
-.hc-scroll::-webkit-scrollbar-track {
+*::-webkit-scrollbar-track {
   background: var(--hc-scrollbar-track);
 }
 
-.hc-scroll::-webkit-scrollbar-thumb {
+*::-webkit-scrollbar-thumb {
   background-color: var(--hc-scrollbar-thumb);
   border-radius: 999px;
   border: 2px solid var(--hc-scrollbar-track);
 }
 
-.hc-scroll::-webkit-scrollbar-thumb:hover {
+*::-webkit-scrollbar-thumb:hover {
   background-color: var(--hc-scrollbar-thumb-hover);
+}
+
+/* ── Scrollable regions (RTL: scrollbar on inline-start / right) ── */
+.hc-scroll {
+  direction: rtl;
+  overflow-y: auto;
+  overflow-x: hidden;
+  overscroll-behavior: contain;
 }
 
 /* ── Layout grid (RTL: col-1 = right = sidebar) ── */
@@ -155,11 +160,14 @@ body.sidebar-drawer-open {
   position: relative;
   z-index: 1040;
   min-width: 0;
+  height: 100%;
+  min-height: 0;
 }
 
 .dashboard-sidebar {
   width: var(--hc-sidebar-current-width);
   height: 100%;
+  min-height: 0;
   background: var(--hc-bg-elevated);
   border-inline-start: 1px solid var(--hc-border);
   overflow: hidden;
@@ -285,7 +293,12 @@ body.sidebar-drawer-open {
 
 /* ── Nav groups & submenus ── */
 .sidebar-nav {
+  flex: 1 1 auto;
   min-height: 0;
+}
+
+.sidebar-footer {
+  flex-shrink: 0;
 }
 
 .nav-link-parent {

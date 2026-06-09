@@ -1,8 +1,17 @@
+import { useNavigate } from 'react-router-dom'
+import { useAuth } from '../../context/AuthContext'
 import { useTheme } from '../../context/ThemeContext'
 import Icon from '../common/Icon'
 
 function Header({ isSidebarExpanded, onSidebarToggle }) {
   const { theme, toggleTheme } = useTheme()
+  const { user, logout } = useAuth()
+  const navigate = useNavigate()
+
+  const handleLogout = async () => {
+    await logout()
+    navigate('/login', { replace: true })
+  }
 
   return (
     <header className="dashboard-header d-flex align-items-center gap-3">
@@ -41,13 +50,36 @@ function Header({ isSidebarExpanded, onSidebarToggle }) {
           <span className="notification-dot" />
         </button>
 
-        <button type="button" className="header-user btn p-0 border-0">
-          <span className="user-avatar">
-            <Icon name="user" />
-          </span>
-          <span className="user-name d-none d-sm-inline">امیرعلی</span>
-          <Icon name="chevron-down" className="user-chevron d-none d-sm-inline" />
-        </button>
+        <div className="dropdown">
+          <button
+            type="button"
+            className="header-user btn p-0 border-0 dropdown-toggle"
+            data-bs-toggle="dropdown"
+            aria-expanded="false"
+          >
+            <span className="user-avatar">
+              <Icon name="user" />
+            </span>
+            <span className="user-name d-none d-sm-inline">{user?.fullName ?? 'کاربر'}</span>
+            <Icon name="chevron-down" className="user-chevron d-none d-sm-inline" />
+          </button>
+          <ul className="dropdown-menu dropdown-menu-end">
+            <li>
+              <span className="dropdown-item-text small text-muted">
+                {user?.roleName ?? '—'}
+              </span>
+            </li>
+            <li>
+              <hr className="dropdown-divider" />
+            </li>
+            <li>
+              <button type="button" className="dropdown-item" onClick={handleLogout}>
+                <Icon name="sign-out" className="ms-2" />
+                خروج از حساب
+              </button>
+            </li>
+          </ul>
+        </div>
       </div>
     </header>
   )

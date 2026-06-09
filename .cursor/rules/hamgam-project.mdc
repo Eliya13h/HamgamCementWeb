@@ -1,0 +1,36 @@
+---
+description: مسیرها و قراردادهای پروژه همگام سیمان
+alwaysApply: true
+---
+
+# پروژه HamgamCementWeb
+
+## مسیرهای اصلی
+
+| بخش | مسیر |
+|-----|------|
+| پروژه وب (فرانت) | `hamgamcementweb.client/` |
+| سورس صفحات و کامپوننت‌های وب | `hamgamcementweb.client/src/` |
+| پروژه بک‌اند | `HamgamCementWeb.Server/` |
+| دیتا (DbContext، Enums، …) | `HamgamCementWeb.Server/Data/` |
+| کنترلرها | `HamgamCementWeb.Server/Controllers/` |
+| کلاس‌های جداول دیتابیس (Entity) | `HamgamCementWeb.Server/Data/Models/` |
+| ویو مدل‌ها | `HamgamCementWeb.Server/Data/ViewModels/` |
+
+## قراردادها
+
+### DTO و مدل داده
+- تا حد امکان **کلاس DTO جدا نساز**؛ از کلاس‌های داده (`Data/Models`) استفاده کن.
+- DTO فقط وقتی مجاز است که واقعاً راه دیگری نباشد (مثلاً پاسخ API بدون فیلدهای حساس، یا شکل ورودی متفاوت از Entity).
+
+### تغییرات دیتابیس
+- هر تغییر اسکیمای دیتابیس را **فقط در کلاس Entity مربوطه** در `Data/Models/` اعمال کن.
+- بالای property یا بلوک تغییر، **کامنت فارسی** بگذار که هدف تغییر چیست.
+- بعد از تغییر Entity، migration با EF Core بساز؛ migration را دستی ویرایش نکن مگر ضرورت باشد.
+
+### مثال کامنت روی Entity
+
+```csharp
+// اضافه شد برای ذخیره شماره موبایل تأییدشده کاربر
+public string? VerifiedMobile { get; set; }
+```

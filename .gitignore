@@ -266,6 +266,9 @@ ServiceFabricBackup/
 *.ldf
 *.ndf
 
+# Entity Framework migrations
+HamgamCementWeb.Server/Migrations/
+
 # Business Intelligence projects
 *.rdl.data
 *.bim.layout
