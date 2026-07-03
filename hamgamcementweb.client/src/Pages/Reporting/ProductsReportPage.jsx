@@ -1,7 +1,7 @@
-import EmptyPage from '../People/EmptyPage'
+import PlaceholderPage from '../../components/common/PlaceholderPage'
 
 function ProductsReportPage() {
-  return <EmptyPage title="گزارش محصولات" />
+  return <PlaceholderPage title="گزارش محصولات" />
 }
 
 export default ProductsReportPage

@@ -76,6 +76,8 @@ function ExchangeHistoryPage() {
           search: { placeholder: 'جستجو...' },
           pageLength: { menu: [10, 15, 25, 50, 100] },
         },
+        topEnd: null,
+
         bottomStart: 'info',
         bottomEnd: {
           paging: { firstLast: true, previousNext: true, numbers: 5 },

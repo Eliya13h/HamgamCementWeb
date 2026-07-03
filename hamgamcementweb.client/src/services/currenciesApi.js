@@ -29,6 +29,13 @@ export async function fetchCurrenciesList() {
   return parseResponse(response)
 }
 
+export async function fetchCurrencyRates() {
+  const response = await fetch(`${BASE}/current-rates`, {
+    credentials: 'include',
+  })
+  return parseResponse(response)
+}
+
 export async function fetchBaseCurrency() {
   const response = await fetch(`${BASE}/base`, {
     credentials: 'include',

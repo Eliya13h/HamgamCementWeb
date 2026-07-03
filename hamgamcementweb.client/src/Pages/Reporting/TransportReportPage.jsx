@@ -1,7 +1,7 @@
-import EmptyPage from '../People/EmptyPage'
+import PlaceholderPage from '../../components/common/PlaceholderPage'
 
 function TransportReportPage() {
-  return <EmptyPage title="گزارش ترانسپورت" />
+  return <PlaceholderPage title="گزارش ترانسپورت" />
 }
 
 export default TransportReportPage

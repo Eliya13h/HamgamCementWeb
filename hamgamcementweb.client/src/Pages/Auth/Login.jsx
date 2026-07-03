@@ -79,7 +79,7 @@ function Login() {
 
                     <div className="login-card">
                         <header className="login-card-header">
-                            <h2 className="login-card-title">ورود به سامانه</h2>
+                            <h2 className="login-card-title">ورود به سیستم</h2>
                             <p className="login-card-subtitle">برای ادامه، اطلاعات حساب کاربری خود را وارد کنید</p>
                         </header>
 
@@ -150,14 +150,14 @@ function Login() {
                                 ) : (
                                     <>
                                         <Icon name="sign-in" />
-                                        ورود به پنل
+                                        ورود به سیستم
                                     </>
                                 )}
                             </button>
                         </form>
 
                         <footer className="login-footer">
-                            <p className="login-footer-note">نشست شما به‌صورت امن ذخیره می‌شود</p>
+                            <p className="login-footer-note">دیتابیس مهربان</p>
                             <button
                                 type="button"
                                 className="login-theme-btn"

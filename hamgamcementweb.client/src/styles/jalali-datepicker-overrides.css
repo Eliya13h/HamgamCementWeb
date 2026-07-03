@@ -1,0 +1,193 @@
+/* override نهایی react-multi-date-picker — رنگ ثابت برای غلبه بر CSS runtime کتابخانه */
+
+/* ── Dark ── */
+[data-bs-theme='dark'] .rmdp-wrapper,
+[data-bs-theme='dark'] .rmdp-wrapper.rmdp-shadow,
+[data-bs-theme='dark'] .rmdp-wrapper.rmdp-border {
+  background-color: #161b22 !important;
+  border: 1px solid #30363d !important;
+  border-radius: 10px !important;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45) !important;
+  color: #e6edf3 !important;
+  direction: rtl;
+  font-family: 'Vazirmatn', Tahoma, sans-serif !important;
+}
+
+[data-bs-theme='dark'] .rmdp-calendar {
+  background-color: #161b22 !important;
+}
+
+[data-bs-theme='dark'] .rmdp-header-values,
+[data-bs-theme='dark'] .rmdp-header-values span {
+  color: #e6edf3 !important;
+}
+
+[data-bs-theme='dark'] .rmdp-week-day {
+  color: #8b949e !important;
+}
+
+[data-bs-theme='dark'] .rmdp-day {
+  color: #e6edf3 !important;
+}
+
+[data-bs-theme='dark'] .rmdp-day span {
+  color: inherit !important;
+}
+
+[data-bs-theme='dark'] .rmdp-day.rmdp-deactive,
+[data-bs-theme='dark'] .rmdp-day.rmdp-disabled {
+  color: #6e7681 !important;
+}
+
+[data-bs-theme='dark'] .rmdp-day:not(.rmdp-disabled):not(.rmdp-day-hidden) span:hover {
+  background-color: #21262d !important;
+  color: #e6edf3 !important;
+}
+
+[data-bs-theme='dark'] .rmdp-day.rmdp-selected span:not(.highlight) {
+  background-color: #f0883e !important;
+  color: #ffffff !important;
+  box-shadow: none !important;
+}
+
+[data-bs-theme='dark'] .rmdp-day.rmdp-today span {
+  background-color: rgba(240, 136, 62, 0.14) !important;
+  color: #f0883e !important;
+}
+
+[data-bs-theme='dark'] .rmdp-day.rmdp-selected.rmdp-today span:not(.highlight) {
+  background-color: #f0883e !important;
+  color: #ffffff !important;
+}
+
+[data-bs-theme='dark'] .rmdp-range {
+  background-color: #f0883e !important;
+  color: #ffffff !important;
+  box-shadow: none !important;
+}
+
+[data-bs-theme='dark'] .rmdp-range-hover {
+  background-color: rgba(240, 136, 62, 0.14) !important;
+  color: #f0883e !important;
+}
+
+[data-bs-theme='dark'] .rmdp-arrow {
+  border-color: #f0883e !important;
+}
+
+[data-bs-theme='dark'] .rmdp-arrow-container:hover {
+  background-color: rgba(240, 136, 62, 0.14) !important;
+  box-shadow: none !important;
+}
+
+[data-bs-theme='dark'] .rmdp-arrow-container:hover .rmdp-arrow {
+  border-color: #db7c37 !important;
+}
+
+[data-bs-theme='dark'] .rmdp-month-picker,
+[data-bs-theme='dark'] .rmdp-year-picker {
+  background-color: #161b22 !important;
+}
+
+[data-bs-theme='dark'] .rmdp-ym .rmdp-day span {
+  color: #e6edf3 !important;
+}
+
+[data-bs-theme='dark'] .rmdp-ym .rmdp-day:not(.rmdp-disabled) span:hover {
+  background-color: #21262d !important;
+  color: #e6edf3 !important;
+}
+
+[data-bs-theme='dark'] .rmdp-month-name {
+  color: #8b949e !important;
+}
+
+[data-bs-theme='dark'] .rmdp-calendar :focus {
+  outline-color: #f0883e !important;
+}
+
+[data-bs-theme='dark'] .rmdp-container .rmdp-ep-arrow:after {
+  background-color: #161b22 !important;
+}
+
+[data-bs-theme='dark'] .rmdp-container .rmdp-ep-border:after {
+  border-color: #30363d !important;
+}
+
+[data-bs-theme='dark'] .rmdp-input {
+  background-color: #1c2128 !important;
+  border-color: #30363d !important;
+  color: #e6edf3 !important;
+}
+
+[data-bs-theme='dark'] .rmdp-input:focus {
+  border-color: #f0883e !important;
+  box-shadow: 0 0 0 3px rgba(240, 136, 62, 0.14) !important;
+}
+
+/* ── Light ── */
+[data-bs-theme='light'] .rmdp-wrapper,
+[data-bs-theme='light'] .rmdp-wrapper.rmdp-shadow,
+[data-bs-theme='light'] .rmdp-wrapper.rmdp-border {
+  background-color: #ffffff !important;
+  border: 1px solid #e2e6ef !important;
+  border-radius: 10px !important;
+  box-shadow: 0 4px 20px rgba(15, 23, 42, 0.08) !important;
+  color: #1a1f2e !important;
+  direction: rtl;
+  font-family: 'Vazirmatn', Tahoma, sans-serif !important;
+}
+
+[data-bs-theme='light'] .rmdp-calendar {
+  background-color: #ffffff !important;
+}
+
+[data-bs-theme='light'] .rmdp-header-values,
+[data-bs-theme='light'] .rmdp-header-values span {
+  color: #1a1f2e !important;
+}
+
+[data-bs-theme='light'] .rmdp-week-day {
+  color: #6b7280 !important;
+}
+
+[data-bs-theme='light'] .rmdp-day {
+  color: #1a1f2e !important;
+}
+
+[data-bs-theme='light'] .rmdp-day:not(.rmdp-disabled):not(.rmdp-day-hidden) span:hover {
+  background-color: #eef1f6 !important;
+  color: #1a1f2e !important;
+}
+
+[data-bs-theme='light'] .rmdp-day.rmdp-selected span:not(.highlight) {
+  background-color: #e07b2d !important;
+  color: #ffffff !important;
+  box-shadow: none !important;
+}
+
+[data-bs-theme='light'] .rmdp-day.rmdp-today span {
+  background-color: rgba(224, 123, 45, 0.12) !important;
+  color: #e07b2d !important;
+}
+
+[data-bs-theme='light'] .rmdp-month-picker,
+[data-bs-theme='light'] .rmdp-year-picker {
+  background-color: #ffffff !important;
+}
+
+[data-bs-theme='light'] .rmdp-ym .rmdp-day span {
+  color: #1a1f2e !important;
+}
+
+[data-bs-theme='light'] .rmdp-ym .rmdp-day:not(.rmdp-disabled) span:hover {
+  background-color: #eef1f6 !important;
+}
+
+[data-bs-theme='light'] .rmdp-arrow {
+  border-color: #e07b2d !important;
+}
+
+[data-bs-theme='light'] .rmdp-container .rmdp-ep-arrow:after {
+  background-color: #ffffff !important;
+}

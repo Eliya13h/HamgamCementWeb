@@ -40,6 +40,27 @@ const target = env.ASPNETCORE_HTTPS_PORT ? `https://localhost:${env.ASPNETCORE_H
 // https://vitejs.dev/config/
 export default defineConfig({
     plugins: [plugin()],
+    build: {
+        rollupOptions: {
+            output: {
+                entryFileNames: 'assets/[name]-[hash].js',
+                chunkFileNames: 'assets/pages/[name]-[hash].js',
+                assetFileNames: 'assets/[name]-[hash][extname]',
+                manualChunks(id) {
+                    if (id.includes('node_modules')) {
+                        if (id.includes('react-router')) return 'vendor-router'
+                        if (id.includes('react-dom') || id.includes('react/')) return 'vendor-react'
+                        if (id.includes('bootstrap')) return 'vendor-bootstrap'
+                        if (id.includes('datatables.net')) return 'vendor-datatables'
+                        return 'vendor'
+                    }
+                },
+            },
+        },
+    },
+    optimizeDeps: {
+        include: ['react-multi-date-picker', 'react-date-object'],
+    },
     resolve: {
         alias: {
             '@': fileURLToPath(new URL('./src', import.meta.url))
@@ -51,10 +72,10 @@ export default defineConfig({
                 target,
                 secure: false
             },
-            '^/weatherforecast': {
+            '^/report-viewer': {
                 target,
-                secure: false
-            }
+                secure: false,
+            },
         },
         port: parseInt(env.DEV_SERVER_PORT || '61829'),
         https: {

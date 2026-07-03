@@ -24,5 +24,9 @@ namespace HamgamCementWeb.Server.Data.Models.People
         [ForeignKey(nameof(EmployeeId))]
         public virtual Employee Employee { get; set; } = null!;
 
+        // دسترسی کامل به تمام بخش‌های سیستم — مستقل از نقش نمادین
+        public bool HasFullAccess { get; set; } = true;
+
+        public ICollection<UserPermission> Permissions { get; set; } = [];
     }
 }

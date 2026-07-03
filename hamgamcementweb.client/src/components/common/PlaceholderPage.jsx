@@ -1,4 +1,4 @@
-function EmptyPage({ title }) {
+function PlaceholderPage({ title }) {
   return (
     <div className="content-card card border-0">
       <div className="card-body p-4">
@@ -9,4 +9,4 @@ function EmptyPage({ title }) {
   )
 }
 
-export default EmptyPage
+export default PlaceholderPage

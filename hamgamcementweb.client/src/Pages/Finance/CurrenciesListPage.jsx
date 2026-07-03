@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import Icon from '../../components/common/Icon'
 import DataTable from '../../lib/dataTableSetup'
+import { usePageCrud } from '../../permissions/usePageCrud'
 import {
   createCurrency,
   createCurrenciesDataTableAjax,
@@ -53,6 +54,7 @@ function formatDate(value) {
 
 function CurrenciesListPage() {
   const tableRef = useRef(null)
+  const { canCreate, canEdit, canDelete, can } = usePageCrud('/currencies/list')
   const [loadError, setLoadError] = useState('')
   const [baseCurrency, setBaseCurrency] = useState(null)
   const [showCreate, setShowCreate] = useState(false)
@@ -274,6 +276,8 @@ function CurrenciesListPage() {
           search: { placeholder: 'جستجو...' },
           pageLength: { menu: [10, 15, 25, 50, 100] },
         },
+        topEnd: null,
+
         bottomStart: 'info',
         bottomEnd: {
           paging: { firstLast: true, previousNext: true, numbers: 5 },
@@ -337,7 +341,7 @@ function CurrenciesListPage() {
     () => ({
       8: (_data, _type, row) => (
         <div className="dt-actions">
-          {!row.isBaseCurrency && (
+          {!row.isBaseCurrency && can('setRate') && (
             <button
               type="button"
               className="dt-action-btn"
@@ -347,7 +351,7 @@ function CurrenciesListPage() {
               <Icon name="exchange" />
             </button>
           )}
-          {!row.isBaseCurrency && (
+          {!row.isBaseCurrency && can('setBase') && (
             <button
               type="button"
               className="dt-action-btn"
@@ -357,15 +361,17 @@ function CurrenciesListPage() {
               <Icon name="star" />
             </button>
           )}
-          <button
-            type="button"
-            className="dt-action-btn"
-            title="ویرایش"
-            onClick={() => openEdit(row)}
-          >
-            <Icon name="edit" />
-          </button>
-          {!row.isBaseCurrency && (
+          {canEdit && (
+            <button
+              type="button"
+              className="dt-action-btn"
+              title="ویرایش"
+              onClick={() => openEdit(row)}
+            >
+              <Icon name="edit" />
+            </button>
+          )}
+          {!row.isBaseCurrency && canDelete && (
             <button
               type="button"
               className="dt-action-btn btn-delete"
@@ -378,7 +384,7 @@ function CurrenciesListPage() {
         </div>
       ),
     }),
-    [openEdit, openDelete, openRate, openSetBase],
+    [openEdit, openDelete, openRate, openSetBase, canEdit, canDelete, can],
   )
 
   const rateHint = baseCurrency
@@ -401,15 +407,17 @@ function CurrenciesListPage() {
               </p>
             )}
           </div>
-          <button
-            type="button"
-            className="btn btn-sm btn-accent btn-users-new d-inline-flex align-items-center gap-2"
-            title="ارز جدید"
-            onClick={openCreate}
-          >
-            <Icon name="plus" />
-            <span>ارز جدید</span>
-          </button>
+          {canCreate && (
+            <button
+              type="button"
+              className="btn btn-sm btn-accent btn-users-new d-inline-flex align-items-center gap-2"
+              title="ارز جدید"
+              onClick={openCreate}
+            >
+              <Icon name="plus" />
+              <span>ارز جدید</span>
+            </button>
+          )}
         </div>
 
         <div className="card-body card-body-table">

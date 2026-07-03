@@ -22,6 +22,13 @@ async function parseResponse(response) {
   return data
 }
 
+export async function fetchCustomer(customerId) {
+  const response = await fetch(`${BASE}/${customerId}`, {
+    credentials: 'include',
+  })
+  return parseResponse(response)
+}
+
 export async function createCustomer(payload) {
   const response = await fetch(BASE, {
     method: 'POST',
@@ -53,9 +60,9 @@ export async function deleteCustomer(customerId) {
   return parseResponse(response)
 }
 
-export function createCustomersDataTableAjax(onError) {
+function createDataTableAjax(url, onError, onLoaded) {
   return (data, callback) => {
-    fetch(`${BASE}/datatable`, {
+    fetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       credentials: 'include',
@@ -79,6 +86,7 @@ export function createCustomersDataTableAjax(onError) {
       })
       .then((json) => {
         onError?.('')
+        onLoaded?.(json)
         callback(json)
       })
       .catch((error) => {
@@ -91,4 +99,16 @@ export function createCustomersDataTableAjax(onError) {
         })
       })
   }
+}
+
+export function createCustomersDataTableAjax(onError, onLoaded) {
+  return createDataTableAjax(`${BASE}/datatable`, onError, onLoaded)
+}
+
+export function createCustomerInvoicesDataTableAjax(customerId, onError, onLoaded) {
+  return createDataTableAjax(
+    `${BASE}/${customerId}/sale-invoices/datatable`,
+    onError,
+    onLoaded,
+  )
 }

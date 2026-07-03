@@ -39,6 +39,7 @@ public class AuthController : ControllerBase
         var user = await _db.Users
             .AsNoTracking()
             .Include(u => u.Role)
+            .Include(u => u.Permissions)
             .FirstOrDefaultAsync(
                 u => u.UserName == normalizedUserName && u.IsDeleted != true && u.IsActive == true,
                 cancellationToken);
@@ -143,6 +144,7 @@ public class AuthController : ControllerBase
         await _db.SaveChangesAsync(cancellationToken);
 
         await _db.Entry(user).Reference(u => u.Role).LoadAsync(cancellationToken);
+        await _db.Entry(user).Collection(u => u.Permissions).LoadAsync(cancellationToken);
 
         return CreatedAtAction(nameof(Me), MapToResponse(user));
     }
@@ -168,6 +170,7 @@ public class AuthController : ControllerBase
         var user = await _db.Users
             .AsNoTracking()
             .Include(u => u.Role)
+            .Include(u => u.Permissions)
             .FirstOrDefaultAsync(
                 u => u.UserID == userId && u.IsDeleted != true && u.IsActive == true,
                 cancellationToken);
@@ -232,6 +235,10 @@ public class AuthController : ControllerBase
         avatarUrl = user.AvatarUrl,
         roleId = user.RoleId,
         roleName = user.Role.Name,
+        hasFullAccess = user.HasFullAccess,
+        permissions = user.HasFullAccess
+            ? Array.Empty<string>()
+            : user.Permissions.Select(p => p.PermissionKey).ToArray(),
     };
 
     public class LoginRequest

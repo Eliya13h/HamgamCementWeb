@@ -49,6 +49,25 @@ export async function fetchUserRoles() {
   return parseResponse(response)
 }
 
+export async function fetchUserPermissions(userId) {
+  const response = await fetch(`${USERS_BASE}/${userId}/permissions`, {
+    credentials: 'include',
+  })
+
+  return parseResponse(response)
+}
+
+export async function updateUserPermissions(userId, payload) {
+  const response = await fetch(`${USERS_BASE}/${userId}/permissions`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    credentials: 'include',
+    body: JSON.stringify(payload),
+  })
+
+  return parseResponse(response)
+}
+
 export async function updateUser(userId, payload) {
   const response = await fetch(`${USERS_BASE}/${userId}`, {
     method: 'PUT',

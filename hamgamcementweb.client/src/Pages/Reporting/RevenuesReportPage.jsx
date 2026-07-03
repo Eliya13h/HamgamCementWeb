@@ -1,7 +1,7 @@
-import EmptyPage from '../People/EmptyPage'
+import PlaceholderPage from '../../components/common/PlaceholderPage'
 
 function RevenuesReportPage() {
-  return <EmptyPage title="گزارش عواید" />
+  return <PlaceholderPage title="گزارش عواید" />
 }
 
 export default RevenuesReportPage

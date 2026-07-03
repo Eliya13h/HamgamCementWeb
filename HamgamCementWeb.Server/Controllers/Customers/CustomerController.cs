@@ -1,7 +1,10 @@
 using System.ComponentModel.DataAnnotations;
 using System.Security.Claims;
+using HamgamCementWeb.Server.Controllers.Transport;
 using HamgamCementWeb.Server.Data;
+using HamgamCementWeb.Server.Data.Models.Invoice;
 using HamgamCementWeb.Server.Data.Models.People;
+using HamgamCementWeb.Server.Services;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
@@ -13,21 +16,55 @@ namespace HamgamCementWeb.Server.Controllers.Customers;
 [Authorize]
 public class CustomerController : ControllerBase
 {
-    private static readonly Dictionary<int, string> OrderColumns = new()
-    {
-        [1] = nameof(Customer.Name),
-        [2] = nameof(Customer.PhoneNumber),
-        [3] = nameof(Customer.City),
-        [4] = nameof(Customer.CustomerType),
-        [5] = nameof(Customer.InitialBalance),
-        [6] = nameof(Customer.IsActive),
-    };
+    private const string ViewDeletedPermission = "people.customers.viewDeleted";
 
     private readonly AppDbContext _db;
+    private readonly ICustomerReadService _reads;
 
-    public CustomerController(AppDbContext db)
+    public CustomerController(AppDbContext db, ICustomerReadService reads)
     {
         _db = db;
+        _reads = reads;
+    }
+
+    [HttpGet("list")]
+    public async Task<IActionResult> List(CancellationToken cancellationToken)
+    {
+        var items = await _reads.ListActiveAsync(cancellationToken);
+        return Ok(items);
+    }
+
+    [HttpGet("{id:int}")]
+    public async Task<IActionResult> Get(int id, CancellationToken cancellationToken)
+    {
+        var canViewDeleted = await CanViewDeletedAsync(cancellationToken);
+        var customer = await _reads.GetDetailAsync(id, canViewDeleted, cancellationToken);
+
+        if (customer is null)
+        {
+            return NotFound(new { message = "مشتری یافت نشد." });
+        }
+
+        return Ok(new
+        {
+            customerId = customer.CustomerId,
+            customer.Name,
+            customer.PhoneNumber,
+            customer.Address,
+            customer.City,
+            customer.Country,
+            customer.InitialBalance,
+            customerType = (int)customer.CustomerType,
+            customerTypeName = customer.CustomerType == PersonType.LegalEntity ? "حقوقی" : "حقیقی",
+            isActive = customer.IsActive,
+            isDeleted = customer.IsDeleted,
+            createdAt = customer.CreatedAt,
+            totalPurchase = customer.TotalPurchase,
+            totalPayment = customer.TotalPayment,
+            balance = customer.Balance,
+            accountStatus = customer.AccountStatus,
+            accountStatusCode = customer.AccountStatusCode,
+        });
     }
 
     [HttpPost("datatable")]
@@ -35,69 +72,103 @@ public class CustomerController : ControllerBase
         [FromBody] DataTableRequest request,
         CancellationToken cancellationToken)
     {
-        var draw = request.Draw;
+        var canViewDeleted = await CanViewDeletedAsync(cancellationToken);
         var start = Math.Max(request.Start, 0);
         var length = request.Length <= 0 ? 10 : Math.Min(request.Length, 100);
 
-        var query = _db.Customers
-            .AsNoTracking()
-            .Where(c => c.IsDeleted != true);
-
-        var recordsTotal = await query.CountAsync(cancellationToken);
-
-        var searchValue = request.Search?.Value?.Trim();
-        if (!string.IsNullOrWhiteSpace(searchValue))
-        {
-            query = query.Where(c =>
-                c.Name.Contains(searchValue) ||
-                c.PhoneNumber.Contains(searchValue) ||
-                c.City.Contains(searchValue) ||
-                c.Address.Contains(searchValue));
-        }
-
-        var recordsFiltered = await query.CountAsync(cancellationToken);
-
-        var orderedQuery = ApplyOrdering(query, request.Order);
-        var rows = await orderedQuery
-            .Skip(start)
-            .Take(length)
-            .Select(c => new CustomerTableRow
+        var result = await _reads.QueryDataTableAsync(
+            new CustomerDataTableQuery
             {
-                CustomerId = c.CustomerID,
-                Name = c.Name,
-                PhoneNumber = c.PhoneNumber,
-                Address = c.Address,
-                City = c.City,
-                Country = c.Country,
-                InitialBalance = c.InitialBalance,
-                CustomerType = c.CustomerType,
-                IsActive = c.IsActive == true,
-            })
-            .ToListAsync(cancellationToken);
+                IncludeDeleted = canViewDeleted,
+                Start = start,
+                Length = length,
+                Search = request.Search?.Value,
+                Order = request.Order,
+            },
+            cancellationToken);
 
-        for (var i = 0; i < rows.Count; i++)
+        var currencySymbol = await _reads.GetBaseCurrencySymbolAsync(cancellationToken);
+
+        var data = result.Rows.Select((row, index) => new
         {
-            rows[i].RowNumber = start + i + 1;
-        }
+            rowNumber = start + index + 1,
+            row.CustomerId,
+            row.Name,
+            row.PhoneNumber,
+            row.Address,
+            row.City,
+            row.Country,
+            row.InitialBalance,
+            customerType = (int)row.CustomerType,
+            customerTypeName = row.CustomerType == PersonType.LegalEntity ? "حقوقی" : "حقیقی",
+            isActive = row.IsActive,
+            isDeleted = row.IsDeleted,
+            row.TotalPurchase,
+            row.TotalPayment,
+            row.Balance,
+            accountStatus = row.AccountStatus,
+            accountStatusCode = row.AccountStatusCode,
+        });
 
         return Ok(new
         {
-            draw,
-            recordsTotal,
-            recordsFiltered,
-            data = rows.Select(r => new
+            draw = request.Draw,
+            recordsTotal = result.RecordsTotal,
+            recordsFiltered = result.RecordsFiltered,
+            currencySymbol,
+            data,
+        });
+    }
+
+    [HttpPost("{id:int}/sale-invoices/datatable")]
+    public async Task<IActionResult> SaleInvoicesDataTable(
+        int id,
+        [FromBody] DataTableRequest request,
+        CancellationToken cancellationToken)
+    {
+        var canViewDeleted = await CanViewDeletedAsync(cancellationToken);
+
+        if (!await _reads.CustomerExistsAsync(id, canViewDeleted, cancellationToken))
+        {
+            return NotFound(new { message = "مشتری یافت نشد." });
+        }
+
+        var start = Math.Max(request.Start, 0);
+        var length = request.Length <= 0 ? 10 : Math.Min(request.Length, 100);
+
+        var result = await _reads.QuerySaleInvoicesDataTableAsync(
+            id,
+            new CustomerInvoiceDataTableQuery
             {
-                r.RowNumber,
-                r.CustomerId,
-                r.Name,
-                r.PhoneNumber,
-                r.Address,
-                r.City,
-                r.Country,
-                r.InitialBalance,
-                customerType = (int)r.CustomerType,
-                customerTypeName = r.CustomerType == PersonType.LegalEntity ? "حقوقی" : "حقیقی",
-                r.IsActive,
+                Start = start,
+                Length = length,
+                Search = request.Search?.Value,
+                Order = request.Order,
+            },
+            cancellationToken);
+
+        var currencySymbol = await _reads.GetBaseCurrencySymbolAsync(cancellationToken);
+
+        return Ok(new
+        {
+            draw = request.Draw,
+            recordsTotal = result.RecordsTotal,
+            recordsFiltered = result.RecordsFiltered,
+            totalPurchase = result.Totals.TotalPurchase,
+            totalPayment = result.Totals.TotalPayment,
+            currencySymbol,
+            data = result.Rows.Select((row, index) => new
+            {
+                rowNumber = start + index + 1,
+                saleInvoiceId = row.SaleInvoiceId,
+                invoiceNumber = row.InvoiceNumber,
+                invoiceDate = row.InvoiceDate,
+                itemsCount = row.ItemsCount,
+                totalAmount = row.TotalAmount,
+                paidAmount = row.PaidAmount,
+                status = (int)row.Status,
+                statusName = GetInvoiceStatusName(row.Status),
+                isPosted = row.IsPosted,
             }),
         });
     }
@@ -193,68 +264,38 @@ public class CustomerController : ControllerBase
         return Ok(new { message = "مشتری با موفقیت حذف شد." });
     }
 
-    private static IQueryable<Customer> ApplyOrdering(
-        IQueryable<Customer> query,
-        List<DataTableOrder>? orders)
+    private async Task<bool> CanViewDeletedAsync(CancellationToken cancellationToken)
     {
-        if (orders is null || orders.Count == 0)
+        var access = await ResolveCurrentUserAccessAsync(cancellationToken);
+        return PermissionService.HasPermission(
+            access.HasFullAccess,
+            access.PermissionKeys,
+            ViewDeletedPermission);
+    }
+
+    private async Task<UserAccessContext> ResolveCurrentUserAccessAsync(CancellationToken cancellationToken)
+    {
+        var userId = ResolveCurrentUserId();
+        if (userId is null)
         {
-            return query.OrderByDescending(c => c.CreatedAt);
+            return new UserAccessContext(false, []);
         }
 
-        IOrderedQueryable<Customer>? ordered = null;
-        foreach (var order in orders)
+        var user = await _db.Users
+            .AsNoTracking()
+            .Include(u => u.Permissions)
+            .FirstOrDefaultAsync(u => u.UserID == userId && u.IsDeleted != true, cancellationToken);
+
+        if (user is null)
         {
-            if (!OrderColumns.TryGetValue(order.Column, out var column))
-            {
-                continue;
-            }
-
-            var descending = string.Equals(order.Dir, "desc", StringComparison.OrdinalIgnoreCase);
-
-            ordered = column switch
-            {
-                nameof(Customer.Name) when ordered is null => descending
-                    ? query.OrderByDescending(c => c.Name)
-                    : query.OrderBy(c => c.Name),
-                nameof(Customer.Name) => descending
-                    ? ordered!.ThenByDescending(c => c.Name)
-                    : ordered!.ThenBy(c => c.Name),
-                nameof(Customer.PhoneNumber) when ordered is null => descending
-                    ? query.OrderByDescending(c => c.PhoneNumber)
-                    : query.OrderBy(c => c.PhoneNumber),
-                nameof(Customer.PhoneNumber) => descending
-                    ? ordered!.ThenByDescending(c => c.PhoneNumber)
-                    : ordered!.ThenBy(c => c.PhoneNumber),
-                nameof(Customer.City) when ordered is null => descending
-                    ? query.OrderByDescending(c => c.City)
-                    : query.OrderBy(c => c.City),
-                nameof(Customer.City) => descending
-                    ? ordered!.ThenByDescending(c => c.City)
-                    : ordered!.ThenBy(c => c.City),
-                nameof(Customer.CustomerType) when ordered is null => descending
-                    ? query.OrderByDescending(c => c.CustomerType)
-                    : query.OrderBy(c => c.CustomerType),
-                nameof(Customer.CustomerType) => descending
-                    ? ordered!.ThenByDescending(c => c.CustomerType)
-                    : ordered!.ThenBy(c => c.CustomerType),
-                nameof(Customer.InitialBalance) when ordered is null => descending
-                    ? query.OrderByDescending(c => c.InitialBalance)
-                    : query.OrderBy(c => c.InitialBalance),
-                nameof(Customer.InitialBalance) => descending
-                    ? ordered!.ThenByDescending(c => c.InitialBalance)
-                    : ordered!.ThenBy(c => c.InitialBalance),
-                nameof(Customer.IsActive) when ordered is null => descending
-                    ? query.OrderByDescending(c => c.IsActive)
-                    : query.OrderBy(c => c.IsActive),
-                nameof(Customer.IsActive) => descending
-                    ? ordered!.ThenByDescending(c => c.IsActive)
-                    : ordered!.ThenBy(c => c.IsActive),
-                _ => ordered,
-            };
+            return new UserAccessContext(false, []);
         }
 
-        return ordered ?? query.OrderByDescending(c => c.CreatedAt);
+        var permissionKeys = user.HasFullAccess
+            ? Array.Empty<string>()
+            : user.Permissions.Select(p => p.PermissionKey).ToArray();
+
+        return new UserAccessContext(user.HasFullAccess, permissionKeys);
     }
 
     private int? ResolveCurrentUserId()
@@ -263,39 +304,18 @@ public class CustomerController : ControllerBase
         return int.TryParse(userIdClaim, out var userId) ? userId : null;
     }
 
-    public class DataTableRequest
+    private static string GetInvoiceStatusName(InvoiceStatus status) => status switch
     {
-        public int Draw { get; set; }
-        public int Start { get; set; }
-        public int Length { get; set; }
-        public DataTableSearch? Search { get; set; }
-        public List<DataTableOrder>? Order { get; set; }
-    }
+        InvoiceStatus.Proforma => "پیش فاکتور",
+        InvoiceStatus.Order => "آردر",
+        InvoiceStatus.Inoivce => "فاکتور",
+        _ => "استعلام قیمت",
+    };
 
-    public class DataTableSearch
+    private sealed class UserAccessContext(bool hasFullAccess, IReadOnlyCollection<string> permissionKeys)
     {
-        public string? Value { get; set; }
-        public bool Regex { get; set; }
-    }
-
-    public class DataTableOrder
-    {
-        public int Column { get; set; }
-        public string Dir { get; set; } = "asc";
-    }
-
-    public class CustomerTableRow
-    {
-        public int RowNumber { get; set; }
-        public int CustomerId { get; set; }
-        public string Name { get; set; } = string.Empty;
-        public string PhoneNumber { get; set; } = string.Empty;
-        public string Address { get; set; } = string.Empty;
-        public string City { get; set; } = string.Empty;
-        public string Country { get; set; } = string.Empty;
-        public decimal InitialBalance { get; set; }
-        public PersonType CustomerType { get; set; }
-        public bool IsActive { get; set; }
+        public bool HasFullAccess { get; } = hasFullAccess;
+        public IReadOnlyCollection<string> PermissionKeys { get; } = permissionKeys;
     }
 
     public class SaveCustomerRequest

@@ -2,6 +2,7 @@ using System.ComponentModel.DataAnnotations;
 using System.Security.Claims;
 using HamgamCementWeb.Server.Data;
 using HamgamCementWeb.Server.Data.Models.People;
+using HamgamCementWeb.Server.Services;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
@@ -73,6 +74,7 @@ public class UsersController : ControllerBase
                 Email = u.Email,
                 RoleId = u.RoleId,
                 RoleName = u.Role.Name,
+                HasFullAccess = u.HasFullAccess,
                 IsActive = u.IsActive == true,
                 CreatedAt = u.CreatedAt,
                 Title = u.Title,
@@ -98,6 +100,7 @@ public class UsersController : ControllerBase
                 r.Email,
                 r.RoleId,
                 r.RoleName,
+                r.HasFullAccess,
                 r.IsActive,
                 r.Title,
             }),
@@ -193,6 +196,7 @@ public class UsersController : ControllerBase
             CreatedAt = DateTime.Now,
             IsActive = request.IsActive,
             IsDeleted = false,
+            HasFullAccess = true,
         };
 
         _db.Users.Add(user);
@@ -212,6 +216,80 @@ public class UsersController : ControllerBase
             .ToListAsync(cancellationToken);
 
         return Ok(roles);
+    }
+
+    [HttpGet("{id:int}/permissions")]
+    public async Task<IActionResult> GetPermissions(int id, CancellationToken cancellationToken)
+    {
+        var user = await _db.Users
+            .AsNoTracking()
+            .Include(u => u.Role)
+            .Include(u => u.Permissions)
+            .FirstOrDefaultAsync(u => u.UserID == id && u.IsDeleted != true, cancellationToken);
+
+        if (user is null)
+        {
+            return NotFound(new { message = "کاربر یافت نشد." });
+        }
+
+        return Ok(new
+        {
+            userId = user.UserID,
+            fullName = user.FullName,
+            userName = user.UserName,
+            roleName = user.Role.Name,
+            hasFullAccess = user.HasFullAccess,
+            permissions = user.HasFullAccess
+                ? Array.Empty<string>()
+                : user.Permissions.Select(p => p.PermissionKey).ToArray(),
+        });
+    }
+
+    [HttpPut("{id:int}/permissions")]
+    public async Task<IActionResult> UpdatePermissions(
+        int id,
+        [FromBody] UpdateUserPermissionsRequest request,
+        CancellationToken cancellationToken)
+    {
+        if (!ModelState.IsValid)
+        {
+            return ValidationProblem(ModelState);
+        }
+
+        var user = await _db.Users
+            .Include(u => u.Permissions)
+            .FirstOrDefaultAsync(u => u.UserID == id && u.IsDeleted != true, cancellationToken);
+
+        if (user is null)
+        {
+            return NotFound(new { message = "کاربر یافت نشد." });
+        }
+
+        var permissionKeys = NormalizePermissionKeys(request);
+        if (permissionKeys is null)
+        {
+            return BadRequest(new { message = "یک یا چند کلید دسترسی نامعتبر است." });
+        }
+
+        user.HasFullAccess = request.HasFullAccess;
+        user.UpdatedAt = DateTime.Now;
+        user.IsUpdated = true;
+        user.UpdatedBy = ResolveCurrentUserId();
+
+        _db.UserPermissions.RemoveRange(user.Permissions);
+
+        if (!user.HasFullAccess && permissionKeys.Count > 0)
+        {
+            _db.UserPermissions.AddRange(permissionKeys.Select(key => new UserPermission
+            {
+                UserId = user.UserID,
+                PermissionKey = key,
+            }));
+        }
+
+        await _db.SaveChangesAsync(cancellationToken);
+
+        return Ok(new { message = "سطح دسترسی کاربر با موفقیت ذخیره شد." });
     }
 
     [HttpPut("{id:int}")]
@@ -404,6 +482,32 @@ public class UsersController : ControllerBase
         return int.TryParse(userIdClaim, out var userId) ? userId : null;
     }
 
+    private static List<string>? NormalizePermissionKeys(UpdateUserPermissionsRequest request)
+    {
+        if (request.HasFullAccess)
+        {
+            return [];
+        }
+
+        if (request.Permissions is null || request.Permissions.Count == 0)
+        {
+            return [];
+        }
+
+        var keys = request.Permissions
+            .Select(p => p.Trim())
+            .Where(p => !string.IsNullOrWhiteSpace(p))
+            .Distinct(StringComparer.Ordinal)
+            .ToList();
+
+        if (keys.Any(key => !PermissionService.IsValidPermissionKey(key)))
+        {
+            return null;
+        }
+
+        return keys;
+    }
+
     public class DataTableRequest
     {
         public int Draw { get; set; }
@@ -442,6 +546,7 @@ public class UsersController : ControllerBase
         public string Email { get; set; } = string.Empty;
         public int RoleId { get; set; }
         public string RoleName { get; set; } = string.Empty;
+        public bool HasFullAccess { get; set; }
         public bool IsActive { get; set; }
         public DateTime? CreatedAt { get; set; }
         public PersonTitle Title { get; set; }
@@ -535,5 +640,12 @@ public class UsersController : ControllerBase
                     [nameof(Password), nameof(ConfirmPassword)]);
             }
         }
+    }
+
+    public class UpdateUserPermissionsRequest
+    {
+        public bool HasFullAccess { get; set; } = true;
+
+        public List<string>? Permissions { get; set; }
     }
 }

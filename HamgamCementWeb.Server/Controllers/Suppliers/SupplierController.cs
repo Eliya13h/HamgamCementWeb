@@ -1,7 +1,10 @@
 using System.ComponentModel.DataAnnotations;
 using System.Security.Claims;
+using HamgamCementWeb.Server.Controllers.Transport;
 using HamgamCementWeb.Server.Data;
+using HamgamCementWeb.Server.Data.Models.Invoice;
 using HamgamCementWeb.Server.Data.Models.People;
+using HamgamCementWeb.Server.Services;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
@@ -13,21 +16,57 @@ namespace HamgamCementWeb.Server.Controllers.Suppliers;
 [Authorize]
 public class SupplierController : ControllerBase
 {
-    private static readonly Dictionary<int, string> OrderColumns = new()
-    {
-        [1] = nameof(Supplier.Name),
-        [2] = nameof(Supplier.PhoneNumber),
-        [3] = nameof(Supplier.City),
-        [4] = nameof(Supplier.SupplierType),
-        [5] = nameof(Supplier.InitialBalance),
-        [6] = nameof(Supplier.IsActive),
-    };
+    private const string ViewDeletedPermission = "people.suppliers.viewDeleted";
 
     private readonly AppDbContext _db;
+    private readonly ISupplierReadService _reads;
 
-    public SupplierController(AppDbContext db)
+    public SupplierController(AppDbContext db, ISupplierReadService reads)
     {
         _db = db;
+        _reads = reads;
+    }
+
+    [HttpGet("list")]
+    public async Task<IActionResult> List(CancellationToken cancellationToken)
+    {
+        var items = await _reads.ListActiveAsync(cancellationToken);
+        return Ok(items);
+    }
+
+    [HttpGet("{id:int}")]
+    public async Task<IActionResult> Get(int id, CancellationToken cancellationToken)
+    {
+        var canViewDeleted = await CanViewDeletedAsync(cancellationToken);
+        var supplier = await _reads.GetDetailAsync(id, canViewDeleted, cancellationToken);
+
+        if (supplier is null)
+        {
+            return NotFound(new { message = "تأمین‌کننده یافت نشد." });
+        }
+
+        return Ok(new
+        {
+            supplierId = supplier.SupplierId,
+            title = (int)supplier.Title,
+            titleName = supplier.Title == PersonTitle.Mrs ? "خانم" : "آقا",
+            supplier.Name,
+            supplier.PhoneNumber,
+            supplier.Address,
+            supplier.City,
+            supplier.Country,
+            supplier.InitialBalance,
+            supplierType = (int)supplier.SupplierType,
+            supplierTypeName = supplier.SupplierType == PersonType.LegalEntity ? "حقوقی" : "حقیقی",
+            isActive = supplier.IsActive,
+            isDeleted = supplier.IsDeleted,
+            createdAt = supplier.CreatedAt,
+            totalPurchase = supplier.TotalPurchase,
+            totalPayment = supplier.TotalPayment,
+            balance = supplier.Balance,
+            accountStatus = supplier.AccountStatus,
+            accountStatusCode = supplier.AccountStatusCode,
+        });
     }
 
     [HttpPost("datatable")]
@@ -35,71 +74,104 @@ public class SupplierController : ControllerBase
         [FromBody] DataTableRequest request,
         CancellationToken cancellationToken)
     {
-        var draw = request.Draw;
+        var canViewDeleted = await CanViewDeletedAsync(cancellationToken);
         var start = Math.Max(request.Start, 0);
         var length = request.Length <= 0 ? 10 : Math.Min(request.Length, 100);
 
-        var query = _db.Suppliers
-            .AsNoTracking()
-            .Where(s => s.IsDeleted != true);
-
-        var recordsTotal = await query.CountAsync(cancellationToken);
-
-        var searchValue = request.Search?.Value?.Trim();
-        if (!string.IsNullOrWhiteSpace(searchValue))
-        {
-            query = query.Where(s =>
-                s.Name.Contains(searchValue) ||
-                s.PhoneNumber.Contains(searchValue) ||
-                s.City.Contains(searchValue) ||
-                s.Address.Contains(searchValue));
-        }
-
-        var recordsFiltered = await query.CountAsync(cancellationToken);
-
-        var orderedQuery = ApplyOrdering(query, request.Order);
-        var rows = await orderedQuery
-            .Skip(start)
-            .Take(length)
-            .Select(s => new SupplierTableRow
+        var result = await _reads.QueryDataTableAsync(
+            new SupplierDataTableQuery
             {
-                SupplierId = s.SupplierID,
-                Title = s.Title,
-                Name = s.Name,
-                PhoneNumber = s.PhoneNumber,
-                Address = s.Address,
-                City = s.City,
-                Country = s.Country,
-                InitialBalance = s.InitialBalance,
-                SupplierType = s.SupplierType,
-                IsActive = s.IsActive == true,
-            })
-            .ToListAsync(cancellationToken);
+                IncludeDeleted = canViewDeleted,
+                Start = start,
+                Length = length,
+                Search = request.Search?.Value,
+                Order = request.Order,
+            },
+            cancellationToken);
 
-        for (var i = 0; i < rows.Count; i++)
+        var currencySymbol = await _reads.GetBaseCurrencySymbolAsync(cancellationToken);
+
+        var data = result.Rows.Select((row, index) => new
         {
-            rows[i].RowNumber = start + i + 1;
-        }
+            rowNumber = start + index + 1,
+            row.SupplierId,
+            title = (int)row.Title,
+            row.Name,
+            row.PhoneNumber,
+            row.Address,
+            row.City,
+            row.Country,
+            row.InitialBalance,
+            supplierType = (int)row.SupplierType,
+            supplierTypeName = row.SupplierType == PersonType.LegalEntity ? "حقوقی" : "حقیقی",
+            isActive = row.IsActive,
+            isDeleted = row.IsDeleted,
+            row.TotalPurchase,
+            row.TotalPayment,
+            row.Balance,
+            accountStatus = row.AccountStatus,
+            accountStatusCode = row.AccountStatusCode,
+        });
 
         return Ok(new
         {
-            draw,
-            recordsTotal,
-            recordsFiltered,
-            data = rows.Select(r => new
+            draw = request.Draw,
+            recordsTotal = result.RecordsTotal,
+            recordsFiltered = result.RecordsFiltered,
+            currencySymbol,
+            data,
+        });
+    }
+
+    [HttpPost("{id:int}/purchase-invoices/datatable")]
+    public async Task<IActionResult> PurchaseInvoicesDataTable(
+        int id,
+        [FromBody] DataTableRequest request,
+        CancellationToken cancellationToken)
+    {
+        var canViewDeleted = await CanViewDeletedAsync(cancellationToken);
+
+        if (!await _reads.SupplierExistsAsync(id, canViewDeleted, cancellationToken))
+        {
+            return NotFound(new { message = "تأمین‌کننده یافت نشد." });
+        }
+
+        var start = Math.Max(request.Start, 0);
+        var length = request.Length <= 0 ? 10 : Math.Min(request.Length, 100);
+
+        var result = await _reads.QueryPurchaseInvoicesDataTableAsync(
+            id,
+            new SupplierInvoiceDataTableQuery
             {
-                r.RowNumber,
-                r.SupplierId,
-                title = (int)r.Title,
-                r.Name,
-                r.PhoneNumber,
-                r.Address,
-                r.City,
-                r.Country,
-                r.InitialBalance,
-                supplierType = (int)r.SupplierType,
-                supplierTypeName = r.SupplierType == PersonType.LegalEntity ? "حقوقی" : "حقیقی",
-                r.IsActive,
+                Start = start,
+                Length = length,
+                Search = request.Search?.Value,
+                Order = request.Order,
+            },
+            cancellationToken);
+
+        var currencySymbol = await _reads.GetBaseCurrencySymbolAsync(cancellationToken);
+
+        return Ok(new
+        {
+            draw = request.Draw,
+            recordsTotal = result.RecordsTotal,
+            recordsFiltered = result.RecordsFiltered,
+            totalPurchase = result.Totals.TotalPurchase,
+            totalPayment = result.Totals.TotalPayment,
+            currencySymbol,
+            data = result.Rows.Select((row, index) => new
+            {
+                rowNumber = start + index + 1,
+                purchaseInvoiceId = row.PurchaseInvoiceId,
+                invoiceNumber = row.InvoiceNumber,
+                invoiceDate = row.InvoiceDate,
+                itemsCount = row.ItemsCount,
+                totalAmount = row.TotalAmount,
+                paidAmount = row.PaidAmount,
+                status = (int)row.Status,
+                statusName = GetInvoiceStatusName(row.Status),
+                isPosted = row.IsPosted,
             }),
         });
     }
@@ -179,6 +251,19 @@ public class SupplierController : ControllerBase
     [HttpDelete("{id:int}")]
     public async Task<IActionResult> Delete(int id, CancellationToken cancellationToken)
     {
+        var canViewDeleted = await CanViewDeletedAsync(cancellationToken);
+        var detail = await _reads.GetDetailAsync(id, canViewDeleted, cancellationToken);
+
+        if (detail is null || detail.IsDeleted)
+        {
+            return NotFound(new { message = "تأمین‌کننده یافت نشد." });
+        }
+
+        if (!string.Equals(detail.AccountStatusCode, "settled", StringComparison.OrdinalIgnoreCase))
+        {
+            return BadRequest(new { message = "فقط تأمین‌کنندگان با وضعیت تسویه قابل حذف هستند." });
+        }
+
         var supplier = await _db.Suppliers
             .FirstOrDefaultAsync(s => s.SupplierID == id && s.IsDeleted != true, cancellationToken);
 
@@ -197,68 +282,38 @@ public class SupplierController : ControllerBase
         return Ok(new { message = "تأمین‌کننده با موفقیت حذف شد." });
     }
 
-    private static IQueryable<Supplier> ApplyOrdering(
-        IQueryable<Supplier> query,
-        List<DataTableOrder>? orders)
+    private async Task<bool> CanViewDeletedAsync(CancellationToken cancellationToken)
     {
-        if (orders is null || orders.Count == 0)
+        var access = await ResolveCurrentUserAccessAsync(cancellationToken);
+        return PermissionService.HasPermission(
+            access.HasFullAccess,
+            access.PermissionKeys,
+            ViewDeletedPermission);
+    }
+
+    private async Task<UserAccessContext> ResolveCurrentUserAccessAsync(CancellationToken cancellationToken)
+    {
+        var userId = ResolveCurrentUserId();
+        if (userId is null)
         {
-            return query.OrderByDescending(s => s.CreatedAt);
+            return new UserAccessContext(false, []);
         }
 
-        IOrderedQueryable<Supplier>? ordered = null;
-        foreach (var order in orders)
+        var user = await _db.Users
+            .AsNoTracking()
+            .Include(u => u.Permissions)
+            .FirstOrDefaultAsync(u => u.UserID == userId && u.IsDeleted != true, cancellationToken);
+
+        if (user is null)
         {
-            if (!OrderColumns.TryGetValue(order.Column, out var column))
-            {
-                continue;
-            }
-
-            var descending = string.Equals(order.Dir, "desc", StringComparison.OrdinalIgnoreCase);
-
-            ordered = column switch
-            {
-                nameof(Supplier.Name) when ordered is null => descending
-                    ? query.OrderByDescending(s => s.Name)
-                    : query.OrderBy(s => s.Name),
-                nameof(Supplier.Name) => descending
-                    ? ordered!.ThenByDescending(s => s.Name)
-                    : ordered!.ThenBy(s => s.Name),
-                nameof(Supplier.PhoneNumber) when ordered is null => descending
-                    ? query.OrderByDescending(s => s.PhoneNumber)
-                    : query.OrderBy(s => s.PhoneNumber),
-                nameof(Supplier.PhoneNumber) => descending
-                    ? ordered!.ThenByDescending(s => s.PhoneNumber)
-                    : ordered!.ThenBy(s => s.PhoneNumber),
-                nameof(Supplier.City) when ordered is null => descending
-                    ? query.OrderByDescending(s => s.City)
-                    : query.OrderBy(s => s.City),
-                nameof(Supplier.City) => descending
-                    ? ordered!.ThenByDescending(s => s.City)
-                    : ordered!.ThenBy(s => s.City),
-                nameof(Supplier.SupplierType) when ordered is null => descending
-                    ? query.OrderByDescending(s => s.SupplierType)
-                    : query.OrderBy(s => s.SupplierType),
-                nameof(Supplier.SupplierType) => descending
-                    ? ordered!.ThenByDescending(s => s.SupplierType)
-                    : ordered!.ThenBy(s => s.SupplierType),
-                nameof(Supplier.InitialBalance) when ordered is null => descending
-                    ? query.OrderByDescending(s => s.InitialBalance)
-                    : query.OrderBy(s => s.InitialBalance),
-                nameof(Supplier.InitialBalance) => descending
-                    ? ordered!.ThenByDescending(s => s.InitialBalance)
-                    : ordered!.ThenBy(s => s.InitialBalance),
-                nameof(Supplier.IsActive) when ordered is null => descending
-                    ? query.OrderByDescending(s => s.IsActive)
-                    : query.OrderBy(s => s.IsActive),
-                nameof(Supplier.IsActive) => descending
-                    ? ordered!.ThenByDescending(s => s.IsActive)
-                    : ordered!.ThenBy(s => s.IsActive),
-                _ => ordered,
-            };
+            return new UserAccessContext(false, []);
         }
 
-        return ordered ?? query.OrderByDescending(s => s.CreatedAt);
+        var permissionKeys = user.HasFullAccess
+            ? Array.Empty<string>()
+            : user.Permissions.Select(p => p.PermissionKey).ToArray();
+
+        return new UserAccessContext(user.HasFullAccess, permissionKeys);
     }
 
     private int? ResolveCurrentUserId()
@@ -267,40 +322,18 @@ public class SupplierController : ControllerBase
         return int.TryParse(userIdClaim, out var userId) ? userId : null;
     }
 
-    public class DataTableRequest
+    private static string GetInvoiceStatusName(InvoiceStatus status) => status switch
     {
-        public int Draw { get; set; }
-        public int Start { get; set; }
-        public int Length { get; set; }
-        public DataTableSearch? Search { get; set; }
-        public List<DataTableOrder>? Order { get; set; }
-    }
+        InvoiceStatus.Proforma => "پیش فاکتور",
+        InvoiceStatus.Order => "آردر",
+        InvoiceStatus.Inoivce => "فاکتور",
+        _ => "استعلام قیمت",
+    };
 
-    public class DataTableSearch
+    private sealed class UserAccessContext(bool hasFullAccess, IReadOnlyCollection<string> permissionKeys)
     {
-        public string? Value { get; set; }
-        public bool Regex { get; set; }
-    }
-
-    public class DataTableOrder
-    {
-        public int Column { get; set; }
-        public string Dir { get; set; } = "asc";
-    }
-
-    public class SupplierTableRow
-    {
-        public int RowNumber { get; set; }
-        public int SupplierId { get; set; }
-        public PersonTitle Title { get; set; }
-        public string Name { get; set; } = string.Empty;
-        public string PhoneNumber { get; set; } = string.Empty;
-        public string Address { get; set; } = string.Empty;
-        public string City { get; set; } = string.Empty;
-        public string Country { get; set; } = string.Empty;
-        public decimal InitialBalance { get; set; }
-        public PersonType SupplierType { get; set; }
-        public bool IsActive { get; set; }
+        public bool HasFullAccess { get; } = hasFullAccess;
+        public IReadOnlyCollection<string> PermissionKeys { get; } = permissionKeys;
     }
 
     public class SaveSupplierRequest

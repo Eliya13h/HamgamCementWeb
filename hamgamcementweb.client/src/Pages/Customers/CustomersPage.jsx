@@ -1,6 +1,13 @@
-import { useCallback, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
+import AmountField from '../../components/common/AmountField'
 import Icon from '../../components/common/Icon'
+import { useModalKeyboardShortcuts } from '../../hooks/useModalKeyboardShortcuts'
 import DataTable from '../../lib/dataTableSetup'
+import { createServerSideTableOptions } from '../../lib/dataTableOptions'
+import { makeAmountCurrencyRender, makeSignedBalanceRender } from '../../lib/currencyFormat'
+import { usePageCrud } from '../../permissions/usePageCrud'
+import { fetchBaseCurrency } from '../../services/currenciesApi'
 import {
   createCustomer,
   createCustomersDataTableAjax,
@@ -13,26 +20,22 @@ const PERSON_TYPE_OPTIONS = [
   { value: 2, label: 'حقوقی' },
 ]
 
-const dataTableLanguage = {
-  emptyTable: 'داده‌ای برای نمایش وجود ندارد',
-  info: 'نمایش _START_ تا _END_ از _TOTAL_ ردیف',
-  infoEmpty: 'رکوردی یافت نشد',
-  infoFiltered: '(فیلتر شده از _MAX_ ردیف)',
-  lengthMenu: 'نمایش _MENU_ ردیف',
-  loadingRecords: 'در حال بارگذاری...',
-  processing: 'در حال پردازش...',
-  search: 'جستجو:',
-  zeroRecords: 'رکوردی یافت نشد',
-  paginate: {
-    first: 'اول',
-    last: 'آخر',
-    next: 'بعدی',
-    previous: 'قبلی',
-  },
+function accountStatusBadge(code, label) {
+  const cls =
+    code === 'debtor'
+      ? 'badge-debtor'
+      : code === 'creditor'
+        ? 'badge-creditor'
+        : 'badge-settled'
+  return `<span class="badge ${cls}">${label}</span>`
 }
 
 function CustomersPage() {
+  const navigate = useNavigate()
   const tableRef = useRef(null)
+  const createFormRef = useRef(null)
+  const editFormRef = useRef(null)
+  const { canCreate, canEdit, canDelete, canView } = usePageCrud('/people/customers')
   const [loadError, setLoadError] = useState('')
   const [showCreate, setShowCreate] = useState(false)
   const [editRow, setEditRow] = useState(null)
@@ -59,6 +62,42 @@ function CustomersPage() {
     customerType: 1,
     isActive: true,
   })
+  const [baseCurrencySymbol, setBaseCurrencySymbol] = useState('')
+  const currencySymbolRef = useRef('')
+
+  useEffect(() => {
+    let cancelled = false
+    fetchBaseCurrency()
+      .then((currency) => {
+        if (!cancelled) {
+          setBaseCurrencySymbol(currency?.symbol ?? '')
+        }
+      })
+      .catch(() => {
+        if (!cancelled) setBaseCurrencySymbol('')
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  useEffect(() => {
+    currencySymbolRef.current = baseCurrencySymbol
+    const dt = tableRef.current?.dt()
+    if (dt && baseCurrencySymbol) {
+      dt.rows().invalidate('data').draw(false)
+    }
+  }, [baseCurrencySymbol])
+
+  const amountCurrencyRender = useMemo(
+    () => makeAmountCurrencyRender(() => currencySymbolRef.current),
+    [],
+  )
+
+  const signedBalanceRender = useMemo(
+    () => makeSignedBalanceRender(() => currencySymbolRef.current),
+    [],
+  )
 
   const reloadTable = useCallback(() => {
     tableRef.current?.dt()?.ajax.reload(null, false)
@@ -99,6 +138,13 @@ function CustomersPage() {
     setDeleteRow(row)
   }, [])
 
+  const openView = useCallback(
+    (row) => {
+      navigate(`/people/customers/${row.customerId}`)
+    },
+    [navigate],
+  )
+
   const closeModals = () => {
     setShowCreate(false)
     setEditRow(null)
@@ -106,6 +152,37 @@ function CustomersPage() {
     setFormError('')
     setSubmitting(false)
   }
+
+  const triggerCreateSave = useCallback(() => {
+    if (!submitting) {
+      createFormRef.current?.requestSubmit()
+    }
+  }, [submitting])
+
+  const triggerEditSave = useCallback(() => {
+    if (!submitting) {
+      editFormRef.current?.requestSubmit()
+    }
+  }, [submitting])
+
+  useModalKeyboardShortcuts({
+    open: showCreate,
+    onClose: closeModals,
+    onSave: triggerCreateSave,
+    formRef: createFormRef,
+  })
+
+  useModalKeyboardShortcuts({
+    open: Boolean(editRow),
+    onClose: closeModals,
+    onSave: triggerEditSave,
+    formRef: editFormRef,
+  })
+
+  useModalKeyboardShortcuts({
+    open: Boolean(deleteRow),
+    onClose: closeModals,
+  })
 
   const handleCreateSubmit = async (event) => {
     event.preventDefault()
@@ -174,95 +251,111 @@ function CustomersPage() {
     }
   }
 
+  const handleTableLoaded = useCallback((json) => {
+    if (json.currencySymbol) {
+      currencySymbolRef.current = json.currencySymbol
+      setBaseCurrencySymbol(json.currencySymbol)
+    }
+  }, [])
+
   const tableOptions = useMemo(
-    () => ({
-      processing: true,
-      serverSide: true,
-      ajax: createCustomersDataTableAjax(setLoadError),
-      paging: true,
-      searching: true,
-      ordering: true,
-      info: true,
-      scrollX: true,
-      autoWidth: false,
-      responsive: true,
-      stripeClasses: ['odd', 'even'],
-      order: [[1, 'asc']],
-      pageLength: 15,
-      lengthMenu: [10, 15, 25, 50, 100],
-      language: dataTableLanguage,
-      layout: {
-        topStart: {
-          search: { placeholder: 'جستجو...' },
-          pageLength: { menu: [10, 15, 25, 50, 100] },
+    () =>
+      createServerSideTableOptions({
+        ajax: createCustomersDataTableAjax(setLoadError, handleTableLoaded),
+        order: [[1, 'asc']],
+        rowCallback: (row, data) => {
+          if (data.isDeleted) {
+            row.classList.add('dt-row-deleted')
+          } else {
+            row.classList.remove('dt-row-deleted')
+          }
         },
-        bottomStart: 'info',
-        bottomEnd: {
-          paging: { firstLast: true, previousNext: true, numbers: 5 },
-        },
-      },
-      columns: [
-        { data: 'rowNumber', name: 'rowNumber' },
-        { data: 'name', name: 'name' },
-        { data: 'phoneNumber', name: 'phoneNumber' },
-        { data: 'city', name: 'city' },
-        { data: 'customerTypeName', name: 'customerTypeName' },
-        { data: 'initialBalance', name: 'initialBalance' },
-        {
-          data: 'isActive',
-          name: 'isActive',
-          render: (data) =>
-            data
-              ? '<span class="badge badge-active">فعال</span>'
-              : '<span class="badge badge-inactive">غیرفعال</span>',
-        },
-        { data: null, name: 'actions', defaultContent: '' },
-      ],
-      columnDefs: [
-        {
-          targets: 0,
-          orderable: false,
-          searchable: false,
-          width: '56px',
-          className: 'text-center',
-        },
-        { targets: 6, className: 'text-center' },
-        {
-          targets: 7,
-          orderable: false,
-          searchable: false,
-          className: 'text-center all dt-actions-col',
-          width: '100px',
-        },
-      ],
-    }),
-    [],
+        columns: [
+          { data: 'rowNumber', name: 'rowNumber' },
+          {
+            data: 'name',
+            name: 'name',
+            render: (data, type, row) =>
+              row.isDeleted
+                ? `<span class="dt-cell-deleted">${data ?? ''}</span>`
+                : (data ?? ''),
+          },
+          { data: 'phoneNumber', name: 'phoneNumber' },
+          { data: 'initialBalance', name: 'initialBalance', render: amountCurrencyRender },
+          { data: 'totalPurchase', name: 'totalPurchase', render: amountCurrencyRender },
+          { data: 'totalPayment', name: 'totalPayment', render: amountCurrencyRender },
+          { data: 'balance', name: 'balance', render: signedBalanceRender },
+          {
+            data: 'accountStatus',
+            name: 'accountStatus',
+            render: (_data, _type, row) =>
+              accountStatusBadge(row.accountStatusCode, row.accountStatus),
+          },
+          { data: null, name: 'actions', defaultContent: '' },
+        ],
+        columnDefs: [
+          {
+            targets: 0,
+            orderable: false,
+            searchable: false,
+            width: '56px',
+            className: 'text-center',
+          },
+          { targets: [3, 4, 5, 6, 7], className: 'text-center' },
+          {
+            targets: 8,
+            orderable: false,
+            searchable: false,
+            className: 'text-center all dt-actions-col',
+            width: '130px',
+          },
+        ],
+      }),
+    [amountCurrencyRender, signedBalanceRender, handleTableLoaded],
   )
 
   const actionSlots = useMemo(
     () => ({
-      7: (_data, _type, row) => (
+      8: (_data, _type, row) => {
+        const canDeleteRow = row.accountStatusCode === 'settled'
+        return (
         <div className="dt-actions">
-          <button
-            type="button"
-            className="dt-action-btn"
-            title="ویرایش"
-            onClick={() => openEdit(row)}
-          >
-            <Icon name="edit" />
-          </button>
-          <button
-            type="button"
-            className="dt-action-btn btn-delete"
-            title="حذف"
-            onClick={() => openDelete(row)}
-          >
-            <Icon name="trash" />
-          </button>
+          {canView && (
+            <button
+              type="button"
+              className="dt-action-btn"
+              title="مشاهده"
+              onClick={() => openView(row)}
+            >
+              <Icon name="eye" />
+            </button>
+          )}
+          {canEdit && !row.isDeleted && (
+            <button
+              type="button"
+              className="dt-action-btn"
+              title="ویرایش"
+              onClick={() => openEdit(row)}
+            >
+              <Icon name="edit" />
+            </button>
+          )}
+          {canDelete && !row.isDeleted && (
+            <button
+              type="button"
+              className="dt-action-btn btn-delete"
+              title={canDeleteRow ? 'حذف' : 'فقط مشتریان تسویه‌شده قابل حذف هستند'}
+              disabled={!canDeleteRow}
+              onClick={() => canDeleteRow && openDelete(row)}
+            >
+              <Icon name="trash" />
+            </button>
+          )}
         </div>
-      ),
+        )
+      },
     }),
-    [openEdit, openDelete],
+    [openEdit, openDelete, openView, canEdit, canDelete, canView],
   )
 
   return (
@@ -270,15 +363,17 @@ function CustomersPage() {
       <div className="content-card card border-0 h-100">
         <div className="card-header bg-transparent border-0 pt-4 px-4 pb-0 d-flex align-items-center justify-content-between gap-3 flex-wrap">
           <h2 className="card-title mb-0">مشتریان</h2>
-          <button
-            type="button"
-            className="btn btn-sm btn-accent btn-users-new d-inline-flex align-items-center gap-2"
-            title="مشتری جدید"
-            onClick={openCreate}
-          >
-            <Icon name="plus" />
-            <span>مشتری جدید</span>
-          </button>
+          {canCreate && (
+            <button
+              type="button"
+              className="btn btn-sm btn-accent btn-users-new d-inline-flex align-items-center gap-2"
+              title="مشتری جدید"
+              onClick={openCreate}
+            >
+              <Icon name="plus" />
+              <span>مشتری جدید</span>
+            </button>
+          )}
         </div>
 
         <div className="card-body card-body-table">
@@ -300,9 +395,10 @@ function CustomersPage() {
                   <th>#</th>
                   <th>نام</th>
                   <th>تلفن</th>
-                  <th>شهر</th>
-                  <th>نوع</th>
                   <th>موجودی اولیه</th>
+                  <th>کل خرید</th>
+                  <th>کل پرداخت</th>
+                  <th>بلانس</th>
                   <th>وضعیت</th>
                   <th>عملیات</th>
                 </tr>
@@ -317,7 +413,7 @@ function CustomersPage() {
           <div className="modal-backdrop show users-modal-backdrop" onClick={closeModals} />
           <div className="modal show d-block users-modal" tabIndex="-1" role="dialog">
             <div className="modal-dialog modal-dialog-centered modal-dialog-scrollable">
-              <form className="modal-content" onSubmit={handleCreateSubmit}>
+              <form ref={createFormRef} className="modal-content" onSubmit={handleCreateSubmit}>
                 <div className="modal-header">
                   <h5 className="modal-title">مشتری جدید</h5>
                   <button
@@ -347,6 +443,7 @@ function CustomersPage() {
                     <label className="form-label">تلفن</label>
                     <input
                       type="text"
+                      dir="ltr"
                       className="form-control"
                       value={createForm.phoneNumber}
                       onChange={(e) =>
@@ -408,15 +505,14 @@ function CustomersPage() {
                   </div>
                   <div className="mb-3">
                     <label className="form-label">موجودی اولیه</label>
-                    <input
-                      type="number"
-                      step="0.0001"
-                      className="form-control"
+                    <AmountField
+                      symbol={baseCurrencySymbol}
+                      step="any"
                       value={createForm.initialBalance}
-                      onChange={(e) =>
+                      onChange={(value) =>
                         setCreateForm((prev) => ({
                           ...prev,
-                          initialBalance: e.target.value,
+                          initialBalance: value,
                         }))
                       }
                     />
@@ -459,7 +555,7 @@ function CustomersPage() {
           <div className="modal-backdrop show users-modal-backdrop" onClick={closeModals} />
           <div className="modal show d-block users-modal" tabIndex="-1" role="dialog">
             <div className="modal-dialog modal-dialog-centered modal-dialog-scrollable">
-              <form className="modal-content" onSubmit={handleEditSubmit}>
+              <form ref={editFormRef} className="modal-content" onSubmit={handleEditSubmit}>
                 <div className="modal-header">
                   <h5 className="modal-title">ویرایش مشتری</h5>
                   <button
@@ -489,6 +585,7 @@ function CustomersPage() {
                     <label className="form-label">تلفن</label>
                     <input
                       type="text"
+                      dir="ltr"
                       className="form-control"
                       value={editForm.phoneNumber}
                       onChange={(e) =>
@@ -550,15 +647,14 @@ function CustomersPage() {
                   </div>
                   <div className="mb-3">
                     <label className="form-label">موجودی اولیه</label>
-                    <input
-                      type="number"
-                      step="0.0001"
-                      className="form-control"
+                    <AmountField
+                      symbol={baseCurrencySymbol}
+                      step="any"
                       value={editForm.initialBalance}
-                      onChange={(e) =>
+                      onChange={(value) =>
                         setEditForm((prev) => ({
                           ...prev,
-                          initialBalance: e.target.value,
+                          initialBalance: value,
                         }))
                       }
                     />

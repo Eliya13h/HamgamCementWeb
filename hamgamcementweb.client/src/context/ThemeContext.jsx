@@ -1,4 +1,5 @@
 import { createContext, useContext, useEffect, useState } from 'react'
+import { applyRmdpTheme } from '../lib/applyRmdpTheme'
 
 const ThemeContext = createContext(null)
 
@@ -16,6 +17,7 @@ export function ThemeProvider({ children }) {
   useEffect(() => {
     document.documentElement.setAttribute('data-bs-theme', theme)
     localStorage.setItem(STORAGE_KEY, theme)
+    applyRmdpTheme()
   }, [theme])
 
   const toggleTheme = () => setTheme((prev) => (prev === 'dark' ? 'light' : 'dark'))

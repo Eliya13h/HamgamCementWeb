@@ -18,4 +18,30 @@ pdfMake.vfs = pdfFonts.pdfMake?.vfs ?? pdfFonts.vfs
 
 DataTable.use(DT)
 
+Object.assign(DT.defaults, {
+  processing: true,
+  serverSide: true,
+  paging: true,
+  searching: true,
+  ordering: true,
+  info: true,
+  pageLength: 15,
+  lengthMenu: [10, 15, 25, 50, 100],
+  language: {
+    search: '',
+    lengthMenu: 'نمایش _MENU_ ردیف',
+  },
+  layout: {
+    topStart: {
+      pageLength: { menu: [10, 15, 25, 50, 100] },
+      search: { placeholder: 'جستجو در همه ستون‌ها...' },
+    },
+    topEnd: null,
+    bottomStart: 'info',
+    bottomEnd: {
+      paging: { firstLast: true, previousNext: true, numbers: 5 },
+    },
+  },
+})
+
 export default DataTable

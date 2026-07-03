@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import Icon from '../../components/common/Icon'
 import DataTable from '../../lib/dataTableSetup'
+import { usePageCrud } from '../../permissions/usePageCrud'
 import {
   changeUserPassword,
   createUser,
@@ -36,6 +37,7 @@ const dataTableLanguage = {
 
 function UsersPage() {
   const tableRef = useRef(null)
+  const { canCreate, canEdit, canDelete, can } = usePageCrud('/users/list')
   const [roles, setRoles] = useState([])
   const [employees, setEmployees] = useState([])
   const [loadError, setLoadError] = useState('')
@@ -255,6 +257,8 @@ function UsersPage() {
             menu: [10, 15, 25, 50, 100],
           },
         },
+        topEnd: null,
+
         bottomStart: 'info',
         bottomEnd: {
           paging: {
@@ -305,34 +309,40 @@ function UsersPage() {
     () => ({
       6: (_data, _type, row) => (
         <div className="dt-actions">
-          <button
-            type="button"
-            className="dt-action-btn"
-            title="ویرایش"
-            onClick={() => openEdit(row)}
-          >
-            <Icon name="edit" />
-          </button>
-          <button
-            type="button"
-            className="dt-action-btn"
-            title="تغییر رمز عبور"
-            onClick={() => openPassword(row)}
-          >
-            <Icon name="key" />
-          </button>
-          <button
-            type="button"
-            className="dt-action-btn btn-delete"
-            title="حذف"
-            onClick={() => openDelete(row)}
-          >
-            <Icon name="trash" />
-          </button>
+          {canEdit && (
+            <button
+              type="button"
+              className="dt-action-btn"
+              title="ویرایش"
+              onClick={() => openEdit(row)}
+            >
+              <Icon name="edit" />
+            </button>
+          )}
+          {can('changePassword') && (
+            <button
+              type="button"
+              className="dt-action-btn"
+              title="تغییر رمز عبور"
+              onClick={() => openPassword(row)}
+            >
+              <Icon name="key" />
+            </button>
+          )}
+          {canDelete && (
+            <button
+              type="button"
+              className="dt-action-btn btn-delete"
+              title="حذف"
+              onClick={() => openDelete(row)}
+            >
+              <Icon name="trash" />
+            </button>
+          )}
         </div>
       ),
     }),
-    [openEdit, openPassword, openDelete],
+    [openEdit, openPassword, openDelete, canEdit, canDelete, can],
   )
 
   return (
@@ -340,15 +350,17 @@ function UsersPage() {
       <div className="content-card card border-0 h-100">
         <div className="card-header bg-transparent border-0 pt-4 px-4 pb-0 d-flex align-items-center justify-content-between gap-3 flex-wrap">
           <h2 className="card-title mb-0">مدیریت کاربران</h2>
-          <button
-            type="button"
-            className="btn btn-sm btn-accent btn-users-new d-inline-flex align-items-center gap-2"
-            title="کاربر جدید"
-            onClick={openCreate}
-          >
-            <Icon name="plus" />
-            <span>کاربر جدید</span>
-          </button>
+          {canCreate && (
+            <button
+              type="button"
+              className="btn btn-sm btn-accent btn-users-new d-inline-flex align-items-center gap-2"
+              title="کاربر جدید"
+              onClick={openCreate}
+            >
+              <Icon name="plus" />
+              <span>کاربر جدید</span>
+            </button>
+          )}
         </div>
 
         <div className="card-body card-body-table">

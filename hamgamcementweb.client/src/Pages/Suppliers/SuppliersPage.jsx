@@ -1,6 +1,12 @@
-import { useCallback, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
+import AmountField from '../../components/common/AmountField'
 import Icon from '../../components/common/Icon'
 import DataTable from '../../lib/dataTableSetup'
+import { createServerSideTableOptions } from '../../lib/dataTableOptions'
+import { makeAmountCurrencyRender, makeSignedBalanceRender } from '../../lib/currencyFormat'
+import { usePageCrud } from '../../permissions/usePageCrud'
+import { fetchBaseCurrency } from '../../services/currenciesApi'
 import {
   createSupplier,
   createSuppliersDataTableAjax,
@@ -18,26 +24,20 @@ const PERSON_TYPE_OPTIONS = [
   { value: 2, label: 'حقوقی' },
 ]
 
-const dataTableLanguage = {
-  emptyTable: 'داده‌ای برای نمایش وجود ندارد',
-  info: 'نمایش _START_ تا _END_ از _TOTAL_ ردیف',
-  infoEmpty: 'رکوردی یافت نشد',
-  infoFiltered: '(فیلتر شده از _MAX_ ردیف)',
-  lengthMenu: 'نمایش _MENU_ ردیف',
-  loadingRecords: 'در حال بارگذاری...',
-  processing: 'در حال پردازش...',
-  search: 'جستجو:',
-  zeroRecords: 'رکوردی یافت نشد',
-  paginate: {
-    first: 'اول',
-    last: 'آخر',
-    next: 'بعدی',
-    previous: 'قبلی',
-  },
+function accountStatusBadge(code, label) {
+  const cls =
+    code === 'debtor'
+      ? 'badge-debtor'
+      : code === 'creditor'
+        ? 'badge-creditor'
+        : 'badge-settled'
+  return `<span class="badge ${cls}">${label}</span>`
 }
 
 function SuppliersPage() {
+  const navigate = useNavigate()
   const tableRef = useRef(null)
+  const { canCreate, canEdit, canDelete, canView } = usePageCrud('/people/suppliers')
   const [loadError, setLoadError] = useState('')
   const [showCreate, setShowCreate] = useState(false)
   const [editRow, setEditRow] = useState(null)
@@ -66,6 +66,42 @@ function SuppliersPage() {
     supplierType: 1,
     isActive: true,
   })
+  const [baseCurrencySymbol, setBaseCurrencySymbol] = useState('')
+  const currencySymbolRef = useRef('')
+
+  useEffect(() => {
+    let cancelled = false
+    fetchBaseCurrency()
+      .then((currency) => {
+        if (!cancelled) {
+          setBaseCurrencySymbol(currency?.symbol ?? '')
+        }
+      })
+      .catch(() => {
+        if (!cancelled) setBaseCurrencySymbol('')
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  useEffect(() => {
+    currencySymbolRef.current = baseCurrencySymbol
+    const dt = tableRef.current?.dt()
+    if (dt && baseCurrencySymbol) {
+      dt.rows().invalidate('data').draw(false)
+    }
+  }, [baseCurrencySymbol])
+
+  const amountCurrencyRender = useMemo(
+    () => makeAmountCurrencyRender(() => currencySymbolRef.current),
+    [],
+  )
+
+  const signedBalanceRender = useMemo(
+    () => makeSignedBalanceRender(() => currencySymbolRef.current),
+    [],
+  )
 
   const reloadTable = useCallback(() => {
     tableRef.current?.dt()?.ajax.reload(null, false)
@@ -107,6 +143,13 @@ function SuppliersPage() {
     setFormError('')
     setDeleteRow(row)
   }, [])
+
+  const openView = useCallback(
+    (row) => {
+      navigate(`/people/suppliers/${row.supplierId}`)
+    },
+    [navigate],
+  )
 
   const closeModals = () => {
     setShowCreate(false)
@@ -185,95 +228,111 @@ function SuppliersPage() {
     }
   }
 
+  const handleTableLoaded = useCallback((json) => {
+    if (json.currencySymbol) {
+      currencySymbolRef.current = json.currencySymbol
+      setBaseCurrencySymbol(json.currencySymbol)
+    }
+  }, [])
+
   const tableOptions = useMemo(
-    () => ({
-      processing: true,
-      serverSide: true,
-      ajax: createSuppliersDataTableAjax(setLoadError),
-      paging: true,
-      searching: true,
-      ordering: true,
-      info: true,
-      scrollX: true,
-      autoWidth: false,
-      responsive: true,
-      stripeClasses: ['odd', 'even'],
-      order: [[1, 'asc']],
-      pageLength: 15,
-      lengthMenu: [10, 15, 25, 50, 100],
-      language: dataTableLanguage,
-      layout: {
-        topStart: {
-          search: { placeholder: 'جستجو...' },
-          pageLength: { menu: [10, 15, 25, 50, 100] },
+    () =>
+      createServerSideTableOptions({
+        ajax: createSuppliersDataTableAjax(setLoadError, handleTableLoaded),
+        order: [[1, 'asc']],
+        rowCallback: (row, data) => {
+          if (data.isDeleted) {
+            row.classList.add('dt-row-deleted')
+          } else {
+            row.classList.remove('dt-row-deleted')
+          }
         },
-        bottomStart: 'info',
-        bottomEnd: {
-          paging: { firstLast: true, previousNext: true, numbers: 5 },
-        },
-      },
-      columns: [
-        { data: 'rowNumber', name: 'rowNumber' },
-        { data: 'name', name: 'name' },
-        { data: 'phoneNumber', name: 'phoneNumber' },
-        { data: 'city', name: 'city' },
-        { data: 'supplierTypeName', name: 'supplierTypeName' },
-        { data: 'initialBalance', name: 'initialBalance' },
-        {
-          data: 'isActive',
-          name: 'isActive',
-          render: (data) =>
-            data
-              ? '<span class="badge badge-active">فعال</span>'
-              : '<span class="badge badge-inactive">غیرفعال</span>',
-        },
-        { data: null, name: 'actions', defaultContent: '' },
-      ],
-      columnDefs: [
-        {
-          targets: 0,
-          orderable: false,
-          searchable: false,
-          width: '56px',
-          className: 'text-center',
-        },
-        { targets: 6, className: 'text-center' },
-        {
-          targets: 7,
-          orderable: false,
-          searchable: false,
-          className: 'text-center all dt-actions-col',
-          width: '100px',
-        },
-      ],
-    }),
-    [],
+        columns: [
+          { data: 'rowNumber', name: 'rowNumber' },
+          {
+            data: 'name',
+            name: 'name',
+            render: (data, type, row) =>
+              row.isDeleted
+                ? `<span class="dt-cell-deleted">${data ?? ''}</span>`
+                : (data ?? ''),
+          },
+          { data: 'phoneNumber', name: 'phoneNumber' },
+          { data: 'initialBalance', name: 'initialBalance', render: amountCurrencyRender },
+          { data: 'totalPurchase', name: 'totalPurchase', render: amountCurrencyRender },
+          { data: 'totalPayment', name: 'totalPayment', render: amountCurrencyRender },
+          { data: 'balance', name: 'balance', render: signedBalanceRender },
+          {
+            data: 'accountStatus',
+            name: 'accountStatus',
+            render: (_data, _type, row) =>
+              accountStatusBadge(row.accountStatusCode, row.accountStatus),
+          },
+          { data: null, name: 'actions', defaultContent: '' },
+        ],
+        columnDefs: [
+          {
+            targets: 0,
+            orderable: false,
+            searchable: false,
+            width: '56px',
+            className: 'text-center',
+          },
+          { targets: [3, 4, 5, 6, 7], className: 'text-center' },
+          {
+            targets: 8,
+            orderable: false,
+            searchable: false,
+            className: 'text-center all dt-actions-col',
+            width: '130px',
+          },
+        ],
+      }),
+    [amountCurrencyRender, signedBalanceRender, handleTableLoaded],
   )
 
   const actionSlots = useMemo(
     () => ({
-      7: (_data, _type, row) => (
+      8: (_data, _type, row) => {
+        const canDeleteRow = row.accountStatusCode === 'settled'
+        return (
         <div className="dt-actions">
-          <button
-            type="button"
-            className="dt-action-btn"
-            title="ویرایش"
-            onClick={() => openEdit(row)}
-          >
-            <Icon name="edit" />
-          </button>
-          <button
-            type="button"
-            className="dt-action-btn btn-delete"
-            title="حذف"
-            onClick={() => openDelete(row)}
-          >
-            <Icon name="trash" />
-          </button>
+          {canView && (
+            <button
+              type="button"
+              className="dt-action-btn"
+              title="مشاهده"
+              onClick={() => openView(row)}
+            >
+              <Icon name="eye" />
+            </button>
+          )}
+          {canEdit && !row.isDeleted && (
+            <button
+              type="button"
+              className="dt-action-btn"
+              title="ویرایش"
+              onClick={() => openEdit(row)}
+            >
+              <Icon name="edit" />
+            </button>
+          )}
+          {canDelete && !row.isDeleted && (
+            <button
+              type="button"
+              className="dt-action-btn btn-delete"
+              title={canDeleteRow ? 'حذف' : 'فقط تأمین‌کنندگان تسویه‌شده قابل حذف هستند'}
+              disabled={!canDeleteRow}
+              onClick={() => canDeleteRow && openDelete(row)}
+            >
+              <Icon name="trash" />
+            </button>
+          )}
         </div>
-      ),
+        )
+      },
     }),
-    [openEdit, openDelete],
+    [openEdit, openDelete, openView, canEdit, canDelete, canView],
   )
 
   return (
@@ -281,15 +340,17 @@ function SuppliersPage() {
       <div className="content-card card border-0 h-100">
         <div className="card-header bg-transparent border-0 pt-4 px-4 pb-0 d-flex align-items-center justify-content-between gap-3 flex-wrap">
           <h2 className="card-title mb-0">تأمین‌کنندگان</h2>
-          <button
-            type="button"
-            className="btn btn-sm btn-accent btn-users-new d-inline-flex align-items-center gap-2"
-            title="تأمین‌کننده جدید"
-            onClick={openCreate}
-          >
-            <Icon name="plus" />
-            <span>تأمین‌کننده جدید</span>
-          </button>
+          {canCreate && (
+            <button
+              type="button"
+              className="btn btn-sm btn-accent btn-users-new d-inline-flex align-items-center gap-2"
+              title="تأمین‌کننده جدید"
+              onClick={openCreate}
+            >
+              <Icon name="plus" />
+              <span>تأمین‌کننده جدید</span>
+            </button>
+          )}
         </div>
 
         <div className="card-body card-body-table">
@@ -311,9 +372,10 @@ function SuppliersPage() {
                   <th>#</th>
                   <th>نام</th>
                   <th>تلفن</th>
-                  <th>شهر</th>
-                  <th>نوع</th>
                   <th>موجودی اولیه</th>
+                  <th>کل خرید</th>
+                  <th>کل پرداخت</th>
+                  <th>بلانس</th>
                   <th>وضعیت</th>
                   <th>عملیات</th>
                 </tr>
@@ -354,7 +416,7 @@ function SuppliersPage() {
                   </div>
                   <div className="mb-3">
                     <label className="form-label">تلفن</label>
-                    <input type="text" className="form-control" value={createForm.phoneNumber}
+                    <input type="text" dir="ltr" className="form-control" value={createForm.phoneNumber}
                       onChange={(e) => setCreateForm((prev) => ({ ...prev, phoneNumber: e.target.value }))} required />
                   </div>
                   <div className="mb-3">
@@ -385,8 +447,17 @@ function SuppliersPage() {
                   </div>
                   <div className="mb-3">
                     <label className="form-label">موجودی اولیه</label>
-                    <input type="number" step="0.0001" className="form-control" value={createForm.initialBalance}
-                      onChange={(e) => setCreateForm((prev) => ({ ...prev, initialBalance: e.target.value }))} />
+                    <AmountField
+                      symbol={baseCurrencySymbol}
+                      step="any"
+                      value={createForm.initialBalance}
+                      onChange={(value) =>
+                        setCreateForm((prev) => ({
+                          ...prev,
+                          initialBalance: value,
+                        }))
+                      }
+                    />
                   </div>
                   <div className="form-check form-switch">
                     <input className="form-check-input" type="checkbox" id="create-supplier-is-active"
@@ -458,6 +529,7 @@ function SuppliersPage() {
                     <label className="form-label">تلفن</label>
                     <input
                       type="text"
+                      dir="ltr"
                       className="form-control"
                       value={editForm.phoneNumber}
                       onChange={(e) =>
@@ -519,15 +591,14 @@ function SuppliersPage() {
                   </div>
                   <div className="mb-3">
                     <label className="form-label">موجودی اولیه</label>
-                    <input
-                      type="number"
-                      step="0.0001"
-                      className="form-control"
+                    <AmountField
+                      symbol={baseCurrencySymbol}
+                      step="any"
                       value={editForm.initialBalance}
-                      onChange={(e) =>
+                      onChange={(value) =>
                         setEditForm((prev) => ({
                           ...prev,
-                          initialBalance: e.target.value,
+                          initialBalance: value,
                         }))
                       }
                     />

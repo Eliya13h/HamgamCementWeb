@@ -1,0 +1,77 @@
+/** تنظیمات مشترک DataTable سمت سرور */
+
+export const dataTableLanguage = {
+  emptyTable: 'داده‌ای برای نمایش وجود ندارد',
+  info: 'نمایش _START_ تا _END_ از _TOTAL_ ردیف',
+  infoEmpty: 'رکوردی یافت نشد',
+  infoFiltered: '(فیلتر شده از _MAX_ ردیف)',
+  lengthMenu: 'نمایش _MENU_ ردیف',
+  loadingRecords: 'در حال بارگذاری...',
+  processing: 'در حال پردازش...',
+  search: '',
+  zeroRecords: 'رکوردی یافت نشد',
+  paginate: {
+    first: 'اول',
+    last: 'آخر',
+    next: 'بعدی',
+    previous: 'قبلی',
+  },
+}
+
+const PHONE_FIELD_PATTERN = /phone|mobile|tel|userName/i
+
+export function formatAmount(value) {
+  if (value === null || value === undefined || value === '') return '—'
+  const num = Number(value)
+  if (Number.isNaN(num)) return String(value)
+  return num.toLocaleString('en-US')
+}
+
+export function isPhoneField(fieldName) {
+  if (!fieldName) return false
+  return PHONE_FIELD_PATTERN.test(fieldName)
+}
+
+export function amountRender(data) {
+  return formatAmount(data)
+}
+
+/** جلوگیری از نمایش دوبارهٔ جستجو در topEnd پیش‌فرض DataTables */
+export function buildDataTableLayout({ searching = true } = {}) {
+  return {
+    topStart: {
+      pageLength: { menu: [10, 15, 25, 50, 100] },
+      ...(searching ? { search: { placeholder: 'جستجو در همه ستون‌ها...' } } : {}),
+    },
+    topEnd: null,
+    bottomStart: 'info',
+    bottomEnd: {
+      paging: { firstLast: true, previousNext: true, numbers: 5 },
+    },
+  }
+}
+
+export const baseServerSideTableOptions = {
+  processing: true,
+  serverSide: true,
+  paging: true,
+  searching: true,
+  ordering: true,
+  info: true,
+  scrollX: true,
+  autoWidth: false,
+  responsive: true,
+  stripeClasses: ['odd', 'even'],
+  pageLength: 15,
+  lengthMenu: [10, 15, 25, 50, 100],
+  language: dataTableLanguage,
+}
+
+export function createServerSideTableOptions({ searching = true, ...overrides } = {}) {
+  return {
+    ...baseServerSideTableOptions,
+    searching,
+    layout: buildDataTableLayout({ searching }),
+    ...overrides,
+  }
+}

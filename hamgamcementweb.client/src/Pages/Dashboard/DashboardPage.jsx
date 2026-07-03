@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import Icon from '../../components/common/Icon'
 
 const statCards = [
@@ -32,19 +33,49 @@ const statCards = [
 ]
 
 function DashboardPage() {
+  const [showReport, setShowReport] = useState(false)
+
   return (
     <div className="dashboard-page">
       <section className="mb-4">
         <div className="page-welcome card border-0">
           <div className="card-body p-4">
-            <h2 className="welcome-title mb-2">خوش آمدید</h2>
-            <p className="welcome-text mb-0">
-              این صفحه اسکلت داشبورد است. محتوای واقعی هر بخش بعداً از API یا
-              کامپوننت‌های مربوطه بارگذاری می‌شود.
-            </p>
+            <div className="d-flex flex-wrap align-items-start justify-content-between gap-3">
+              <div>
+                <h2 className="welcome-title mb-2">خوش آمدید</h2>
+                <p className="welcome-text mb-0">
+                  این صفحه اسکلت داشبورد است. محتوای واقعی هر بخش بعداً از API یا
+                  کامپوننت‌های مربوطه بارگذاری می‌شود.
+                </p>
+              </div>
+              <button
+                type="button"
+                className="btn btn-accent"
+                onClick={() => setShowReport((visible) => !visible)}
+              >
+                {showReport ? 'بستن گزارش' : 'نمایش گزارش'}
+              </button>
+            </div>
           </div>
         </div>
       </section>
+
+      {showReport && (
+        <section className="mb-4">
+          <div className="content-card card border-0">
+            <div className="card-header bg-transparent border-0 pt-4 px-4 pb-0">
+              <h3 className="card-title mb-0">گزارش</h3>
+            </div>
+            <div className="card-body p-4 pt-3">
+              <iframe
+                src="/report-viewer"
+                title="گزارش Stimulsoft"
+                className="dashboard-report-frame"
+              />
+            </div>
+          </div>
+        </section>
+      )}
 
       <section className="mb-4">
         <div className="row g-3">

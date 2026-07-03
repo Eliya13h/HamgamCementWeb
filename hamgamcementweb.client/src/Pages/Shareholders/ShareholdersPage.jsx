@@ -1,6 +1,7 @@
 import { useCallback, useMemo, useRef, useState } from 'react'
 import Icon from '../../components/common/Icon'
 import DataTable from '../../lib/dataTableSetup'
+import { usePageCrud } from '../../permissions/usePageCrud'
 import {
   createShareholder,
   createShareholdersDataTableAjax,
@@ -33,6 +34,7 @@ const dataTableLanguage = {
 
 function ShareholdersPage() {
   const tableRef = useRef(null)
+  const { canCreate, canEdit, canDelete } = usePageCrud('/people/shareholders')
   const [loadError, setLoadError] = useState('')
   const [showCreate, setShowCreate] = useState(false)
   const [editRow, setEditRow] = useState(null)
@@ -196,6 +198,8 @@ function ShareholdersPage() {
           search: { placeholder: 'جستجو...' },
           pageLength: { menu: [10, 15, 25, 50, 100] },
         },
+        topEnd: null,
+
         bottomStart: 'info',
         bottomEnd: {
           paging: { firstLast: true, previousNext: true, numbers: 5 },
@@ -242,26 +246,30 @@ function ShareholdersPage() {
     () => ({
       6: (_data, _type, row) => (
         <div className="dt-actions">
-          <button
-            type="button"
-            className="dt-action-btn"
-            title="ویرایش"
-            onClick={() => openEdit(row)}
-          >
-            <Icon name="edit" />
-          </button>
-          <button
-            type="button"
-            className="dt-action-btn btn-delete"
-            title="حذف"
-            onClick={() => openDelete(row)}
-          >
-            <Icon name="trash" />
-          </button>
+          {canEdit && (
+            <button
+              type="button"
+              className="dt-action-btn"
+              title="ویرایش"
+              onClick={() => openEdit(row)}
+            >
+              <Icon name="edit" />
+            </button>
+          )}
+          {canDelete && (
+            <button
+              type="button"
+              className="dt-action-btn btn-delete"
+              title="حذف"
+              onClick={() => openDelete(row)}
+            >
+              <Icon name="trash" />
+            </button>
+          )}
         </div>
       ),
     }),
-    [openEdit, openDelete],
+    [openEdit, openDelete, canEdit, canDelete],
   )
 
   return (
@@ -269,15 +277,17 @@ function ShareholdersPage() {
       <div className="content-card card border-0 h-100">
         <div className="card-header bg-transparent border-0 pt-4 px-4 pb-0 d-flex align-items-center justify-content-between gap-3 flex-wrap">
           <h2 className="card-title mb-0">سهام‌داران</h2>
-          <button
-            type="button"
-            className="btn btn-sm btn-accent btn-users-new d-inline-flex align-items-center gap-2"
-            title="سهام‌دار جدید"
-            onClick={openCreate}
-          >
-            <Icon name="plus" />
-            <span>سهام‌دار جدید</span>
-          </button>
+          {canCreate && (
+            <button
+              type="button"
+              className="btn btn-sm btn-accent btn-users-new d-inline-flex align-items-center gap-2"
+              title="سهام‌دار جدید"
+              onClick={openCreate}
+            >
+              <Icon name="plus" />
+              <span>سهام‌دار جدید</span>
+            </button>
+          )}
         </div>
 
         <div className="card-body card-body-table">

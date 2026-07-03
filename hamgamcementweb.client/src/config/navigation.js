@@ -10,6 +10,9 @@ export const navItems = [
       { path: '/people/customers', label: 'مشتریان' },
       { path: '/people/suppliers', label: 'تأمین‌کننده‌ها' },
       { path: '/people/employees', label: 'کارمندان' },
+      { path: '/people/drivers', label: 'رانندگان' },
+      { path: '/people/vehicle-owners', label: 'موترداران' },
+      { path: '/people/departments', label: 'بخش‌ها' },
       { path: '/people/shareholders', label: 'سهام‌داران' },
     ],
   },
@@ -37,8 +40,12 @@ export const navItems = [
     icon: 'transport',
     children: [
       { path: '/transport/shipping', label: 'حمل و نقل' },
+      { path: '/transport/routes', label: 'مسیرها' },
       { path: '/transport/vehicles', label: 'وسایل نقلیه' },
+      { path: '/transport/vehicle-types', label: 'انواع وسایل نقلیه' },
       { path: '/transport/maintenance', label: 'تعمیر و نگهداری' },
+      { path: '/transport/invoices', label: 'فاکتور مصارف' },
+      { path: '/transport/expense-categories', label: 'دسته‌بندی مصارف' },
     ],
   },
   {
@@ -56,6 +63,8 @@ export const navItems = [
     icon: 'products',
     children: [
       { path: '/products/list', label: 'لیست محصولات' },
+      { path: '/products/categories', label: 'دسته‌بندی' },
+      { path: '/products/meaurments', label: 'واحدها' },
     ],
   },
   {
@@ -63,8 +72,10 @@ export const navItems = [
     label: 'انبار',
     icon: 'inventory',
     children: [
+      { path: '/inventory/warehouses', label: 'انبارها' },
       { path: '/inventory/stock', label: 'موجودی' },
-      { path: '/inventory/transfers', label: 'انتقالات' },
+      { path: '/inventory/turnover', label: 'گردش کالا' },
+      { path: '/inventory/stocktaking', label: 'سابقه انبارگردانی' },
     ],
   },
   {
@@ -74,6 +85,8 @@ export const navItems = [
     children: [
       { path: '/accounting/revenues', label: 'عواید' },
       { path: '/accounting/expenses', label: 'مصارف' },
+      { path: '/accounting/revenue-categories', label: 'دسته‌بندی عواید' },
+      { path: '/accounting/expense-categories', label: 'دسته‌بندی مصارف' },
     ],
   },
   {

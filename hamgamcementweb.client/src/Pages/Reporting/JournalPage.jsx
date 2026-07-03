@@ -1,7 +1,7 @@
-import EmptyPage from '../People/EmptyPage'
+import PlaceholderPage from '../../components/common/PlaceholderPage'
 
 function JournalPage() {
-  return <EmptyPage title="روزنامچه" />
+  return <PlaceholderPage title="روزنامچه" />
 }
 
 export default JournalPage

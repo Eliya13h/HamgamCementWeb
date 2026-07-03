@@ -628,6 +628,15 @@ body.sidebar-drawer-open {
   background: var(--hc-bg-surface);
 }
 
+.dashboard-report-frame {
+  display: block;
+  width: 100%;
+  min-height: 720px;
+  border: 1px solid var(--hc-border);
+  border-radius: var(--hc-radius-sm);
+  background: #1a1a1a;
+}
+
 .placeholder-icon {
   font-size: 2rem;
   color: var(--hc-text-subtle);

@@ -2,6 +2,7 @@ using System.ComponentModel.DataAnnotations;
 using System.Security.Claims;
 using HamgamCementWeb.Server.Data;
 using HamgamCementWeb.Server.Data.Models.Finance;
+using HamgamCementWeb.Server.Services;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
@@ -33,10 +34,17 @@ public class CurrencyController : ControllerBase
     };
 
     private readonly AppDbContext _db;
+    private readonly ICurrencyConversionService _currency;
+    private readonly ICurrencyExchangeRateService _exchangeRates;
 
-    public CurrencyController(AppDbContext db)
+    public CurrencyController(
+        AppDbContext db,
+        ICurrencyConversionService currency,
+        ICurrencyExchangeRateService exchangeRates)
     {
         _db = db;
+        _currency = currency;
+        _exchangeRates = exchangeRates;
     }
 
     [HttpGet("list")]
@@ -80,6 +88,54 @@ public class CurrencyController : ControllerBase
             baseCurrency.Symbol,
             baseCurrency.CurrencyCode,
         });
+    }
+
+    [HttpGet("current-rates")]
+    public async Task<IActionResult> CurrentRates(CancellationToken cancellationToken)
+    {
+        var baseCurrency = await _currency.GetBaseCurrencyAsync(cancellationToken);
+        var rates = await _db.CurrencyExchangeRates
+            .AsNoTracking()
+            .Where(r => r.IsDeleted != true)
+            .Select(r => new
+            {
+                currencyId = r.CurrencyID,
+                baseUnitsPerUnit = r.BaseUnitsPerUnit,
+            })
+            .ToListAsync(cancellationToken);
+
+        return Ok(new
+        {
+            baseCurrencyId = baseCurrency.CurrencyID,
+            rates,
+        });
+    }
+
+    [HttpGet("rate-at")]
+    public async Task<IActionResult> GetRateAt(
+        [FromQuery] int currencyId,
+        [FromQuery] DateTime? date,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            var snapshot = await _currency.GetSnapshotAsync(currencyId, date ?? DateTime.Now, cancellationToken);
+            var baseCurrency = await _currency.GetBaseCurrencyAsync(cancellationToken);
+
+            return Ok(new
+            {
+                currencyId = snapshot.CurrencyId,
+                baseCurrencyId = snapshot.BaseCurrencyId,
+                baseCurrencyName = baseCurrency.Name,
+                exchangeHistoryId = snapshot.ExchangeHistoryId,
+                baseUnitsPerUnit = snapshot.BaseUnitsPerUnit,
+                isBaseCurrency = snapshot.IsBaseCurrency,
+            });
+        }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(new { message = ex.Message });
+        }
     }
 
     [HttpPost("datatable")]
@@ -467,65 +523,14 @@ public class CurrencyController : ControllerBase
         int? userId,
         CancellationToken cancellationToken)
     {
-        var openHistory = await _db.CurrencyExchangeHistories
-            .Where(h => h.CurrencyID == currencyId && h.EffectiveTo == null && h.IsDeleted != true)
-            .OrderByDescending(h => h.EffectiveFrom)
-            .FirstOrDefaultAsync(cancellationToken);
-
-        decimal? previousRate = openHistory?.BaseUnitsPerUnit;
-
-        if (openHistory is not null)
-        {
-            openHistory.EffectiveTo = effectiveFrom;
-            openHistory.UpdatedAt = DateTime.Now;
-            openHistory.IsUpdated = true;
-            openHistory.UpdatedBy = userId;
-        }
-
-        var history = new CurrencyExchangeHistory
-        {
-            CurrencyID = currencyId,
-            BaseCurrencyID = baseCurrencyId,
-            BaseUnitsPerUnit = newRate,
-            PreviousBaseUnitsPerUnit = previousRate,
-            EffectiveFrom = effectiveFrom,
-            EffectiveTo = null,
-            ChangeReason = changeReason?.Trim(),
-            CreatedBy = userId,
-            CreatedAt = DateTime.Now,
-            IsActive = true,
-            IsDeleted = false,
-        };
-
-        _db.CurrencyExchangeHistories.Add(history);
-        await _db.SaveChangesAsync(cancellationToken);
-
-        var currentRate = await _db.CurrencyExchangeRates
-            .FirstOrDefaultAsync(r => r.CurrencyID == currencyId, cancellationToken);
-
-        if (currentRate is null)
-        {
-            currentRate = new CurrencyExchangeRate
-            {
-                CurrencyID = currencyId,
-                BaseCurrencyID = baseCurrencyId,
-                CreatedBy = userId,
-                CreatedAt = DateTime.Now,
-                IsActive = true,
-                IsDeleted = false,
-            };
-            _db.CurrencyExchangeRates.Add(currentRate);
-        }
-
-        currentRate.BaseCurrencyID = baseCurrencyId;
-        currentRate.BaseUnitsPerUnit = newRate;
-        currentRate.EffectiveFrom = effectiveFrom;
-        currentRate.SourceHistoryID = history.HistoryID;
-        currentRate.UpdatedAt = DateTime.Now;
-        currentRate.IsUpdated = true;
-        currentRate.UpdatedBy = userId;
-
-        await _db.SaveChangesAsync(cancellationToken);
+        await _exchangeRates.ApplyRateChangeAsync(
+            currencyId,
+            baseCurrencyId,
+            newRate,
+            changeReason,
+            effectiveFrom,
+            userId,
+            cancellationToken);
     }
 
     private async Task ClearBaseCurrencyFlagsAsync(CancellationToken cancellationToken)

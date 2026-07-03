@@ -1,5 +1,7 @@
 <Project Sdk="Microsoft.VisualStudio.JavaScript.Sdk/1.0.2752196">
   <PropertyGroup>
+    <!-- جلوگیری از restore اشتباه NuGet با net6.0 روی پروژه JavaScript -->
+    <RestoreProjectStyle>None</RestoreProjectStyle>
     <StartupCommand>npm run dev</StartupCommand>
     <JavaScriptTestRoot>src\</JavaScriptTestRoot>
     <JavaScriptTestFramework>Vitest</JavaScriptTestFramework>

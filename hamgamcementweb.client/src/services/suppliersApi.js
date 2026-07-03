@@ -22,6 +22,13 @@ async function parseResponse(response) {
   return data
 }
 
+export async function fetchSupplier(supplierId) {
+  const response = await fetch(`${BASE}/${supplierId}`, {
+    credentials: 'include',
+  })
+  return parseResponse(response)
+}
+
 export async function createSupplier(payload) {
   const response = await fetch(BASE, {
     method: 'POST',
@@ -53,9 +60,9 @@ export async function deleteSupplier(supplierId) {
   return parseResponse(response)
 }
 
-export function createSuppliersDataTableAjax(onError) {
+function createDataTableAjax(url, onError, onLoaded) {
   return (data, callback) => {
-    fetch(`${BASE}/datatable`, {
+    fetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       credentials: 'include',
@@ -79,6 +86,7 @@ export function createSuppliersDataTableAjax(onError) {
       })
       .then((json) => {
         onError?.('')
+        onLoaded?.(json)
         callback(json)
       })
       .catch((error) => {
@@ -91,4 +99,16 @@ export function createSuppliersDataTableAjax(onError) {
         })
       })
   }
+}
+
+export function createSuppliersDataTableAjax(onError, onLoaded) {
+  return createDataTableAjax(`${BASE}/datatable`, onError, onLoaded)
+}
+
+export function createSupplierInvoicesDataTableAjax(supplierId, onError, onLoaded) {
+  return createDataTableAjax(
+    `${BASE}/${supplierId}/purchase-invoices/datatable`,
+    onError,
+    onLoaded,
+  )
 }

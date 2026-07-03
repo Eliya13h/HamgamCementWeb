@@ -1,30 +1,60 @@
+import { Suspense } from 'react'
 import { Navigate, Route, Routes } from 'react-router-dom'
 import ProtectedRoute from '../components/auth/ProtectedRoute'
-import Login from '../Pages/Auth/Login'
 import DashboardLayout from '../components/layout/DashboardLayout'
-import DashboardPage from '../pages/Dashboard/DashboardPage'
-import CustomersPage from '../pages/Customers/CustomersPage'
-import SuppliersPage from '../pages/Suppliers/SuppliersPage'
-import EmployeesPage from '../pages/Employees/EmployeesPage'
-import ShareholdersPage from '../pages/Shareholders/ShareholdersPage'
-import CurrenciesListPage from '../pages/Finance/CurrenciesListPage'
-import ExchangeHistoryPage from '../pages/Finance/ExchangeHistoryPage'
-import TransportationPage from '../pages/Transport/TransportationPage'
-import VehiclesPage from '../pages/Transport/VehiclesPage'
-import MaintenancePage from '../pages/Transport/MaintenancePage'
-import PurchasePage from '../pages/Transactions/PurchasePage'
-import SalePage from '../pages/Transactions/SalePage'
-import ProductListPage from '../pages/Products/ProductListPage'
-import RevenuesPage from '../pages/Accounting/RevenuesPage'
-import ExpensesPage from '../pages/Accounting/ExpensesPage'
-import ProductsReportPage from '../pages/Reporting/ProductsReportPage'
-import ProductionReportPage from '../pages/Reporting/ProductionReportPage'
-import TransportReportPage from '../pages/Reporting/TransportReportPage'
-import RevenuesReportPage from '../pages/Reporting/RevenuesReportPage'
-import ExpensesReportPage from '../pages/Reporting/ExpensesReportPage'
-import JournalPage from '../pages/Reporting/JournalPage'
-import UsersPage from '../pages/Users/UsersPage'
-import AccessLevelsPage from '../pages/Users/AccessLevelsPage'
+import {
+  AccessLevelsPage,
+  CategoriesPage,
+  CurrenciesListPage,
+  CustomersPage,
+  CustomerDetailPage,
+  DashboardPage,
+  DepartmentsPage,
+  DriversPage,
+  EmployeesPage,
+  ExchangeHistoryPage,
+  ExpenseCategoriesPage,
+  ExpensesPage,
+  ExpensesReportPage,
+  AccountingExpenseCategoriesPage,
+  RevenueCategoriesPage,
+  InventoryStockPage,
+  JournalPage,
+  Login,
+  MaintenancePage,
+  MeaurmentsPage,
+  ProductListPage,
+  ProductionReportPage,
+  DailyProductionPage,
+  ProductionPlanPage,
+  ProductsReportPage,
+  PurchasePage,
+  RevenuesPage,
+  RevenuesReportPage,
+  RoutesPage,
+  SalePage,
+  ShareholdersPage,
+  StocktakingHistoryPage,
+  WarehouseTurnoverPage,
+  SuppliersPage,
+  SupplierDetailPage,
+  TransportInvoicesPage,
+  TransportationPage,
+  TransportReportPage,
+  UsersPage,
+  VehicleOwnersPage,
+  VehiclesPage,
+  VehicleTypesPage,
+  WarehousesPage,
+} from './lazyPages'
+
+function PageLoader() {
+  return (
+    <div className="d-flex justify-content-center align-items-center p-5 min-vh-50">
+      <div className="spinner-border text-primary" role="status" aria-label="در حال بارگذاری" />
+    </div>
+  )
+}
 
 function PlaceholderPage({ title }) {
   return (
@@ -39,55 +69,72 @@ function PlaceholderPage({ title }) {
 
 function AppRoutes() {
   return (
-    <Routes>
-      <Route path="/login" element={<Login />} />
+    <Suspense fallback={<PageLoader />}>
+      <Routes>
+        <Route path="/login" element={<Login />} />
 
-      <Route element={<ProtectedRoute />}>
-        <Route element={<DashboardLayout />}>
-        <Route index element={<DashboardPage />} />
-        <Route path="reports" element={<PlaceholderPage title="آمار و تحلیل" />} />
+        <Route element={<ProtectedRoute />}>
+          <Route element={<DashboardLayout />}>
+            <Route index element={<DashboardPage />} />
+            <Route path="reports" element={<PlaceholderPage title="آمار و تحلیل" />} />
 
-        <Route path="people/customers" element={<CustomersPage />} />
-        <Route path="people/suppliers" element={<SuppliersPage />} />
-        <Route path="people/employees" element={<EmployeesPage />} />
-        <Route path="people/shareholders" element={<ShareholdersPage />} />
+            <Route path="people/customers" element={<CustomersPage />} />
+            <Route path="people/customers/:id" element={<CustomerDetailPage />} />
+            <Route path="people/suppliers" element={<SuppliersPage />} />
+            <Route path="people/suppliers/:id" element={<SupplierDetailPage />} />
+            <Route path="people/employees" element={<EmployeesPage />} />
+            <Route path="people/drivers" element={<DriversPage />} />
+            <Route path="people/vehicle-owners" element={<VehicleOwnersPage />} />
+            <Route path="people/departments" element={<DepartmentsPage />} />
+            <Route path="people/shareholders" element={<ShareholdersPage />} />
 
-        <Route path="currencies/list" element={<CurrenciesListPage />} />
-        <Route path="currencies/exchange" element={<ExchangeHistoryPage />} />
+            <Route path="currencies/list" element={<CurrenciesListPage />} />
+            <Route path="currencies/exchange" element={<ExchangeHistoryPage />} />
 
-        <Route path="production/daily" element={<PlaceholderPage title="گزارش روزانه تولید" />} />
-        <Route path="production/plan" element={<PlaceholderPage title="برنامه تولید" />} />
+            <Route path="production/daily" element={<DailyProductionPage />} />
+            <Route path="production/plan" element={<ProductionPlanPage />} />
 
-        <Route path="transport/shipping" element={<TransportationPage />} />
-        <Route path="transport/vehicles" element={<VehiclesPage />} />
-        <Route path="transport/maintenance" element={<MaintenancePage />} />
+            <Route path="transport/shipping" element={<TransportationPage />} />
+            <Route path="transport/routes" element={<RoutesPage />} />
+            <Route path="transport/vehicles" element={<VehiclesPage />} />
+            <Route path="transport/vehicle-types" element={<VehicleTypesPage />} />
+            <Route path="transport/maintenance" element={<MaintenancePage />} />
+            <Route path="transport/invoices" element={<TransportInvoicesPage />} />
+            <Route path="transport/expense-categories" element={<ExpenseCategoriesPage />} />
 
-        <Route path="transactions/purchase" element={<PurchasePage />} />
-        <Route path="transactions/sale" element={<SalePage />} />
+            <Route path="transactions/purchase" element={<PurchasePage />} />
+            <Route path="transactions/sale" element={<SalePage />} />
 
-        <Route path="products/list" element={<ProductListPage />} />
+            <Route path="products/list" element={<ProductListPage />} />
+            <Route path="products/categories" element={<CategoriesPage />} />
+            <Route path="products/meaurments" element={<MeaurmentsPage />} />
 
-        <Route path="inventory/stock" element={<PlaceholderPage title="موجودی انبار" />} />
-        <Route path="inventory/transfers" element={<PlaceholderPage title="انتقالات انبار" />} />
+            <Route path="inventory/warehouses" element={<WarehousesPage />} />
+            <Route path="inventory/stock" element={<InventoryStockPage />} />
+            <Route path="inventory/turnover" element={<WarehouseTurnoverPage />} />
+            <Route path="inventory/stocktaking" element={<StocktakingHistoryPage />} />
 
-        <Route path="accounting/revenues" element={<RevenuesPage />} />
-        <Route path="accounting/expenses" element={<ExpensesPage />} />
+            <Route path="accounting/revenues" element={<RevenuesPage />} />
+            <Route path="accounting/expenses" element={<ExpensesPage />} />
+            <Route path="accounting/revenue-categories" element={<RevenueCategoriesPage />} />
+            <Route path="accounting/expense-categories" element={<AccountingExpenseCategoriesPage />} />
 
-        <Route path="reporting/products" element={<ProductsReportPage />} />
-        <Route path="reporting/production" element={<ProductionReportPage />} />
-        <Route path="reporting/transport" element={<TransportReportPage />} />
-        <Route path="reporting/revenues" element={<RevenuesReportPage />} />
-        <Route path="reporting/expenses" element={<ExpensesReportPage />} />
-        <Route path="reporting/journal" element={<JournalPage />} />
+            <Route path="reporting/products" element={<ProductsReportPage />} />
+            <Route path="reporting/production" element={<ProductionReportPage />} />
+            <Route path="reporting/transport" element={<TransportReportPage />} />
+            <Route path="reporting/revenues" element={<RevenuesReportPage />} />
+            <Route path="reporting/expenses" element={<ExpensesReportPage />} />
+            <Route path="reporting/journal" element={<JournalPage />} />
 
-        <Route path="users/list" element={<UsersPage />} />
-        <Route path="users/roles" element={<AccessLevelsPage />} />
+            <Route path="users/list" element={<UsersPage />} />
+            <Route path="users/roles" element={<AccessLevelsPage />} />
 
-        <Route path="settings" element={<PlaceholderPage title="تنظیمات" />} />
-        <Route path="*" element={<Navigate to="/" replace />} />
+            <Route path="settings" element={<PlaceholderPage title="تنظیمات" />} />
+            <Route path="*" element={<Navigate to="/" replace />} />
+          </Route>
         </Route>
-      </Route>
-    </Routes>
+      </Routes>
+    </Suspense>
   )
 }
 
