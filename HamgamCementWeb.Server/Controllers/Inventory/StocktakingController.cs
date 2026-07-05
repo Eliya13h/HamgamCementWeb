@@ -1,4 +1,5 @@
 using System.ComponentModel.DataAnnotations;
+using HamgamCementWeb.Server.Authorization;
 using HamgamCementWeb.Server.Controllers.Transport;
 using HamgamCementWeb.Server.Data;
 using HamgamCementWeb.Server.Data.Models.Inventory;
@@ -22,13 +23,19 @@ public class StocktakingController : InventoryControllerBase
     };
 
     private readonly IMeaurmentConversionService _conversion;
+    private readonly IFifoInventoryService _fifo;
 
-    public StocktakingController(AppDbContext db, IMeaurmentConversionService conversion) : base(db)
+    public StocktakingController(
+        AppDbContext db,
+        IMeaurmentConversionService conversion,
+        IFifoInventoryService fifo) : base(db)
     {
         _conversion = conversion;
+        _fifo = fifo;
     }
 
     [HttpPost("datatable")]
+    [HasPermission("inventory.stocktaking.view")]
     public async Task<IActionResult> DataTable(
         [FromBody] DataTableRequest request,
         CancellationToken cancellationToken)
@@ -92,6 +99,7 @@ public class StocktakingController : InventoryControllerBase
     }
 
     [HttpGet("{id:int}")]
+    [HasPermission("inventory.stocktaking.view")]
     public async Task<IActionResult> GetById(int id, CancellationToken cancellationToken)
     {
         var stocktaking = await Db.Stocktakings
@@ -135,6 +143,7 @@ public class StocktakingController : InventoryControllerBase
     }
 
     [HttpPost]
+    [HasPermission("inventory.stocktaking.create")]
     public async Task<IActionResult> Create(
         [FromBody] SaveStocktakingRequest request,
         CancellationToken cancellationToken)
@@ -211,7 +220,9 @@ public class StocktakingController : InventoryControllerBase
         });
     }
 
+    // چرا edit: تأیید سند انبارگردانی تغییر وضعیت آن است و به .edit نگاشت می‌شود.
     [HttpPost("{id:int}/confirm")]
+    [HasPermission("inventory.stocktaking.edit")]
     public async Task<IActionResult> Confirm(int id, CancellationToken cancellationToken)
     {
         var stocktaking = await Db.Stocktakings
@@ -233,35 +244,19 @@ public class StocktakingController : InventoryControllerBase
             return Conflict(new { message = "سند لغو‌شده قابل تأیید نیست." });
         }
 
+        var userId = ResolveCurrentUserId();
+
+        // چرا AdjustToCountAsync: هم موجودی تجمیعی و هم مجموع Lotها را با مقدار شمارش‌شده هماهنگ می‌کند
+        // تا FIFO پس از انبارگردانی از موجودی واقعی تخصیص دهد و ناسازگاری Stock/Lot رخ ندهد.
         foreach (var line in stocktaking.Lines.Where(l => l.IsDeleted != true))
         {
-            var stock = await Db.InventoryStocks
-                .FirstOrDefaultAsync(
-                    s => s.WarehouseId == stocktaking.WarehouseId &&
-                         s.ProductId == line.ProductId &&
-                         s.IsDeleted != true,
-                    cancellationToken);
-
-            if (stock is null)
-            {
-                stock = new InventoryStock
-                {
-                    WarehouseId = stocktaking.WarehouseId,
-                    ProductId = line.ProductId,
-                    QuantityInBase = line.CountedQuantityInBase,
-                    IsDeleted = false,
-                    CreatedAt = DateTime.Now,
-                    CreatedBy = ResolveCurrentUserId(),
-                };
-                Db.InventoryStocks.Add(stock);
-            }
-            else
-            {
-                stock.QuantityInBase = line.CountedQuantityInBase;
-                stock.IsUpdated = true;
-                stock.UpdatedAt = DateTime.Now;
-                stock.UpdatedBy = ResolveCurrentUserId();
-            }
+            await _fifo.AdjustToCountAsync(
+                line.ProductId,
+                stocktaking.WarehouseId,
+                line.CountedQuantityInBase,
+                stocktaking.StocktakingDate,
+                userId,
+                cancellationToken);
         }
 
         stocktaking.Status = StocktakingStatus.Confirmed;
@@ -274,6 +269,7 @@ public class StocktakingController : InventoryControllerBase
     }
 
     [HttpDelete("{id:int}")]
+    [HasPermission("inventory.stocktaking.delete")]
     public async Task<IActionResult> Delete(int id, CancellationToken cancellationToken)
     {
         var entity = await Db.Stocktakings
@@ -296,10 +292,22 @@ public class StocktakingController : InventoryControllerBase
         return Ok(new { message = "سند انبارگردانی حذف شد." });
     }
 
+    // چرا Max به‌جای Count: با Count پس از حذف رکورد، شماره تکراری تولید می‌شد؛ استخراج عدد از آخرین کد
+    // و افزودن یک واحد از تکرار جلوگیری می‌کند.
     private async Task<string> GenerateCodeAsync(CancellationToken cancellationToken)
     {
-        var count = await Db.Stocktakings.CountAsync(cancellationToken);
-        return $"HMST{(count + 1):D5}";
+        var codes = await Db.Stocktakings
+            .IgnoreQueryFilters()
+            .Where(s => s.Code != null && s.Code.StartsWith("HMST"))
+            .Select(s => s.Code)
+            .ToListAsync(cancellationToken);
+
+        var maxSequence = codes
+            .Select(c => int.TryParse(c.Substring(4), out var n) ? n : 0)
+            .DefaultIfEmpty(0)
+            .Max();
+
+        return $"HMST{(maxSequence + 1):D5}";
     }
 
     private static string GetStatusLabel(StocktakingStatus status) => status switch

@@ -1,5 +1,6 @@
 using System.ComponentModel.DataAnnotations;
 using System.Security.Claims;
+using HamgamCementWeb.Server.Authorization;
 using HamgamCementWeb.Server.Controllers.Transport;
 using HamgamCementWeb.Server.Data;
 using HamgamCementWeb.Server.Data.Models.Inventory;
@@ -53,6 +54,7 @@ public class WarehouseController : InventoryControllerBase
     }
 
     [HttpPost("datatable")]
+    [HasPermission("inventory.warehouses.view")]
     public async Task<IActionResult> DataTable(
         [FromBody] DataTableRequest request,
         CancellationToken cancellationToken)
@@ -122,6 +124,8 @@ public class WarehouseController : InventoryControllerBase
         });
     }
 
+    // چرا بدون HasPermission: دراپ‌داون انبار در فاکتور خرید/فروش، تولید و انبارگردانی
+    // استفاده می‌شود؛ فقط احراز هویت لازم است تا صفحات وابسته قفل نشوند.
     [HttpGet("list")]
     public async Task<IActionResult> List(
         [FromQuery] string? types,
@@ -160,6 +164,7 @@ public class WarehouseController : InventoryControllerBase
     }
 
     [HttpPost]
+    [HasPermission("inventory.warehouses.create")]
     public async Task<IActionResult> Create(
         [FromBody] SaveWarehouseRequest request,
         CancellationToken cancellationToken)
@@ -196,6 +201,7 @@ public class WarehouseController : InventoryControllerBase
     }
 
     [HttpPut("{id:int}")]
+    [HasPermission("inventory.warehouses.edit")]
     public async Task<IActionResult> Update(
         int id,
         [FromBody] SaveWarehouseRequest request,
@@ -237,6 +243,7 @@ public class WarehouseController : InventoryControllerBase
     }
 
     [HttpDelete("{id:int}")]
+    [HasPermission("inventory.warehouses.delete")]
     public async Task<IActionResult> Delete(int id, CancellationToken cancellationToken)
     {
         var entity = await Db.Warehouses

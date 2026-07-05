@@ -1,5 +1,6 @@
 using System.ComponentModel.DataAnnotations;
 using System.Security.Claims;
+using HamgamCementWeb.Server.Authorization;
 using HamgamCementWeb.Server.Controllers.Transport;
 using HamgamCementWeb.Server.Data;
 using HamgamCementWeb.Server.Data.Models.Invoice;
@@ -35,6 +36,7 @@ public class SupplierController : ControllerBase
     }
 
     [HttpGet("{id:int}")]
+    [HasPermission("people.suppliers.view")]
     public async Task<IActionResult> Get(int id, CancellationToken cancellationToken)
     {
         var canViewDeleted = await CanViewDeletedAsync(cancellationToken);
@@ -70,6 +72,7 @@ public class SupplierController : ControllerBase
     }
 
     [HttpPost("datatable")]
+    [HasPermission("people.suppliers.view")]
     public async Task<IActionResult> DataTable(
         [FromBody] DataTableRequest request,
         CancellationToken cancellationToken)
@@ -124,6 +127,7 @@ public class SupplierController : ControllerBase
     }
 
     [HttpPost("{id:int}/purchase-invoices/datatable")]
+    [HasPermission("people.suppliers.view")]
     public async Task<IActionResult> PurchaseInvoicesDataTable(
         int id,
         [FromBody] DataTableRequest request,
@@ -177,6 +181,7 @@ public class SupplierController : ControllerBase
     }
 
     [HttpPost]
+    [HasPermission("people.suppliers.create")]
     public async Task<IActionResult> Create(
         [FromBody] SaveSupplierRequest request,
         CancellationToken cancellationToken)
@@ -212,6 +217,7 @@ public class SupplierController : ControllerBase
     }
 
     [HttpPut("{id:int}")]
+    [HasPermission("people.suppliers.edit")]
     public async Task<IActionResult> Update(
         int id,
         [FromBody] SaveSupplierRequest request,
@@ -249,6 +255,7 @@ public class SupplierController : ControllerBase
     }
 
     [HttpDelete("{id:int}")]
+    [HasPermission("people.suppliers.delete")]
     public async Task<IActionResult> Delete(int id, CancellationToken cancellationToken)
     {
         var canViewDeleted = await CanViewDeletedAsync(cancellationToken);
@@ -326,7 +333,7 @@ public class SupplierController : ControllerBase
     {
         InvoiceStatus.Proforma => "پیش فاکتور",
         InvoiceStatus.Order => "آردر",
-        InvoiceStatus.Inoivce => "فاکتور",
+        InvoiceStatus.Invoice => "فاکتور",
         _ => "استعلام قیمت",
     };
 

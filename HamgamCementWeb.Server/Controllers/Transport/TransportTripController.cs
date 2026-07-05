@@ -1,4 +1,5 @@
 using System.ComponentModel.DataAnnotations;
+using HamgamCementWeb.Server.Authorization;
 using HamgamCementWeb.Server.Data;
 using HamgamCementWeb.Server.Data.Models.Transport;
 using HamgamCementWeb.Server.Services;
@@ -28,6 +29,7 @@ public class TransportTripController : TransportControllerBase
     }
 
     [HttpPost("datatable")]
+    [HasPermission("transport.shipping.view")]
     public async Task<IActionResult> DataTable(
         [FromBody] DataTableRequest request,
         CancellationToken cancellationToken)
@@ -139,6 +141,7 @@ public class TransportTripController : TransportControllerBase
     }
 
     [HttpPost]
+    [HasPermission("transport.shipping.create")]
     public async Task<IActionResult> Create(
         [FromBody] SaveTripRequest request,
         CancellationToken cancellationToken)
@@ -148,14 +151,10 @@ public class TransportTripController : TransportControllerBase
             return ValidationProblem(ModelState);
         }
 
-        if (request.DriverId is > 0)
+        var validationError = await ValidateTripAsync(request, cancellationToken);
+        if (validationError is not null)
         {
-            var driverExists = await Db.Drivers
-                .AnyAsync(d => d.DriverID == request.DriverId && d.IsDeleted != true, cancellationToken);
-            if (!driverExists)
-            {
-                return NotFound(new { message = "راننده انتخاب‌شده یافت نشد." });
-            }
+            return BadRequest(new { message = validationError });
         }
 
         var trip = new TransportTrip
@@ -190,6 +189,7 @@ public class TransportTripController : TransportControllerBase
     }
 
     [HttpPut("{id:int}")]
+    [HasPermission("transport.shipping.edit")]
     public async Task<IActionResult> Update(
         int id,
         [FromBody] SaveTripRequest request,
@@ -207,14 +207,10 @@ public class TransportTripController : TransportControllerBase
             return NotFound(new { message = "سفر یافت نشد." });
         }
 
-        if (request.DriverId is > 0)
+        var validationError = await ValidateTripAsync(request, cancellationToken);
+        if (validationError is not null)
         {
-            var driverExists = await Db.Drivers
-                .AnyAsync(d => d.DriverID == request.DriverId && d.IsDeleted != true, cancellationToken);
-            if (!driverExists)
-            {
-                return NotFound(new { message = "راننده انتخاب‌شده یافت نشد." });
-            }
+            return BadRequest(new { message = validationError });
         }
 
         trip.VehicleId = request.VehicleId;
@@ -240,6 +236,7 @@ public class TransportTripController : TransportControllerBase
     }
 
     [HttpDelete("{id:int}")]
+    [HasPermission("transport.shipping.delete")]
     public async Task<IActionResult> Delete(int id, CancellationToken cancellationToken)
     {
         var trip = await Db.TransportTrips
@@ -257,6 +254,48 @@ public class TransportTripController : TransportControllerBase
         await Db.SaveChangesAsync(cancellationToken);
 
         return Ok(new { message = "سفر با موفقیت حذف شد." });
+    }
+
+    // اعتبارسنجی کلیدهای خارجی و سازگاری منطقی مقادیر سفر.
+    private async Task<string?> ValidateTripAsync(SaveTripRequest request, CancellationToken cancellationToken)
+    {
+        var vehicleExists = await Db.Vehicles
+            .AnyAsync(v => v.VehicleID == request.VehicleId && v.IsDeleted != true, cancellationToken);
+        if (!vehicleExists)
+        {
+            return "وسیله نقلیه انتخاب‌شده یافت نشد.";
+        }
+
+        var routeExists = await Db.TransportRoutes
+            .AnyAsync(r => r.TransportRouteID == request.TransportRouteId && r.IsDeleted != true, cancellationToken);
+        if (!routeExists)
+        {
+            return "مسیر انتخاب‌شده یافت نشد.";
+        }
+
+        if (request.DriverId is > 0)
+        {
+            var driverExists = await Db.Drivers
+                .AnyAsync(d => d.DriverID == request.DriverId && d.IsDeleted != true, cancellationToken);
+            if (!driverExists)
+            {
+                return "راننده انتخاب‌شده یافت نشد.";
+            }
+        }
+
+        if (request.ArrivalDate is DateTime arrival && arrival < request.DepartureDate)
+        {
+            return "تاریخ رسیدن نمی‌تواند پیش از تاریخ حرکت باشد.";
+        }
+
+        if (request.OdometerStart is decimal start &&
+            request.OdometerEnd is decimal end &&
+            end < start)
+        {
+            return "کیلومترشمار پایان نمی‌تواند کمتر از کیلومترشمار شروع باشد.";
+        }
+
+        return null;
     }
 
     private static string StatusName(TripStatus status) => status switch

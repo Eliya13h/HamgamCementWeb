@@ -46,6 +46,7 @@ import {
   VehiclesPage,
   VehicleTypesPage,
   WarehousesPage,
+  SettingsPage,
 } from './lazyPages'
 
 function PageLoader() {
@@ -129,7 +130,7 @@ function AppRoutes() {
             <Route path="users/list" element={<UsersPage />} />
             <Route path="users/roles" element={<AccessLevelsPage />} />
 
-            <Route path="settings" element={<PlaceholderPage title="تنظیمات" />} />
+            <Route path="settings" element={<SettingsPage />} />
             <Route path="*" element={<Navigate to="/" replace />} />
           </Route>
         </Route>

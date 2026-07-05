@@ -1,3 +1,4 @@
+using HamgamCementWeb.Server.Authorization;
 using HamgamCementWeb.Server.Controllers.Transport;
 using HamgamCementWeb.Server.Data;
 using HamgamCementWeb.Server.Services;
@@ -20,6 +21,7 @@ public class InventoryStockController : InventoryControllerBase
     }
 
     [HttpPost("datatable")]
+    [HasPermission("inventory.stock.view")]
     public async Task<IActionResult> DataTable(
         [FromBody] DataTableRequest request,
         CancellationToken cancellationToken)

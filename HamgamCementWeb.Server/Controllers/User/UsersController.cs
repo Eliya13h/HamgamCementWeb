@@ -1,5 +1,6 @@
 using System.ComponentModel.DataAnnotations;
 using System.Security.Claims;
+using HamgamCementWeb.Server.Authorization;
 using HamgamCementWeb.Server.Data;
 using HamgamCementWeb.Server.Data.Models.People;
 using HamgamCementWeb.Server.Services;
@@ -35,6 +36,7 @@ public class UsersController : ControllerBase
     }
 
     [HttpPost("datatable")]
+    [HasPermission("users.list.view")]
     public async Task<IActionResult> DataTable(
         [FromBody] DataTableRequest request,
         CancellationToken cancellationToken)
@@ -108,6 +110,7 @@ public class UsersController : ControllerBase
     }
 
     [HttpGet("available-employees")]
+    [HasPermission("users.list.view")]
     public async Task<IActionResult> AvailableEmployees(CancellationToken cancellationToken)
     {
         var employees = await _db.Employees
@@ -127,6 +130,7 @@ public class UsersController : ControllerBase
     }
 
     [HttpPost]
+    [HasPermission("users.list.create")]
     public async Task<IActionResult> Create(
         [FromBody] CreateUserRequest request,
         CancellationToken cancellationToken)
@@ -206,6 +210,7 @@ public class UsersController : ControllerBase
     }
 
     [HttpGet("roles")]
+    [HasPermission("users.list.view")]
     public async Task<IActionResult> Roles(CancellationToken cancellationToken)
     {
         var roles = await _db.Roles
@@ -219,6 +224,7 @@ public class UsersController : ControllerBase
     }
 
     [HttpGet("{id:int}/permissions")]
+    [HasPermission("users.roles.view")]
     public async Task<IActionResult> GetPermissions(int id, CancellationToken cancellationToken)
     {
         var user = await _db.Users
@@ -245,7 +251,10 @@ public class UsersController : ControllerBase
         });
     }
 
+    // چرا: مدیریت سطح دسترسی از صفحه‌ی «سطح دسترسی» (users.roles) انجام می‌شود
+    // پس عملیات ذخیره به extra action مربوطه یعنی users.roles.manage نگاشت می‌شود.
     [HttpPut("{id:int}/permissions")]
+    [HasPermission("users.roles.manage")]
     public async Task<IActionResult> UpdatePermissions(
         int id,
         [FromBody] UpdateUserPermissionsRequest request,
@@ -293,6 +302,7 @@ public class UsersController : ControllerBase
     }
 
     [HttpPut("{id:int}")]
+    [HasPermission("users.list.edit")]
     public async Task<IActionResult> Update(
         int id,
         [FromBody] UpdateUserRequest request,
@@ -357,6 +367,7 @@ public class UsersController : ControllerBase
     }
 
     [HttpPut("{id:int}/password")]
+    [HasPermission("users.list.changePassword")]
     public async Task<IActionResult> ChangePassword(
         int id,
         [FromBody] ChangePasswordRequest request,
@@ -386,6 +397,7 @@ public class UsersController : ControllerBase
     }
 
     [HttpDelete("{id:int}")]
+    [HasPermission("users.list.delete")]
     public async Task<IActionResult> Delete(int id, CancellationToken cancellationToken)
     {
         var user = await _db.Users

@@ -1,4 +1,5 @@
 using System.ComponentModel.DataAnnotations;
+using HamgamCementWeb.Server.Authorization;
 using HamgamCementWeb.Server.Controllers.Transport;
 using HamgamCementWeb.Server.Data;
 using HamgamCementWeb.Server.Data.Models.Finance;
@@ -30,6 +31,7 @@ public class ExpenseController : FinanceControllerBase
     }
 
     [HttpPost("datatable")]
+    [HasPermission("accounting.expenses.view")]
     public async Task<IActionResult> DataTable(
         [FromBody] DataTableRequest request,
         CancellationToken cancellationToken)
@@ -123,6 +125,7 @@ public class ExpenseController : FinanceControllerBase
     }
 
     [HttpPost]
+    [HasPermission("accounting.expenses.create")]
     public async Task<IActionResult> Create(
         [FromBody] SaveExpenseRequest request,
         CancellationToken cancellationToken)
@@ -192,6 +195,7 @@ public class ExpenseController : FinanceControllerBase
     }
 
     [HttpPut("{id:int}")]
+    [HasPermission("accounting.expenses.edit")]
     public async Task<IActionResult> Update(
         int id,
         [FromBody] SaveExpenseRequest request,
@@ -263,6 +267,7 @@ public class ExpenseController : FinanceControllerBase
     }
 
     [HttpDelete("{id:int}")]
+    [HasPermission("accounting.expenses.delete")]
     public async Task<IActionResult> Delete(int id, CancellationToken cancellationToken)
     {
         var expense = await Db.Expenses

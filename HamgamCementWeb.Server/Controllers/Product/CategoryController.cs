@@ -1,4 +1,5 @@
 using System.ComponentModel.DataAnnotations;
+using HamgamCementWeb.Server.Authorization;
 using HamgamCementWeb.Server.Controllers.Transport;
 using HamgamCementWeb.Server.Data;
 using HamgamCementWeb.Server.Data.Models.Product;
@@ -26,6 +27,7 @@ public class CategoryController : ProductControllerBase
     }
 
     [HttpPost("datatable")]
+    [HasPermission("products.categories.view")]
     public async Task<IActionResult> DataTable(
         [FromBody] DataTableRequest request,
         CancellationToken cancellationToken)
@@ -84,6 +86,7 @@ public class CategoryController : ProductControllerBase
         });
     }
 
+    // چرا بدون HasPermission: دراپ‌داون دسته‌بندی در فرم محصول استفاده می‌شود.
     [HttpGet("list")]
     public async Task<IActionResult> List(CancellationToken cancellationToken)
     {
@@ -105,6 +108,7 @@ public class CategoryController : ProductControllerBase
     }
 
     [HttpPost]
+    [HasPermission("products.categories.create")]
     public async Task<IActionResult> Create(
         [FromBody] SaveCategoryRequest request,
         CancellationToken cancellationToken)
@@ -138,6 +142,7 @@ public class CategoryController : ProductControllerBase
     }
 
     [HttpPut("{id:int}")]
+    [HasPermission("products.categories.edit")]
     public async Task<IActionResult> Update(
         int id,
         [FromBody] SaveCategoryRequest request,
@@ -181,6 +186,7 @@ public class CategoryController : ProductControllerBase
     }
 
     [HttpDelete("{id:int}")]
+    [HasPermission("products.categories.delete")]
     public async Task<IActionResult> Delete(int id, CancellationToken cancellationToken)
     {
         var entity = await Db.Categories

@@ -1,4 +1,5 @@
 using System.ComponentModel.DataAnnotations;
+using HamgamCementWeb.Server.Authorization;
 using HamgamCementWeb.Server.Controllers.Transport;
 using HamgamCementWeb.Server.Data;
 using HamgamCementWeb.Server.Data.Models.Finance;
@@ -25,6 +26,7 @@ public class ExpenseCategoryController : FinanceControllerBase
     }
 
     [HttpPost("datatable")]
+    [HasPermission("accounting.expense-categories.view")]
     public async Task<IActionResult> DataTable(
         [FromBody] DataTableRequest request,
         CancellationToken cancellationToken)
@@ -82,6 +84,9 @@ public class ExpenseCategoryController : FinanceControllerBase
     }
 
     // لیست دسته‌بندی‌ها برای دراپ‌داون ثبت مصرف متفرقه
+    // چرا بدون HasPermission: این endpoint سبک در فرم ثبت مصرف (صفحه‌ی مصارف) هم
+    // استفاده می‌شود؛ محدود کردن آن به دسترسیِ صفحه‌ی دسته‌بندی، کاربرانِ دارای فقط
+    // دسترسی مصارف را قفل می‌کند. پس فقط احراز هویت کافی است.
     [HttpGet("list")]
     public async Task<IActionResult> List(
         [FromQuery] bool forEntry = false,
@@ -107,6 +112,7 @@ public class ExpenseCategoryController : FinanceControllerBase
     }
 
     [HttpPost]
+    [HasPermission("accounting.expense-categories.create")]
     public async Task<IActionResult> Create(
         [FromBody] SaveExpenseCategoryRequest request,
         CancellationToken cancellationToken)
@@ -141,6 +147,7 @@ public class ExpenseCategoryController : FinanceControllerBase
     }
 
     [HttpPut("{id:int}")]
+    [HasPermission("accounting.expense-categories.edit")]
     public async Task<IActionResult> Update(
         int id,
         [FromBody] SaveExpenseCategoryRequest request,
@@ -185,6 +192,7 @@ public class ExpenseCategoryController : FinanceControllerBase
     }
 
     [HttpDelete("{id:int}")]
+    [HasPermission("accounting.expense-categories.delete")]
     public async Task<IActionResult> Delete(int id, CancellationToken cancellationToken)
     {
         var category = await Db.ExpenseCategories

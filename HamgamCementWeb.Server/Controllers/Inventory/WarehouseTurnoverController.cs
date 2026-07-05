@@ -1,3 +1,4 @@
+using HamgamCementWeb.Server.Authorization;
 using HamgamCementWeb.Server.Data;
 using HamgamCementWeb.Server.Services;
 using Microsoft.AspNetCore.Authorization;
@@ -18,6 +19,7 @@ public class WarehouseTurnoverController : InventoryControllerBase
     }
 
     [HttpPost("datatable")]
+    [HasPermission("inventory.turnover.view")]
     public async Task<IActionResult> DataTable(
         [FromBody] WarehouseTurnoverDataTableRequest request,
         CancellationToken cancellationToken)

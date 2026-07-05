@@ -1,5 +1,7 @@
 using System.ComponentModel.DataAnnotations;
+using HamgamCementWeb.Server.Authorization;
 using HamgamCementWeb.Server.Data;
+using HamgamCementWeb.Server.Data.Models.Finance;
 using HamgamCementWeb.Server.Data.Models.Transport;
 using HamgamCementWeb.Server.Services;
 using Microsoft.AspNetCore.Authorization;
@@ -20,11 +22,20 @@ public class TransportInvoiceController : TransportControllerBase
         [5] = nameof(TransportInvoice.TotalAmount),
     };
 
-    public TransportInvoiceController(AppDbContext db) : base(db)
+    private readonly ICurrencyConversionService _currency;
+    private readonly IFinanceCategoryService _financeCategories;
+
+    public TransportInvoiceController(
+        AppDbContext db,
+        ICurrencyConversionService currency,
+        IFinanceCategoryService financeCategories) : base(db)
     {
+        _currency = currency;
+        _financeCategories = financeCategories;
     }
 
     [HttpPost("datatable")]
+    [HasPermission("transport.invoices.view")]
     public async Task<IActionResult> DataTable(
         [FromBody] DataTableRequest request,
         CancellationToken cancellationToken)
@@ -95,6 +106,7 @@ public class TransportInvoiceController : TransportControllerBase
 
     // دریافت فاکتور به همراه ردیف‌های مصارف برای ویرایش
     [HttpGet("{id:int}")]
+    [HasPermission("transport.invoices.view")]
     public async Task<IActionResult> Get(int id, CancellationToken cancellationToken)
     {
         var invoice = await Db.TransportInvoices
@@ -136,6 +148,7 @@ public class TransportInvoiceController : TransportControllerBase
     }
 
     [HttpPost]
+    [HasPermission("transport.invoices.create")]
     public async Task<IActionResult> Create(
         [FromBody] SaveInvoiceRequest request,
         CancellationToken cancellationToken)
@@ -150,8 +163,17 @@ public class TransportInvoiceController : TransportControllerBase
             return BadRequest(new { message = "فاکتور باید حداقل یک ردیف مصرف داشته باشد." });
         }
 
+        var validationError = await ValidateInvoiceReferencesAsync(request, cancellationToken);
+        if (validationError is not null)
+        {
+            return BadRequest(new { message = validationError });
+        }
+
         var userId = ResolveCurrentUserId();
         var now = DateTime.Now;
+
+        // چرا تراکنش: ایجاد فاکتور، ردیف‌ها و رکورد مصرف حسابداری مرتبط باید اتمیک باشد.
+        await using var tx = await Db.Database.BeginTransactionAsync(cancellationToken);
 
         var invoice = new TransportInvoice
         {
@@ -160,7 +182,6 @@ public class TransportInvoiceController : TransportControllerBase
             TransportTripId = request.TransportTripId,
             InvoiceDate = request.InvoiceDate,
             Description = request.Description?.Trim(),
-            TotalAmount = request.Expenses.Sum(e => e.Amount),
             IsActive = true,
             IsDeleted = false,
             CreatedAt = now,
@@ -169,7 +190,7 @@ public class TransportInvoiceController : TransportControllerBase
 
         foreach (var line in request.Expenses)
         {
-            invoice.Expenses.Add(new TransportExpense
+            var expense = new TransportExpense
             {
                 ExpensesCategoryId = line.ExpensesCategoryId,
                 Title = line.Title.Trim(),
@@ -181,19 +202,30 @@ public class TransportInvoiceController : TransportControllerBase
                 IsDeleted = false,
                 CreatedAt = now,
                 CreatedBy = userId,
-            });
+            };
+
+            await ApplyExpenseCurrencyAsync(expense, cancellationToken);
+            invoice.Expenses.Add(expense);
         }
+
+        invoice.TotalAmount = invoice.Expenses.Sum(e => e.Amount);
+        invoice.TotalAmountInBaseCurrency = invoice.Expenses.Sum(e => e.AmountInBaseCurrency);
 
         Db.TransportInvoices.Add(invoice);
         await Db.SaveChangesAsync(cancellationToken);
 
         invoice.InvoiceNumber = TransportCodeHelper.ForInvoice(invoice.TransportInvoiceID);
+
+        await SyncAccountingExpenseAsync(invoice, userId, cancellationToken);
         await Db.SaveChangesAsync(cancellationToken);
+
+        await tx.CommitAsync(cancellationToken);
 
         return Ok(new { message = "فاکتور مصارف با موفقیت ایجاد شد." });
     }
 
     [HttpPut("{id:int}")]
+    [HasPermission("transport.invoices.edit")]
     public async Task<IActionResult> Update(
         int id,
         [FromBody] SaveInvoiceRequest request,
@@ -209,6 +241,12 @@ public class TransportInvoiceController : TransportControllerBase
             return BadRequest(new { message = "فاکتور باید حداقل یک ردیف مصرف داشته باشد." });
         }
 
+        var validationError = await ValidateInvoiceReferencesAsync(request, cancellationToken);
+        if (validationError is not null)
+        {
+            return BadRequest(new { message = validationError });
+        }
+
         var invoice = await Db.TransportInvoices
             .Include(i => i.Expenses.Where(e => e.IsDeleted != true))
             .FirstOrDefaultAsync(i => i.TransportInvoiceID == id && i.IsDeleted != true, cancellationToken);
@@ -220,11 +258,13 @@ public class TransportInvoiceController : TransportControllerBase
         var userId = ResolveCurrentUserId();
         var now = DateTime.Now;
 
+        // چرا تراکنش: به‌روزرسانی فاکتور، ردیف‌ها و رکورد مصرف حسابداری مرتبط باید اتمیک باشد.
+        await using var tx = await Db.Database.BeginTransactionAsync(cancellationToken);
+
         invoice.VehicleId = request.VehicleId;
         invoice.TransportTripId = request.TransportTripId;
         invoice.InvoiceDate = request.InvoiceDate;
         invoice.Description = request.Description?.Trim();
-        invoice.TotalAmount = request.Expenses.Sum(e => e.Amount);
         invoice.IsUpdated = true;
         invoice.UpdatedAt = now;
         invoice.UpdatedBy = userId;
@@ -251,7 +291,7 @@ public class TransportInvoiceController : TransportControllerBase
 
             if (existing is null)
             {
-                invoice.Expenses.Add(new TransportExpense
+                var created = new TransportExpense
                 {
                     ExpensesCategoryId = line.ExpensesCategoryId,
                     Title = line.Title.Trim(),
@@ -263,7 +303,10 @@ public class TransportInvoiceController : TransportControllerBase
                     IsDeleted = false,
                     CreatedAt = now,
                     CreatedBy = userId,
-                });
+                };
+
+                await ApplyExpenseCurrencyAsync(created, cancellationToken);
+                invoice.Expenses.Add(created);
             }
             else
             {
@@ -276,15 +319,25 @@ public class TransportInvoiceController : TransportControllerBase
                 existing.IsUpdated = true;
                 existing.UpdatedAt = now;
                 existing.UpdatedBy = userId;
+
+                await ApplyExpenseCurrencyAsync(existing, cancellationToken);
             }
         }
 
+        var activeExpenses = invoice.Expenses.Where(e => e.IsDeleted != true).ToList();
+        invoice.TotalAmount = activeExpenses.Sum(e => e.Amount);
+        invoice.TotalAmountInBaseCurrency = activeExpenses.Sum(e => e.AmountInBaseCurrency);
+
+        await SyncAccountingExpenseAsync(invoice, userId, cancellationToken);
         await Db.SaveChangesAsync(cancellationToken);
+
+        await tx.CommitAsync(cancellationToken);
 
         return Ok(new { message = "فاکتور مصارف با موفقیت ویرایش شد." });
     }
 
     [HttpDelete("{id:int}")]
+    [HasPermission("transport.invoices.delete")]
     public async Task<IActionResult> Delete(int id, CancellationToken cancellationToken)
     {
         var invoice = await Db.TransportInvoices
@@ -311,9 +364,158 @@ public class TransportInvoiceController : TransportControllerBase
             expense.DeletedBy = userId;
         }
 
+        // حذف رکورد مصرف حسابداری مرتبط تا در گزارش‌های مالی باقی نماند.
+        if (invoice.ExpenseId is int expenseId)
+        {
+            var accountingExpense = await Db.Expenses
+                .FirstOrDefaultAsync(e => e.ExpenseID == expenseId && e.IsDeleted != true, cancellationToken);
+            if (accountingExpense is not null)
+            {
+                accountingExpense.IsDeleted = true;
+                accountingExpense.IsActive = false;
+                accountingExpense.DeletedAt = now;
+                accountingExpense.DeletedBy = userId;
+            }
+        }
+
         await Db.SaveChangesAsync(cancellationToken);
 
         return Ok(new { message = "فاکتور مصارف با موفقیت حذف شد." });
+    }
+
+    // چرا: مبلغ هر ردیف مصرف را با اسنپ‌شات نرخ ارز به ارز پایه تبدیل و روی ردیف ذخیره می‌کند
+    // تا جمع فاکتورهای چندارزی درست باشد. اگر ارز مشخص نشده باشد، ارز پایه فرض می‌شود.
+    private async Task ApplyExpenseCurrencyAsync(TransportExpense expense, CancellationToken cancellationToken)
+    {
+        var baseCurrency = await _currency.GetBaseCurrencyAsync(cancellationToken);
+        var currencyId = expense.CurrencyId ?? baseCurrency.CurrencyID;
+
+        var snapshot = await _currency.GetSnapshotAsync(currencyId, expense.ExpenseDate, cancellationToken);
+
+        expense.BaseCurrencyId = snapshot.BaseCurrencyId;
+        expense.ExchangeHistoryId = snapshot.ExchangeHistoryId;
+        expense.BaseUnitsPerUnitAtTransaction = snapshot.BaseUnitsPerUnit;
+        expense.AmountInBaseCurrency = _currency.ConvertToBase(expense.Amount, snapshot);
+    }
+
+    // چرا: فاکتور مصارف حمل‌ونقل باید در حسابداری به‌صورت یک رکورد مصرف (Expense) به ارز پایه منعکس شود؛
+    // این متد رکورد را در ایجاد/به‌روزرسانی هماهنگ نگه می‌دارد (ساخت یا به‌روزرسانی مبلغ کل).
+    private async Task SyncAccountingExpenseAsync(TransportInvoice invoice, int? userId, CancellationToken cancellationToken)
+    {
+        var now = DateTime.Now;
+        var baseCurrency = await _currency.GetBaseCurrencyAsync(cancellationToken);
+        var categoryId = await _financeCategories.GetExpenseCategoryIdAsync(
+            FinanceCategoryCode.TransportExpense,
+            cancellationToken);
+
+        Expense? expense = invoice.ExpenseId is int existingId
+            ? await Db.Expenses.FirstOrDefaultAsync(e => e.ExpenseID == existingId, cancellationToken)
+            : null;
+
+        if (invoice.TotalAmountInBaseCurrency <= 0)
+        {
+            // اگر مبلغی باقی نمانده، رکورد مصرف موجود حذف (soft delete) می‌شود.
+            if (expense is not null)
+            {
+                expense.IsDeleted = true;
+                expense.IsActive = false;
+                expense.DeletedAt = now;
+                expense.DeletedBy = userId;
+                invoice.ExpenseId = null;
+            }
+
+            return;
+        }
+
+        if (expense is null)
+        {
+            expense = new Expense
+            {
+                ExpenseDate = invoice.InvoiceDate,
+                ExpenseCategoryId = categoryId,
+                Source = FinancialEntrySource.TransportExpense,
+                CurrencyId = baseCurrency.CurrencyID,
+                BaseCurrencyId = baseCurrency.CurrencyID,
+                BaseUnitsPerUnitAtTransaction = 1m,
+                IsActive = true,
+                IsDeleted = false,
+                CreatedAt = now,
+                CreatedBy = userId,
+            };
+            Db.Expenses.Add(expense);
+        }
+
+        // مبلغ حسابداری همیشه به ارز پایه ثبت می‌شود؛ چون فاکتور می‌تواند ردیف‌های چندارزی داشته باشد.
+        expense.Title = $"مصارف حمل‌ونقل — {invoice.InvoiceNumber}";
+        expense.ExpenseDate = invoice.InvoiceDate;
+        expense.ExpenseCategoryId = categoryId;
+        expense.Amount = invoice.TotalAmountInBaseCurrency;
+        expense.AmountInBaseCurrency = invoice.TotalAmountInBaseCurrency;
+        expense.Description = invoice.Description;
+
+        if (expense.ExpenseID != 0)
+        {
+            expense.IsUpdated = true;
+            expense.UpdatedAt = now;
+            expense.UpdatedBy = userId;
+            expense.IsDeleted = false;
+            expense.IsActive = true;
+        }
+
+        await Db.SaveChangesAsync(cancellationToken);
+        invoice.ExpenseId = expense.ExpenseID;
+    }
+
+    // اعتبارسنجی وجود کلیدهای خارجی و سازگاری سفر با وسیله.
+    private async Task<string?> ValidateInvoiceReferencesAsync(SaveInvoiceRequest request, CancellationToken cancellationToken)
+    {
+        var vehicleExists = await Db.Vehicles
+            .AnyAsync(v => v.VehicleID == request.VehicleId && v.IsDeleted != true, cancellationToken);
+        if (!vehicleExists)
+        {
+            return "وسیله نقلیه انتخاب‌شده یافت نشد.";
+        }
+
+        if (request.TransportTripId is int tripId)
+        {
+            var trip = await Db.TransportTrips
+                .AsNoTracking()
+                .FirstOrDefaultAsync(t => t.TransportTripID == tripId && t.IsDeleted != true, cancellationToken);
+            if (trip is null)
+            {
+                return "سفر انتخاب‌شده یافت نشد.";
+            }
+
+            if (trip.VehicleId != request.VehicleId)
+            {
+                return "سفر انتخاب‌شده متعلق به وسیله نقلیه‌ی این فاکتور نیست.";
+            }
+        }
+
+        var categoryIds = request.Expenses.Select(e => e.ExpensesCategoryId).Distinct().ToList();
+        var validCategoryCount = await Db.ExpensesCategories
+            .CountAsync(c => categoryIds.Contains(c.ExpensesCategoryID) && c.IsDeleted != true, cancellationToken);
+        if (validCategoryCount != categoryIds.Count)
+        {
+            return "یک یا چند دسته‌بندی مصرف نامعتبر است.";
+        }
+
+        var currencyIds = request.Expenses
+            .Where(e => e.CurrencyId is int)
+            .Select(e => e.CurrencyId!.Value)
+            .Distinct()
+            .ToList();
+        if (currencyIds.Count > 0)
+        {
+            var validCurrencyCount = await Db.Currencies
+                .CountAsync(c => currencyIds.Contains(c.CurrencyID) && c.IsDeleted != true, cancellationToken);
+            if (validCurrencyCount != currencyIds.Count)
+            {
+                return "یک یا چند ارز انتخاب‌شده نامعتبر است.";
+            }
+        }
+
+        return null;
     }
 
     public class SaveInvoiceRequest

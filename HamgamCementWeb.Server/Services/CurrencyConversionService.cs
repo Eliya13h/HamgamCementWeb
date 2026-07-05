@@ -1,6 +1,7 @@
 using HamgamCementWeb.Server.Data;
 using HamgamCementWeb.Server.Data.Models.Finance;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
 
 namespace HamgamCementWeb.Server.Services;
 
@@ -22,10 +23,12 @@ public interface ICurrencyConversionService
 public class CurrencyConversionService : ICurrencyConversionService
 {
     private readonly AppDbContext _db;
+    private readonly ILogger<CurrencyConversionService> _logger;
 
-    public CurrencyConversionService(AppDbContext db)
+    public CurrencyConversionService(AppDbContext db, ILogger<CurrencyConversionService> logger)
     {
         _db = db;
+        _logger = logger;
     }
 
     public async Task<Currency> GetBaseCurrencyAsync(CancellationToken cancellationToken = default)
@@ -78,6 +81,15 @@ public class CurrencyConversionService : ICurrencyConversionService
             {
                 throw new InvalidOperationException($"نرخ ارز «{currency.Name}» در تاریخ {date:yyyy/MM/dd} یافت نشد.");
             }
+
+            // چرا هشدار: تاریخچه نرخ برای این تاریخ وجود ندارد و به‌ناچار از نرخ جاری استفاده می‌شود؛ این fallback
+            // می‌تواند ارزش‌گذاری معاملات گذشته را نادرست کند، پس برای ردیابی شفاف لاگ می‌شود (رفتار تغییر نمی‌کند).
+            _logger.LogWarning(
+                "نرخ تاریخی برای ارز {CurrencyName} (شناسه {CurrencyId}) در تاریخ {Date:yyyy-MM-dd} یافت نشد؛ از نرخ جاری ({Rate}) استفاده شد.",
+                currency.Name,
+                currency.CurrencyID,
+                date,
+                currentRate.BaseUnitsPerUnit);
 
             return new CurrencySnapshot(
                 currency.CurrencyID,

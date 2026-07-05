@@ -1,5 +1,6 @@
 using System.ComponentModel.DataAnnotations;
 using System.Security.Claims;
+using HamgamCementWeb.Server.Authorization;
 using HamgamCementWeb.Server.Data;
 using HamgamCementWeb.Server.Data.Models.People;
 using Microsoft.AspNetCore.Authorization;
@@ -28,6 +29,7 @@ public class DepartmentController : ControllerBase
     }
 
     [HttpPost("datatable")]
+    [HasPermission("people.departments.view")]
     public async Task<IActionResult> DataTable(
         [FromBody] DataTableRequest request,
         CancellationToken cancellationToken)
@@ -89,6 +91,7 @@ public class DepartmentController : ControllerBase
     }
 
     [HttpPost]
+    [HasPermission("people.departments.create")]
     public async Task<IActionResult> Create(
         [FromBody] SaveDepartmentRequest request,
         CancellationToken cancellationToken)
@@ -117,6 +120,7 @@ public class DepartmentController : ControllerBase
     }
 
     [HttpPut("{id:int}")]
+    [HasPermission("people.departments.edit")]
     public async Task<IActionResult> Update(
         int id,
         [FromBody] SaveDepartmentRequest request,
@@ -147,6 +151,7 @@ public class DepartmentController : ControllerBase
     }
 
     [HttpDelete("{id:int}")]
+    [HasPermission("people.departments.delete")]
     public async Task<IActionResult> Delete(int id, CancellationToken cancellationToken)
     {
         var department = await _db.Departments

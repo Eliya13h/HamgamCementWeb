@@ -544,7 +544,7 @@ public class InvoiceReportService : IInvoiceReportService
 
         InvoiceStatus.Order => "آردر",
 
-        InvoiceStatus.Inoivce => "فاکتور",
+        InvoiceStatus.Invoice => "فاکتور",
 
         _ => status.ToString(),
 

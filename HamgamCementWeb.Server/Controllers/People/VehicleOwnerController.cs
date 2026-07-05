@@ -1,5 +1,6 @@
 using System.ComponentModel.DataAnnotations;
 using System.Security.Claims;
+using HamgamCementWeb.Server.Authorization;
 using HamgamCementWeb.Server.Data;
 using HamgamCementWeb.Server.Data.Models.People;
 using Microsoft.AspNetCore.Authorization;
@@ -30,6 +31,7 @@ public class VehicleOwnerController : ControllerBase
     }
 
     [HttpPost("datatable")]
+    [HasPermission("people.vehicle-owners.view")]
     public async Task<IActionResult> DataTable(
         [FromBody] DataTableRequest request,
         CancellationToken cancellationToken)
@@ -123,6 +125,7 @@ public class VehicleOwnerController : ControllerBase
     }
 
     [HttpPost]
+    [HasPermission("people.vehicle-owners.create")]
     public async Task<IActionResult> Create(
         [FromBody] SaveVehicleOwnerRequest request,
         CancellationToken cancellationToken)
@@ -158,6 +161,7 @@ public class VehicleOwnerController : ControllerBase
     }
 
     [HttpPut("{id:int}")]
+    [HasPermission("people.vehicle-owners.edit")]
     public async Task<IActionResult> Update(
         int id,
         [FromBody] SaveVehicleOwnerRequest request,
@@ -195,6 +199,7 @@ public class VehicleOwnerController : ControllerBase
     }
 
     [HttpDelete("{id:int}")]
+    [HasPermission("people.vehicle-owners.delete")]
     public async Task<IActionResult> Delete(int id, CancellationToken cancellationToken)
     {
         var vehicleOwner = await _db.VehicleOwners

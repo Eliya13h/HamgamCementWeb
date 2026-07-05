@@ -1,4 +1,5 @@
 using System.ComponentModel.DataAnnotations;
+using HamgamCementWeb.Server.Authorization;
 using HamgamCementWeb.Server.Data;
 using HamgamCementWeb.Server.Data.Models.Transport;
 using HamgamCementWeb.Server.Services;
@@ -27,6 +28,7 @@ public class VehicleController : TransportControllerBase
     }
 
     [HttpPost("datatable")]
+    [HasPermission("transport.vehicles.view")]
     public async Task<IActionResult> DataTable(
         [FromBody] DataTableRequest request,
         CancellationToken cancellationToken)
@@ -129,6 +131,7 @@ public class VehicleController : TransportControllerBase
     }
 
     [HttpPost]
+    [HasPermission("transport.vehicles.create")]
     public async Task<IActionResult> Create(
         [FromBody] SaveVehicleRequest request,
         CancellationToken cancellationToken)
@@ -191,6 +194,7 @@ public class VehicleController : TransportControllerBase
     }
 
     [HttpPut("{id:int}")]
+    [HasPermission("transport.vehicles.edit")]
     public async Task<IActionResult> Update(
         int id,
         [FromBody] SaveVehicleRequest request,
@@ -252,6 +256,7 @@ public class VehicleController : TransportControllerBase
     }
 
     [HttpDelete("{id:int}")]
+    [HasPermission("transport.vehicles.delete")]
     public async Task<IActionResult> Delete(int id, CancellationToken cancellationToken)
     {
         var vehicle = await Db.Vehicles

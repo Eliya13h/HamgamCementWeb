@@ -1,5 +1,6 @@
 using System.ComponentModel.DataAnnotations;
 using System.Security.Claims;
+using HamgamCementWeb.Server.Authorization;
 using HamgamCementWeb.Server.Data;
 using HamgamCementWeb.Server.Data.Models.People;
 using Microsoft.AspNetCore.Authorization;
@@ -30,6 +31,7 @@ public class DriverController : ControllerBase
     }
 
     [HttpPost("datatable")]
+    [HasPermission("people.drivers.view")]
     public async Task<IActionResult> DataTable(
         [FromBody] DataTableRequest request,
         CancellationToken cancellationToken)
@@ -124,6 +126,7 @@ public class DriverController : ControllerBase
     }
 
     [HttpPost]
+    [HasPermission("people.drivers.create")]
     public async Task<IActionResult> Create(
         [FromBody] SaveDriverRequest request,
         CancellationToken cancellationToken)
@@ -159,6 +162,7 @@ public class DriverController : ControllerBase
     }
 
     [HttpPut("{id:int}")]
+    [HasPermission("people.drivers.edit")]
     public async Task<IActionResult> Update(
         int id,
         [FromBody] SaveDriverRequest request,
@@ -196,6 +200,7 @@ public class DriverController : ControllerBase
     }
 
     [HttpDelete("{id:int}")]
+    [HasPermission("people.drivers.delete")]
     public async Task<IActionResult> Delete(int id, CancellationToken cancellationToken)
     {
         var driver = await _db.Drivers

@@ -1,3 +1,4 @@
+using HamgamCementWeb.Server.Data.Models;
 using HamgamCementWeb.Server.Data.Models.Finance;
 using HamgamCementWeb.Server.Data.Models.People;
 using HamgamCementWeb.Server.Data.Models.Product;
@@ -34,6 +35,7 @@ public static class DataSeeder
 
         var financeCategories = scope.ServiceProvider.GetRequiredService<IFinanceCategoryService>();
         await financeCategories.EnsureSystemCategoriesAsync(cancellationToken);
+        await EnsureGeneralSettingsAsync(db, cancellationToken);
     }
 
     private static async Task<Department> EnsureDepartmentAsync(
@@ -279,11 +281,12 @@ public static class DataSeeder
         };
         var routs = new[]
         {
-            new TransportRoute{Name = "کابل هرات", Code = "HMTR00001" , DistanceKm = 250 , Destination = "کابل" , Description = "", EstimatedDays = 3 , Origin ="هرات", OriginCountry = "افغانستان", CreatedBy = 1},
-            new TransportRoute{Name = "نمیروز هرات", Code = "HMTR00002" , DistanceKm = 450 , Destination = "نیمروز" , Description = "", EstimatedDays = 3 , Origin ="هرات", OriginCountry = "افغانستان", CreatedBy = 1}
+            // کد مسیر با قالب TransportCodeHelper.ForRoute (HMR + شناسه ۴ رقمی) هماهنگ شد.
+            new TransportRoute{Name = "کابل هرات", Code = "HMR0001" , DistanceKm = 250 , Destination = "کابل" , Description = "", EstimatedDays = 3 , Origin ="هرات", OriginCountry = "افغانستان", CreatedBy = 1},
+            new TransportRoute{Name = "نمیروز هرات", Code = "HMR0002" , DistanceKm = 450 , Destination = "نیمروز" , Description = "", EstimatedDays = 3 , Origin ="هرات", OriginCountry = "افغانستان", CreatedBy = 1}
         };
         var currencies = new[] {
-            new Currency{Name = "افغانی", CurrencyCode = "AFs", DecimalPlaces = 2, Symbol = "؋", IsBaseCurrency = true, CreatedBy = 1},
+            new Currency{Name = "افغانی", CurrencyCode = "AFN", DecimalPlaces = 2, Symbol = "؋", IsBaseCurrency = true, CreatedBy = 1},
         };
         var suppliers = new[]
         {
@@ -335,6 +338,22 @@ public static class DataSeeder
             await db.AddRangeAsync(suppliers);
             await db.AddRangeAsync(customers);
             
+            await db.SaveChangesAsync();
+
+            // همگام‌سازی رابطه‌ی دوطرفه: علاوه بر Vehicle.DefaultDriverId، فیلد معکوس Driver.DefaultVehicleId
+            // هم ست می‌شود (اولین وسیله‌ی ارجاع‌دهنده) تا داده‌ی seed سازگار باشد.
+            foreach (var vehicle in vehicles)
+            {
+                if (vehicle.DefaultDriverId is int driverId)
+                {
+                    var driver = drivers.FirstOrDefault(d => d.DriverID == driverId);
+                    if (driver is not null && driver.DefaultVehicleId is null)
+                    {
+                        driver.DefaultVehicleId = vehicle.VehicleID;
+                    }
+                }
+            }
+
             await db.SaveChangesAsync();
         }
     }
@@ -410,6 +429,24 @@ public static class DataSeeder
         };
 
         db.Users.Add(user);
+        await db.SaveChangesAsync(cancellationToken);
+    }
+
+    private static async Task EnsureGeneralSettingsAsync(
+        AppDbContext db,
+        CancellationToken cancellationToken)
+    {
+        var exists = await db.GeneralSettings.AnyAsync(cancellationToken);
+        if (exists)
+        {
+            return;
+        }
+
+        db.GeneralSettings.Add(new GeneralSettings
+        {
+            ZmLogoPath = "/zm_logo.jpg",
+        });
+
         await db.SaveChangesAsync(cancellationToken);
     }
 }

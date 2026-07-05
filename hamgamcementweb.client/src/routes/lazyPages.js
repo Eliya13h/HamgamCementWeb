@@ -43,3 +43,4 @@ export const StocktakingHistoryPage = lazy(() => import(/* webpackChunkName: "St
 export const WarehouseTurnoverPage = lazy(() => import(/* webpackChunkName: "WarehouseTurnoverPage" */ '../Pages/Inventory/WarehouseTurnoverPage.jsx'))
 export const UsersPage = lazy(() => import(/* webpackChunkName: "UsersPage" */ '../Pages/Users/UsersPage.jsx'))
 export const AccessLevelsPage = lazy(() => import(/* webpackChunkName: "AccessLevelsPage" */ '../Pages/Users/AccessLevelsPage.jsx'))
+export const SettingsPage = lazy(() => import(/* webpackChunkName: "SettingsPage" */ '../Pages/Settings/SettingsPage.jsx'))

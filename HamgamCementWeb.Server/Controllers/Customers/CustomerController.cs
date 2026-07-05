@@ -1,5 +1,6 @@
 using System.ComponentModel.DataAnnotations;
 using System.Security.Claims;
+using HamgamCementWeb.Server.Authorization;
 using HamgamCementWeb.Server.Controllers.Transport;
 using HamgamCementWeb.Server.Data;
 using HamgamCementWeb.Server.Data.Models.Invoice;
@@ -35,6 +36,7 @@ public class CustomerController : ControllerBase
     }
 
     [HttpGet("{id:int}")]
+    [HasPermission("people.customers.view")]
     public async Task<IActionResult> Get(int id, CancellationToken cancellationToken)
     {
         var canViewDeleted = await CanViewDeletedAsync(cancellationToken);
@@ -68,6 +70,7 @@ public class CustomerController : ControllerBase
     }
 
     [HttpPost("datatable")]
+    [HasPermission("people.customers.view")]
     public async Task<IActionResult> DataTable(
         [FromBody] DataTableRequest request,
         CancellationToken cancellationToken)
@@ -121,6 +124,7 @@ public class CustomerController : ControllerBase
     }
 
     [HttpPost("{id:int}/sale-invoices/datatable")]
+    [HasPermission("people.customers.view")]
     public async Task<IActionResult> SaleInvoicesDataTable(
         int id,
         [FromBody] DataTableRequest request,
@@ -174,6 +178,7 @@ public class CustomerController : ControllerBase
     }
 
     [HttpPost]
+    [HasPermission("people.customers.create")]
     public async Task<IActionResult> Create(
         [FromBody] SaveCustomerRequest request,
         CancellationToken cancellationToken)
@@ -208,6 +213,7 @@ public class CustomerController : ControllerBase
     }
 
     [HttpPut("{id:int}")]
+    [HasPermission("people.customers.edit")]
     public async Task<IActionResult> Update(
         int id,
         [FromBody] SaveCustomerRequest request,
@@ -244,6 +250,7 @@ public class CustomerController : ControllerBase
     }
 
     [HttpDelete("{id:int}")]
+    [HasPermission("people.customers.delete")]
     public async Task<IActionResult> Delete(int id, CancellationToken cancellationToken)
     {
         var customer = await _db.Customers
@@ -308,7 +315,7 @@ public class CustomerController : ControllerBase
     {
         InvoiceStatus.Proforma => "پیش فاکتور",
         InvoiceStatus.Order => "آردر",
-        InvoiceStatus.Inoivce => "فاکتور",
+        InvoiceStatus.Invoice => "فاکتور",
         _ => "استعلام قیمت",
     };
 

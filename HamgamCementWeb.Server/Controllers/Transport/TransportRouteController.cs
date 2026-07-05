@@ -1,4 +1,5 @@
 using System.ComponentModel.DataAnnotations;
+using HamgamCementWeb.Server.Authorization;
 using HamgamCementWeb.Server.Data;
 using HamgamCementWeb.Server.Data.Models.Transport;
 using HamgamCementWeb.Server.Services;
@@ -13,15 +14,16 @@ namespace HamgamCementWeb.Server.Controllers.Transport;
 [Authorize]
 public class TransportRouteController : TransportControllerBase
 {
+    // اصلاح شد: کلید تکراری [2] باعث می‌شد ستون «نام» قابل مرتب‌سازی نباشد؛ کلیدهای متمایز و ترتیبی شدند.
     private static readonly Dictionary<int, string> OrderColumns = new()
     {
         [1] = nameof(TransportRoute.Code),
         [2] = nameof(TransportRoute.Name),
-        [2] = nameof(TransportRoute.Origin),
-        [3] = nameof(TransportRoute.Destination),
-        [4] = nameof(TransportRoute.DistanceKm),
-        [5] = nameof(TransportRoute.EstimatedDays),
-        [6] = nameof(TransportRoute.IsActive),
+        [3] = nameof(TransportRoute.Origin),
+        [4] = nameof(TransportRoute.Destination),
+        [5] = nameof(TransportRoute.DistanceKm),
+        [6] = nameof(TransportRoute.EstimatedDays),
+        [7] = nameof(TransportRoute.IsActive),
     };
 
     public TransportRouteController(AppDbContext db) : base(db)
@@ -29,6 +31,7 @@ public class TransportRouteController : TransportControllerBase
     }
 
     [HttpPost("datatable")]
+    [HasPermission("transport.routes.view")]
     public async Task<IActionResult> DataTable(
         [FromBody] DataTableRequest request,
         CancellationToken cancellationToken)
@@ -111,6 +114,7 @@ public class TransportRouteController : TransportControllerBase
     }
 
     [HttpPost]
+    [HasPermission("transport.routes.create")]
     public async Task<IActionResult> Create(
         [FromBody] SaveRouteRequest request,
         CancellationToken cancellationToken)
@@ -146,6 +150,7 @@ public class TransportRouteController : TransportControllerBase
     }
 
     [HttpPut("{id:int}")]
+    [HasPermission("transport.routes.edit")]
     public async Task<IActionResult> Update(
         int id,
         [FromBody] SaveRouteRequest request,
@@ -181,6 +186,7 @@ public class TransportRouteController : TransportControllerBase
     }
 
     [HttpDelete("{id:int}")]
+    [HasPermission("transport.routes.delete")]
     public async Task<IActionResult> Delete(int id, CancellationToken cancellationToken)
     {
         var route = await Db.TransportRoutes

@@ -1,4 +1,5 @@
 using System.ComponentModel.DataAnnotations;
+using HamgamCementWeb.Server.Authorization;
 using HamgamCementWeb.Server.Controllers.Transport;
 using HamgamCementWeb.Server.Data;
 using HamgamCementWeb.Server.Data.Models.Product;
@@ -30,6 +31,7 @@ public class ProductController : ProductControllerBase
     }
 
     [HttpPost("datatable")]
+    [HasPermission("products.list.view")]
     public async Task<IActionResult> DataTable(
         [FromBody] DataTableRequest request,
         CancellationToken cancellationToken)
@@ -99,6 +101,7 @@ public class ProductController : ProductControllerBase
         });
     }
 
+    // چرا بدون HasPermission: دراپ‌داون محصولات در فاکتورها، تولید و انبارگردانی استفاده می‌شود.
     [HttpGet("list")]
     public async Task<IActionResult> List(CancellationToken cancellationToken)
     {
@@ -121,6 +124,7 @@ public class ProductController : ProductControllerBase
     }
 
     [HttpGet("next-code-preview")]
+    [HasPermission("products.list.view")]
     public async Task<IActionResult> NextCodePreview(CancellationToken cancellationToken)
     {
         var nextId = (await Db.Products.MaxAsync(p => (int?)p.ProductID, cancellationToken) ?? 0) + 1;
@@ -128,6 +132,7 @@ public class ProductController : ProductControllerBase
     }
 
     [HttpGet("{id:int}")]
+    [HasPermission("products.list.view")]
     public async Task<IActionResult> GetById(int id, CancellationToken cancellationToken)
     {
         var product = await Db.Products
@@ -165,6 +170,7 @@ public class ProductController : ProductControllerBase
     }
 
     [HttpPost]
+    [HasPermission("products.list.create")]
     public async Task<IActionResult> Create(
         [FromBody] SaveProductRequest request,
         CancellationToken cancellationToken)
@@ -222,6 +228,7 @@ public class ProductController : ProductControllerBase
     }
 
     [HttpPut("{id:int}")]
+    [HasPermission("products.list.edit")]
     public async Task<IActionResult> Update(
         int id,
         [FromBody] SaveProductRequest request,
@@ -270,6 +277,7 @@ public class ProductController : ProductControllerBase
     }
 
     [HttpDelete("{id:int}")]
+    [HasPermission("products.list.delete")]
     public async Task<IActionResult> Delete(int id, CancellationToken cancellationToken)
     {
         var entity = await Db.Products
@@ -302,6 +310,8 @@ public class ProductController : ProductControllerBase
         return Ok(new { message = "محصول با موفقیت حذف شد." });
     }
 
+    // چرا بدون HasPermission: تبدیل واحد یک ابزار محاسباتی خواندنی است که در فرم‌های
+    // مختلف (فاکتور، تولید) استفاده می‌شود؛ فقط احراز هویت لازم است.
     [HttpPost("convert")]
     public async Task<IActionResult> Convert(
         [FromBody] ConvertQuantityRequest request,

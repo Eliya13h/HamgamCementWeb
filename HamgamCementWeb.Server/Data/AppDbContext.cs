@@ -1,4 +1,5 @@
-﻿using HamgamCementWeb.Server.Data.Models.Finance;
+﻿using HamgamCementWeb.Server.Data.Models;
+using HamgamCementWeb.Server.Data.Models.Finance;
 using HamgamCementWeb.Server.Data.Models.Inventory;
 using HamgamCementWeb.Server.Data.Models.Invoice;
 using HamgamCementWeb.Server.Data.Models.People;
@@ -74,7 +75,10 @@ namespace HamgamCementWeb.Server.Data
         public DbSet<ProductionBatch> ProductionBatches { get; set; }
         public DbSet<ProductionInputLine> ProductionInputLines { get; set; }
         public DbSet<ProductionOutputLine> ProductionOutputLines { get; set; }
+        public DbSet<ProductionInputLotAllocation> ProductionInputLotAllocations { get; set; }
         public DbSet<ProductionPlan> ProductionPlans { get; set; }
+
+        public DbSet<GeneralSettings> GeneralSettings { get; set; }
 
         public AppDbContext(DbContextOptions<AppDbContext> options) : base(options)
         {
@@ -246,6 +250,26 @@ namespace HamgamCementWeb.Server.Data
                 .HasOne(e => e.Currency)
                 .WithMany()
                 .HasForeignKey(e => e.CurrencyId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            // اسنپ‌شات ارز پایه و تاریخچه نرخ برای ردیف مصرف حمل‌ونقل — Restrict برای جلوگیری از مسیر cascade چندگانه
+            modelBuilder.Entity<TransportExpense>()
+                .HasOne<Currency>()
+                .WithMany()
+                .HasForeignKey(e => e.BaseCurrencyId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            modelBuilder.Entity<TransportExpense>()
+                .HasOne<CurrencyExchangeHistory>()
+                .WithMany()
+                .HasForeignKey(e => e.ExchangeHistoryId)
+                .OnDelete(DeleteBehavior.SetNull);
+
+            // لینک فاکتور مصارف حمل‌ونقل به رکورد مصرف حسابداری
+            modelBuilder.Entity<TransportInvoice>()
+                .HasOne(i => i.Expense)
+                .WithMany()
+                .HasForeignKey(i => i.ExpenseId)
                 .OnDelete(DeleteBehavior.Restrict);
 
             modelBuilder.Entity<VehicleMaintenance>()
@@ -692,6 +716,26 @@ namespace HamgamCementWeb.Server.Data
                 .HasOne(l => l.Meaurment)
                 .WithMany()
                 .HasForeignKey(l => l.MeaurmentId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            // رابطه‌ی رسمی Lot تولیدشده با ردیف خروجی (پیش‌تر بدون relation بود) — آیتم ۶.۴
+            modelBuilder.Entity<ProductionOutputLine>()
+                .HasOne<InventoryLot>()
+                .WithMany()
+                .HasForeignKey(l => l.InventoryLotId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            // تخصیص FIFO مصرف تولید — Restrict برای جلوگیری از مسیر cascade چندگانه
+            modelBuilder.Entity<ProductionInputLotAllocation>()
+                .HasOne(a => a.InputLine)
+                .WithMany()
+                .HasForeignKey(a => a.ProductionInputLineId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            modelBuilder.Entity<ProductionInputLotAllocation>()
+                .HasOne(a => a.InventoryLot)
+                .WithMany()
+                .HasForeignKey(a => a.InventoryLotId)
                 .OnDelete(DeleteBehavior.Restrict);
 
             modelBuilder.Entity<ProductionPlan>()

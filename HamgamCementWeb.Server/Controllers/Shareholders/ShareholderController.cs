@@ -1,5 +1,6 @@
 using System.ComponentModel.DataAnnotations;
 using System.Security.Claims;
+using HamgamCementWeb.Server.Authorization;
 using HamgamCementWeb.Server.Data;
 using HamgamCementWeb.Server.Data.Models.People;
 using Microsoft.AspNetCore.Authorization;
@@ -30,6 +31,7 @@ public class ShareholderController : ControllerBase
     }
 
     [HttpPost("datatable")]
+    [HasPermission("people.shareholders.view")]
     public async Task<IActionResult> DataTable(
         [FromBody] DataTableRequest request,
         CancellationToken cancellationToken)
@@ -102,6 +104,7 @@ public class ShareholderController : ControllerBase
     }
 
     [HttpPost]
+    [HasPermission("people.shareholders.create")]
     public async Task<IActionResult> Create(
         [FromBody] SaveShareholderRequest request,
         CancellationToken cancellationToken)
@@ -136,6 +139,7 @@ public class ShareholderController : ControllerBase
     }
 
     [HttpPut("{id:int}")]
+    [HasPermission("people.shareholders.edit")]
     public async Task<IActionResult> Update(
         int id,
         [FromBody] SaveShareholderRequest request,
@@ -172,6 +176,7 @@ public class ShareholderController : ControllerBase
     }
 
     [HttpDelete("{id:int}")]
+    [HasPermission("people.shareholders.delete")]
     public async Task<IActionResult> Delete(int id, CancellationToken cancellationToken)
     {
         var shareholder = await _db.Shareholders

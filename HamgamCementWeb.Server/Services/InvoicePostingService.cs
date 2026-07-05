@@ -57,6 +57,11 @@ public class InvoicePostingService : IInvoicePostingService
         _financeCategories = financeCategories;
     }
 
+    // چرا این helper: نرخ اسنپ‌شات ذخیره‌شده روی فاکتور را فقط در صورت ارز غیرپایه و معتبر بودن به‌عنوان override برمی‌گرداند
+    // تا هنگام ثبت نهایی همان نرخ خودِ فاکتور استفاده شود و نرخ سراسری سیستم دست‌کاری نشود.
+    private static decimal? ResolveInvoiceRateOverride(int currencyId, int baseCurrencyId, decimal storedRate) =>
+        storedRate > 0 && currencyId != baseCurrencyId ? storedRate : null;
+
     public async Task ApplyPurchaseCurrencyAsync(
         PurchaseInvoice invoice,
         CancellationToken cancellationToken = default,
@@ -124,7 +129,28 @@ public class InvoicePostingService : IInvoicePostingService
         invoice.TotalAmountInBaseCurrency = totalBase;
     }
 
-    public async Task PostPurchaseAsync(int purchaseInvoiceId, int? userId, CancellationToken cancellationToken = default)
+    // چرا تراکنش: عملیات ثبت شامل چند SaveChanges (ساخت Lot، مصرف FIFO، ثبت مالی) است؛ اگر یکی از مراحل
+    // خطا دهد، همه‌ی تغییرات باید برگردند تا داده نیمه‌کاره باقی نماند. گارد ownsTransaction از تراکنش تودرتو
+    // (وقتی فراخوان بیرونی خودش تراکنش باز کرده) جلوگیری می‌کند.
+    private async Task RunInTransactionAsync(Func<Task> work, CancellationToken cancellationToken)
+    {
+        var ownsTransaction = _db.Database.CurrentTransaction is null;
+        await using var tx = ownsTransaction
+            ? await _db.Database.BeginTransactionAsync(cancellationToken)
+            : null;
+
+        await work();
+
+        if (tx is not null)
+        {
+            await tx.CommitAsync(cancellationToken);
+        }
+    }
+
+    public Task PostPurchaseAsync(int purchaseInvoiceId, int? userId, CancellationToken cancellationToken = default) =>
+        RunInTransactionAsync(() => PostPurchaseCoreAsync(purchaseInvoiceId, userId, cancellationToken), cancellationToken);
+
+    private async Task PostPurchaseCoreAsync(int purchaseInvoiceId, int? userId, CancellationToken cancellationToken = default)
     {
         var invoice = await _db.PurchaseInvoices
             .Include(i => i.Items.Where(x => x.IsDeleted != true))
@@ -148,7 +174,9 @@ public class InvoicePostingService : IInvoicePostingService
             throw new InvalidOperationException("فاکتور باید حداقل یک ردیف داشته باشد.");
         }
 
-        await ApplyPurchaseCurrencyAsync(invoice, cancellationToken);
+        // چرا override با نرخ خودِ فاکتور: نرخ ارز به‌صورت اسنپ‌شات روی همین فاکتور قفل می‌شود؛ اگر کاربر نرخ دستی
+        // وارد کرده باشد در ثبت نهایی نیز حفظ می‌شود و نرخ سراسری سیستم دست‌کاری نمی‌گردد.
+        await ApplyPurchaseCurrencyAsync(invoice, cancellationToken, ResolveInvoiceRateOverride(invoice.CurrencyId, invoice.BaseCurrencyId, invoice.BaseUnitsPerUnitAtTransaction));
 
         var now = DateTime.Now;
 
@@ -158,6 +186,8 @@ public class InvoicePostingService : IInvoicePostingService
                 FinanceCategoryCode.ProductPurchase,
                 cancellationToken);
 
+            // چرا کل مبلغ فاکتور: مصرف بر مبنای تعهدی (accrual) و بر اساس کل مبلغ فاکتور ثبت می‌شود، نه مبلغ پرداختی؛
+            // مانده بدهی/طلب به‌صورت جدا در تراز طرف‌حساب (SupplierReadService) مدیریت می‌شود.
             var expense = new Expense
             {
                 Title = $"خرید — {invoice.InvoiceNumber}",
@@ -184,8 +214,29 @@ public class InvoicePostingService : IInvoicePostingService
             invoice.ExpenseId = expense.ExpenseID;
         }
 
-        if (invoice.Status == InvoiceStatus.Inoivce)
+        if (invoice.Status == InvoiceStatus.Invoice)
         {
+            var isFromProduction = invoice.EntrySource == PurchaseEntrySource.Production && invoice.ProductionBatchId is > 0;
+
+            // برای ورود از تولید، سند تولید را قبل از حلقه بارگذاری و اعتبارسنجی می‌کنیم تا انبار خروجی آن در دسترس باشد.
+            Data.Models.Production.ProductionBatch? batch = null;
+            if (isFromProduction)
+            {
+                batch = await _db.ProductionBatches
+                    .FirstOrDefaultAsync(b => b.ProductionBatchID == invoice.ProductionBatchId && b.IsDeleted != true, cancellationToken)
+                    ?? throw new InvalidOperationException("سند تولید مرتبط یافت نشد.");
+
+                if (!batch.IsPosted)
+                {
+                    throw new InvalidOperationException("سند تولید باید قبل از ورود به چرخه فروش ثبت نهایی شده باشد.");
+                }
+
+                if (batch.IsTransferredToSales)
+                {
+                    throw new InvalidOperationException("خروجی این سند تولید قبلاً به چرخه فروش منتقل شده است.");
+                }
+            }
+
             var itemsBaseTotal = invoice.Items.Sum(i => i.LineTotalInBaseCurrency);
             var extraBaseCost = invoice.FixedCostInBaseCurrency + invoice.VariableCostInBaseCurrency;
 
@@ -194,6 +245,20 @@ public class InvoicePostingService : IInvoicePostingService
                 if (item.QuantityInBase <= 0)
                 {
                     throw new InvalidOperationException("مقدار ردیف باید بزرگ‌تر از صفر باشد.");
+                }
+
+                // چرا مصرف Lot تولید: خروجی تولید هنگام ثبت سند تولید یک‌بار به‌صورت Lot وارد انبار خروجی شده است؛
+                // برای جلوگیری از دوباره‌شماری، همان مقدار از Lotهای همین batch مصرف (خارج) می‌شود و سپس به‌عنوان
+                // Lot خرید در انبار فاکتور ثبت می‌گردد (اگر انبار یکی باشد، خالص موجودی تغییری نمی‌کند).
+                if (batch is not null)
+                {
+                    await _fifo.AllocateAndApplyAsync(new AllocateStockRequest
+                    {
+                        ProductId = item.ProductId,
+                        WarehouseId = batch.OutputWarehouseId,
+                        QuantityInBase = item.QuantityInBase,
+                        ProductionBatchId = batch.ProductionBatchID,
+                    }, allowInsufficientStock: false, cancellationToken);
                 }
 
                 var lineShare = itemsBaseTotal > 0
@@ -212,30 +277,14 @@ public class InvoicePostingService : IInvoicePostingService
                     CreatedBy = userId,
                     PurchaseInvoiceId = invoice.PurchaseInvoiceID,
                     PurchaseItemId = item.PurchaseItemID,
-                    ProductionBatchId = invoice.EntrySource == PurchaseEntrySource.Production
-                        ? invoice.ProductionBatchId
-                        : null,
+                    ProductionBatchId = isFromProduction ? invoice.ProductionBatchId : null,
                 }, cancellationToken);
 
                 item.InventoryLotId = lot.InventoryLotID;
             }
 
-            if (invoice.EntrySource == PurchaseEntrySource.Production && invoice.ProductionBatchId is > 0)
+            if (batch is not null)
             {
-                var batch = await _db.ProductionBatches
-                    .FirstOrDefaultAsync(b => b.ProductionBatchID == invoice.ProductionBatchId && b.IsDeleted != true, cancellationToken)
-                    ?? throw new InvalidOperationException("سند تولید مرتبط یافت نشد.");
-
-                if (!batch.IsPosted)
-                {
-                    throw new InvalidOperationException("سند تولید باید قبل از ورود به چرخه فروش ثبت نهایی شده باشد.");
-                }
-
-                if (batch.IsTransferredToSales)
-                {
-                    throw new InvalidOperationException("خروجی این سند تولید قبلاً به چرخه فروش منتقل شده است.");
-                }
-
                 batch.IsTransferredToSales = true;
                 batch.IsUpdated = true;
                 batch.UpdatedAt = now;
@@ -252,7 +301,10 @@ public class InvoicePostingService : IInvoicePostingService
         await _db.SaveChangesAsync(cancellationToken);
     }
 
-    public async Task PostSaleAsync(int saleInvoiceId, int? userId, CancellationToken cancellationToken = default)
+    public Task PostSaleAsync(int saleInvoiceId, int? userId, CancellationToken cancellationToken = default) =>
+        RunInTransactionAsync(() => PostSaleCoreAsync(saleInvoiceId, userId, cancellationToken), cancellationToken);
+
+    private async Task PostSaleCoreAsync(int saleInvoiceId, int? userId, CancellationToken cancellationToken = default)
     {
         var invoice = await _db.SaleInvoices
             .Include(i => i.Items.Where(x => x.IsDeleted != true))
@@ -277,7 +329,8 @@ public class InvoicePostingService : IInvoicePostingService
             throw new InvalidOperationException("فاکتور باید حداقل یک ردیف داشته باشد.");
         }
 
-        await ApplySaleCurrencyAsync(invoice, cancellationToken);
+        // چرا override با نرخ خودِ فاکتور: نرخ ارز به‌صورت اسنپ‌شات روی همین فاکتور قفل می‌شود و نرخ سراسری سیستم تغییر نمی‌کند.
+        await ApplySaleCurrencyAsync(invoice, cancellationToken, ResolveInvoiceRateOverride(invoice.CurrencyId, invoice.BaseCurrencyId, invoice.BaseUnitsPerUnitAtTransaction));
 
         if (invoice.Status == InvoiceStatus.Quotation && invoice.PaidAmount > 0)
         {
@@ -368,6 +421,8 @@ public class InvoicePostingService : IInvoicePostingService
                 FinanceCategoryCode.ProductSale,
                 cancellationToken);
 
+            // چرا کل مبلغ فاکتور: عاید بر مبنای تعهدی (accrual) و بر اساس کل مبلغ فاکتور ثبت می‌شود، نه مبلغ دریافتی؛
+            // مانده طلب مشتری به‌صورت جدا در تراز طرف‌حساب (CustomerReadService) مدیریت می‌شود.
             var revenue = new Revenue
             {
                 Title = $"فروش — {invoice.InvoiceNumber}",
@@ -493,9 +548,7 @@ public class InvoicePostingService : IInvoicePostingService
         }
 
         await ApplyPurchaseCurrencyAsync(invoice, cancellationToken,
-            invoice.BaseUnitsPerUnitAtTransaction > 0 && invoice.CurrencyId != invoice.BaseCurrencyId
-                ? invoice.BaseUnitsPerUnitAtTransaction
-                : null);
+            ResolveInvoiceRateOverride(invoice.CurrencyId, invoice.BaseCurrencyId, invoice.BaseUnitsPerUnitAtTransaction));
 
         if (invoice.PaidAmount > invoice.TotalAmount)
         {
@@ -510,6 +563,9 @@ public class InvoicePostingService : IInvoicePostingService
                 FinanceCategoryCode.ProductPurchase,
                 cancellationToken);
 
+            // چرا مبلغ منفی: برگشت از خرید یک قلم «کاهنده مصرف» (contra-expense) است. مبلغ منفی ذخیره می‌شود تا هر
+            // گزارشی که AmountInBaseCurrency را جمع می‌زند، خالص مصارف را درست محاسبه کند و همزمان Source=PurchaseReturn
+            // برای تفکیک در گزارش‌های تفصیلی حفظ شود. (تراز تأمین‌کننده جداگانه از خود فاکتور با علامت DocumentType محاسبه می‌شود.)
             var expense = new Expense
             {
                 Title = $"برگشت خرید — {invoice.InvoiceNumber}",
@@ -521,8 +577,8 @@ public class InvoicePostingService : IInvoicePostingService
                 BaseCurrencyId = invoice.BaseCurrencyId,
                 ExchangeHistoryId = invoice.ExchangeHistoryId,
                 BaseUnitsPerUnitAtTransaction = invoice.BaseUnitsPerUnitAtTransaction,
-                Amount = invoice.TotalAmount,
-                AmountInBaseCurrency = invoice.TotalAmountInBaseCurrency,
+                Amount = -invoice.TotalAmount,
+                AmountInBaseCurrency = -invoice.TotalAmountInBaseCurrency,
                 Description = invoice.Description,
                 IsActive = true,
                 IsDeleted = false,
@@ -595,9 +651,7 @@ public class InvoicePostingService : IInvoicePostingService
         }
 
         await ApplySaleCurrencyAsync(invoice, cancellationToken,
-            invoice.BaseUnitsPerUnitAtTransaction > 0 && invoice.CurrencyId != invoice.BaseCurrencyId
-                ? invoice.BaseUnitsPerUnitAtTransaction
-                : null);
+            ResolveInvoiceRateOverride(invoice.CurrencyId, invoice.BaseCurrencyId, invoice.BaseUnitsPerUnitAtTransaction));
 
         decimal totalCost = 0;
         var now = DateTime.Now;
@@ -671,6 +725,9 @@ public class InvoicePostingService : IInvoicePostingService
             FinanceCategoryCode.ProductSale,
             cancellationToken);
 
+        // چرا مبلغ منفی: برگشت از فروش یک قلم «کاهنده عاید» (contra-revenue) است. مبلغ و سود منفی ذخیره می‌شوند تا هر
+        // گزارشی که AmountInBaseCurrency/ProfitInBaseCurrency را جمع می‌زند، خالص عواید و سود را درست محاسبه کند و همزمان
+        // Source=SaleReturn برای تفکیک در گزارش تفصیلی حفظ شود. (تراز مشتری جداگانه از خود فاکتور با علامت DocumentType محاسبه می‌شود.)
         var revenue = new Revenue
         {
             Title = $"برگشت فروش — {invoice.InvoiceNumber}",
@@ -682,9 +739,9 @@ public class InvoicePostingService : IInvoicePostingService
             BaseCurrencyId = invoice.BaseCurrencyId,
             ExchangeHistoryId = invoice.ExchangeHistoryId,
             BaseUnitsPerUnitAtTransaction = invoice.BaseUnitsPerUnitAtTransaction,
-            Amount = invoice.TotalAmount,
-            AmountInBaseCurrency = invoice.TotalAmountInBaseCurrency,
-            ProfitInBaseCurrency = invoice.TotalProfitInBaseCurrency,
+            Amount = -invoice.TotalAmount,
+            AmountInBaseCurrency = -invoice.TotalAmountInBaseCurrency,
+            ProfitInBaseCurrency = -invoice.TotalProfitInBaseCurrency,
             Description = invoice.Description,
             IsActive = true,
             IsDeleted = false,
@@ -708,7 +765,7 @@ public class InvoicePostingService : IInvoicePostingService
 internal static class InvoiceStatusRules
 {
     internal static bool DeductsInventory(InvoiceStatus status) =>
-        status is InvoiceStatus.Order or InvoiceStatus.Inoivce;
+        status is InvoiceStatus.Order or InvoiceStatus.Invoice;
 
     internal static bool AddsRevenue(InvoiceStatus status) =>
         status is not InvoiceStatus.Quotation;

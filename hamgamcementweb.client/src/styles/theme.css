@@ -766,3 +766,16 @@ body.sidebar-drawer-open {
     display: none !important;
   }
 }
+
+.settings-logo-preview {
+  min-height: 96px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.settings-logo-image {
+  max-height: 80px;
+  max-width: 100%;
+  object-fit: contain;
+}

@@ -1,5 +1,6 @@
 using System.ComponentModel.DataAnnotations;
 using System.Security.Claims;
+using HamgamCementWeb.Server.Authorization;
 using HamgamCementWeb.Server.Controllers.Transport;
 using HamgamCementWeb.Server.Data;
 using HamgamCementWeb.Server.Data.Models.Production;
@@ -35,6 +36,7 @@ public class ProductionPlanController : ControllerBase
     }
 
     [HttpPost("datatable")]
+    [HasPermission("production.plan.view")]
     public async Task<IActionResult> DataTable(
         [FromBody] DataTableRequest request,
         CancellationToken cancellationToken)
@@ -98,6 +100,7 @@ public class ProductionPlanController : ControllerBase
     }
 
     [HttpPost]
+    [HasPermission("production.plan.create")]
     public async Task<IActionResult> Create(
         [FromBody] SaveProductionPlanRequest request,
         CancellationToken cancellationToken)
@@ -125,6 +128,7 @@ public class ProductionPlanController : ControllerBase
     }
 
     [HttpPut("{id:int}")]
+    [HasPermission("production.plan.edit")]
     public async Task<IActionResult> Update(
         int id,
         [FromBody] SaveProductionPlanRequest request,
@@ -157,6 +161,7 @@ public class ProductionPlanController : ControllerBase
     }
 
     [HttpDelete("{id:int}")]
+    [HasPermission("production.plan.delete")]
     public async Task<IActionResult> Delete(int id, CancellationToken cancellationToken)
     {
         var plan = await _db.ProductionPlans

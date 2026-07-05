@@ -24,6 +24,20 @@ namespace HamgamCementWeb.Server.Data.Models.Transport
         // ارز مبلغ مصرف (اختیاری — پیش‌فرض ارز پایه سیستم)
         public int? CurrencyId { get; set; }
 
+        // اضافه شد برای اسنپ‌شات ارز و تبدیل مبلغ به ارز پایه (مشابه Expense حسابداری)
+        public int BaseCurrencyId { get; set; }
+
+        // اضافه شد برای ارجاع به رکورد تاریخچه نرخ استفاده‌شده در لحظه ثبت
+        public int? ExchangeHistoryId { get; set; }
+
+        // اضافه شد برای ذخیره نرخ تبدیل به ارز پایه در لحظه تراکنش
+        [Column(TypeName = "decimal(18,8)")]
+        public decimal BaseUnitsPerUnitAtTransaction { get; set; } = 1;
+
+        // اضافه شد برای نگهداری معادل مبلغ به ارز پایه تا جمع چندارزی درست باشد
+        [Column(TypeName = "decimal(18,4)")]
+        public decimal AmountInBaseCurrency { get; set; }
+
         public DateTime ExpenseDate { get; set; }
 
         public string? Description { get; set; }

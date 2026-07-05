@@ -31,6 +31,10 @@ public class AllocateStockRequest
     public int ProductId { get; set; }
     public int WarehouseId { get; set; }
     public decimal QuantityInBase { get; set; }
+
+    // اگر مقدار داشته باشد، تخصیص فقط از Lotهای متعلق به همین سند تولید انجام می‌شود؛
+    // برای انتقال دقیق خروجی یک batch به چرخه فروش بدون دست‌زدن به Lotهای سایر batchها.
+    public int? ProductionBatchId { get; set; }
 }
 
 /// <summary>
@@ -59,6 +63,13 @@ public interface IFifoInventoryService
         int inventoryLotId,
         decimal quantityInBase,
         CancellationToken cancellationToken = default);
+    Task AdjustToCountAsync(
+        int productId,
+        int warehouseId,
+        decimal countedQuantityInBase,
+        DateTime? countedAt = null,
+        int? userId = null,
+        CancellationToken cancellationToken = default);
 }
 
 public class FifoInventoryService : IFifoInventoryService
@@ -86,8 +97,12 @@ public class FifoInventoryService : IFifoInventoryService
             throw new InvalidOperationException("محصول یافت نشد.");
         }
 
+        // چرا per (محصول، انبار): ترتیب FIFO باید مستقل برای هر محصول در هر انبار محاسبه شود،
+        // نه به‌صورت سراسری؛ در غیر این صورت توالی دریافت‌ها بین محصولات مختلف قاطی می‌شود.
         var sequence = await _db.InventoryLots
-            .Where(l => l.IsDeleted != true)
+            .Where(l => l.IsDeleted != true &&
+                        l.ProductId == request.ProductId &&
+                        l.WarehouseId == request.WarehouseId)
             .Select(l => (long?)l.ReceiptSequence)
             .MaxAsync(cancellationToken) ?? 0;
 
@@ -249,6 +264,113 @@ public class FifoInventoryService : IFifoInventoryService
         await _db.SaveChangesAsync(cancellationToken);
     }
 
+    // چرا: تأیید انبارگردانی باید موجودی تجمیعی (InventoryStock) و مجموع Lotها را هم‌زمان با مقدار شمارش‌شده
+    // هماهنگ کند؛ در غیر این صورت FIFO از موجودی مجازی تخصیص می‌دهد و Stock با Lotها ناسازگار می‌شود.
+    public async Task AdjustToCountAsync(
+        int productId,
+        int warehouseId,
+        decimal countedQuantityInBase,
+        DateTime? countedAt = null,
+        int? userId = null,
+        CancellationToken cancellationToken = default)
+    {
+        if (countedQuantityInBase < 0)
+        {
+            throw new InvalidOperationException("مقدار شمارش‌شده نمی‌تواند منفی باشد.");
+        }
+
+        var now = DateTime.Now;
+
+        var lots = await _db.InventoryLots
+            .Where(l =>
+                l.IsDeleted != true &&
+                l.ProductId == productId &&
+                l.WarehouseId == warehouseId)
+            .OrderBy(l => l.ReceiptSequence)
+            .ThenBy(l => l.ReceivedAt)
+            .ToListAsync(cancellationToken);
+
+        var currentRemaining = lots.Sum(l => l.RemainingQuantityInBase);
+        var diff = countedQuantityInBase - currentRemaining;
+
+        if (diff < 0)
+        {
+            // کسری: کاهش از قدیمی‌ترین Lotها بر اساس FIFO
+            var toReduce = -diff;
+            foreach (var lot in lots.Where(l => l.RemainingQuantityInBase > 0))
+            {
+                if (toReduce <= 0)
+                {
+                    break;
+                }
+
+                var take = Math.Min(lot.RemainingQuantityInBase, toReduce);
+                lot.RemainingQuantityInBase -= take;
+                lot.IsUpdated = true;
+                lot.UpdatedAt = now;
+                lot.UpdatedBy = userId;
+                toReduce -= take;
+            }
+        }
+        else if (diff > 0)
+        {
+            // اضافی: ساخت Lot تعدیلی جدید با بهای میانگین وزنی Lotهای موجود (یا صفر اگر Lotی نبود)
+            var totalRemaining = lots.Sum(l => l.RemainingQuantityInBase);
+            var weightedCost = totalRemaining > 0
+                ? lots.Sum(l => l.RemainingQuantityInBase * l.UnitCost) / totalRemaining
+                : 0m;
+
+            var sequence = lots.Count > 0 ? lots.Max(l => l.ReceiptSequence) : 0;
+
+            var adjustmentLot = new InventoryLot
+            {
+                LotCode = "TEMP",
+                ProductId = productId,
+                WarehouseId = warehouseId,
+                ReceivedAt = countedAt ?? now,
+                ReceiptSequence = sequence + 1,
+                ReceivedQuantityInBase = diff,
+                RemainingQuantityInBase = diff,
+                UnitCost = weightedCost,
+                IsDeleted = false,
+                CreatedAt = now,
+                CreatedBy = userId,
+            };
+
+            _db.InventoryLots.Add(adjustmentLot);
+            await _db.SaveChangesAsync(cancellationToken);
+            adjustmentLot.LotCode = InventoryLotCodeHelper.ForLot(adjustmentLot.InventoryLotID);
+        }
+
+        // تنظیم موجودی تجمیعی دقیقاً برابر مقدار شمارش‌شده تا با مجموع Lotها یکسان بماند.
+        var stock = await _db.InventoryStocks
+            .FirstOrDefaultAsync(
+                s => s.WarehouseId == warehouseId &&
+                     s.ProductId == productId &&
+                     s.IsDeleted != true,
+                cancellationToken);
+
+        if (stock is null)
+        {
+            _db.InventoryStocks.Add(new InventoryStock
+            {
+                WarehouseId = warehouseId,
+                ProductId = productId,
+                QuantityInBase = countedQuantityInBase,
+                IsDeleted = false,
+                CreatedAt = now,
+                CreatedBy = userId,
+            });
+        }
+        else
+        {
+            stock.QuantityInBase = countedQuantityInBase;
+            stock.IsUpdated = true;
+            stock.UpdatedAt = now;
+            stock.UpdatedBy = userId;
+        }
+    }
+
     private async Task<IReadOnlyList<FifoAllocation>> BuildAllocationsAsync(
         AllocateStockRequest request,
         bool apply,
@@ -265,6 +387,7 @@ public class FifoInventoryService : IFifoInventoryService
                 l.IsDeleted != true &&
                 l.ProductId == request.ProductId &&
                 l.WarehouseId == request.WarehouseId &&
+                (request.ProductionBatchId == null || l.ProductionBatchId == request.ProductionBatchId) &&
                 l.RemainingQuantityInBase > 0)
             .OrderBy(l => l.ReceiptSequence)
             .ThenBy(l => l.ReceivedAt)

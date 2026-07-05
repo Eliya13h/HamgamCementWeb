@@ -1,5 +1,7 @@
 using System.ComponentModel.DataAnnotations;
 
+using HamgamCementWeb.Server.Authorization;
+
 using HamgamCementWeb.Server.Controllers.Transport;
 
 using HamgamCementWeb.Server.Data;
@@ -67,6 +69,8 @@ public class MeaurmentController : ProductControllerBase
 
 
     [HttpPost("datatable")]
+
+    [HasPermission("products.meaurments.view")]
 
     public async Task<IActionResult> DataTable(
 
@@ -408,6 +412,8 @@ public class MeaurmentController : ProductControllerBase
 
     [HttpPost]
 
+    [HasPermission("products.meaurments.create")]
+
     public async Task<IActionResult> Create(
 
         [FromBody] SaveMeaurmentRequest request,
@@ -527,6 +533,8 @@ public class MeaurmentController : ProductControllerBase
 
 
     [HttpPut("{id:int}")]
+
+    [HasPermission("products.meaurments.edit")]
 
     public async Task<IActionResult> Update(
 
@@ -679,6 +687,8 @@ public class MeaurmentController : ProductControllerBase
 
 
     [HttpDelete("{id:int}")]
+
+    [HasPermission("products.meaurments.delete")]
 
     public async Task<IActionResult> Delete(int id, CancellationToken cancellationToken)
 

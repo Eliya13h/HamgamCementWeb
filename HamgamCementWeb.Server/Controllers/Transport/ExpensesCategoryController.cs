@@ -1,4 +1,5 @@
 using System.ComponentModel.DataAnnotations;
+using HamgamCementWeb.Server.Authorization;
 using HamgamCementWeb.Server.Data;
 using HamgamCementWeb.Server.Data.Models.Transport;
 using Microsoft.AspNetCore.Authorization;
@@ -23,6 +24,7 @@ public class ExpensesCategoryController : TransportControllerBase
     }
 
     [HttpPost("datatable")]
+    [HasPermission("transport.expense-categories.view")]
     public async Task<IActionResult> DataTable(
         [FromBody] DataTableRequest request,
         CancellationToken cancellationToken)
@@ -92,6 +94,7 @@ public class ExpensesCategoryController : TransportControllerBase
     }
 
     [HttpPost]
+    [HasPermission("transport.expense-categories.create")]
     public async Task<IActionResult> Create(
         [FromBody] SaveExpensesCategoryRequest request,
         CancellationToken cancellationToken)
@@ -125,6 +128,7 @@ public class ExpensesCategoryController : TransportControllerBase
     }
 
     [HttpPut("{id:int}")]
+    [HasPermission("transport.expense-categories.edit")]
     public async Task<IActionResult> Update(
         int id,
         [FromBody] SaveExpensesCategoryRequest request,
@@ -164,6 +168,7 @@ public class ExpensesCategoryController : TransportControllerBase
     }
 
     [HttpDelete("{id:int}")]
+    [HasPermission("transport.expense-categories.delete")]
     public async Task<IActionResult> Delete(int id, CancellationToken cancellationToken)
     {
         var category = await Db.ExpensesCategories

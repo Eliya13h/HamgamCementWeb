@@ -1,5 +1,6 @@
 using System.ComponentModel.DataAnnotations;
 using System.Security.Claims;
+using HamgamCementWeb.Server.Authorization;
 using HamgamCementWeb.Server.Data;
 using HamgamCementWeb.Server.Data.Models.People;
 using Microsoft.AspNetCore.Authentication;
@@ -59,8 +60,12 @@ public class AuthController : ControllerBase
         return Ok(MapToResponse(user));
     }
 
+    // چرا: پیش‌تر این endpoint با [AllowAnonymous] بود و هر فرد ناشناسی می‌توانست
+    // کاربر بسازد. حالا فقط کاربرِ لاگین‌شده‌ای که دسترسی ساخت کاربر (users.list.create)
+    // دارد مجاز است؛ کلید دقیقاً با صفحه‌ی کاربران در فرانت هماهنگ است.
     [HttpPost("register")]
-    [AllowAnonymous]
+    [Authorize]
+    [HasPermission("users.list.create")]
     public async Task<IActionResult> Register(
         [FromBody] RegisterRequest request,
         CancellationToken cancellationToken)
@@ -117,11 +122,8 @@ public class AuthController : ControllerBase
             return BadRequest(new { message = "نقش انتخاب‌شده معتبر نیست." });
         }
 
-        //var createdBy = ResolveCreatedBy(employee);
-        //if (createdBy is null)
-        //{
-        //    return BadRequest(new { message = "امکان ثبت‌نام وجود ندارد. ابتدا یک کاربر مدیر در سیستم تعریف شود." });
-        //}
+        // ثبت‌نام فقط توسط کاربر احراز هویت‌شده انجام می‌شود؛ سازنده از شناسه کاربر جاری گرفته می‌شود
+        var createdBy = ResolveCreatedBy(employee);
 
         var user = new AppUser
         {
@@ -133,8 +135,7 @@ public class AuthController : ControllerBase
             EmployeeId = employee.EmployeeID,
             AvatarUrl = employee.AvatarUrl,
             PasswordHash = _passwordHasher.HashPassword(null!, request.Password),
-            //CreatedBy = createdBy.Value,
-            //CreatedBy = null,
+            CreatedBy = createdBy,
             CreatedAt = DateTime.Now,
             IsActive = true,
             IsDeleted = false,
@@ -259,7 +260,7 @@ public class AuthController : ControllerBase
         public string UserName { get; set; } = string.Empty;
 
         [Required(ErrorMessage = "رمز عبور الزامی است.")]
-        [MinLength(4, ErrorMessage = "رمز عبور باید حداقل ۶ کاراکتر باشد.")]
+        [MinLength(6, ErrorMessage = "رمز عبور باید حداقل ۶ کاراکتر باشد.")]
         [MaxLength(200)]
         public string Password { get; set; } = string.Empty;
 

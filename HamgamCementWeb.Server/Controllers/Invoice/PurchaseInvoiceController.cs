@@ -1,4 +1,5 @@
 using System.ComponentModel.DataAnnotations;
+using HamgamCementWeb.Server.Authorization;
 using HamgamCementWeb.Server.Controllers.Transport;
 using HamgamCementWeb.Server.Data;
 using HamgamCementWeb.Server.Data.Models.Invoice;
@@ -26,24 +27,19 @@ public class PurchaseInvoiceController : InvoiceControllerBase
     };
 
     private readonly IInvoicePostingService _posting;
-    private readonly ICurrencyConversionService _currency;
-    private readonly ICurrencyExchangeRateService _exchangeRates;
     private readonly IInvoiceReturnService _returns;
 
     public PurchaseInvoiceController(
         AppDbContext db,
         IInvoicePostingService posting,
-        ICurrencyConversionService currency,
-        ICurrencyExchangeRateService exchangeRates,
         IInvoiceReturnService returns) : base(db)
     {
         _posting = posting;
-        _currency = currency;
-        _exchangeRates = exchangeRates;
         _returns = returns;
     }
 
     [HttpPost("datatable")]
+    [HasPermission("transactions.purchase.view")]
     public async Task<IActionResult> DataTable(
         [FromBody] DataTableRequest request,
         CancellationToken cancellationToken)
@@ -140,6 +136,7 @@ public class PurchaseInvoiceController : InvoiceControllerBase
     }
 
     [HttpGet("next-code-preview")]
+    [HasPermission("transactions.purchase.view")]
     public async Task<IActionResult> NextCodePreview(CancellationToken cancellationToken)
     {
         var nextId = (await Db.PurchaseInvoices.MaxAsync(i => (int?)i.PurchaseInvoiceID, cancellationToken) ?? 0) + 1;
@@ -147,6 +144,7 @@ public class PurchaseInvoiceController : InvoiceControllerBase
     }
 
     [HttpGet("{id:int}")]
+    [HasPermission("transactions.purchase.view")]
     public async Task<IActionResult> Get(int id, CancellationToken cancellationToken)
     {
         var invoice = await Db.PurchaseInvoices
@@ -217,6 +215,7 @@ public class PurchaseInvoiceController : InvoiceControllerBase
     }
 
     [HttpGet("{id:int}/production-trace")]
+    [HasPermission("transactions.purchase.view")]
     public async Task<IActionResult> GetProductionTrace(int id, CancellationToken cancellationToken)
     {
         var invoice = await Db.PurchaseInvoices
@@ -248,6 +247,7 @@ public class PurchaseInvoiceController : InvoiceControllerBase
     }
 
     [HttpGet("{id:int}/returnable-lines")]
+    [HasPermission("transactions.purchase.view")]
     public async Task<IActionResult> GetReturnableLines(int id, CancellationToken cancellationToken)
     {
         try
@@ -262,13 +262,16 @@ public class PurchaseInvoiceController : InvoiceControllerBase
     }
 
     [HttpGet("{id:int}/returns")]
+    [HasPermission("transactions.purchase.view")]
     public async Task<IActionResult> GetReturns(int id, CancellationToken cancellationToken)
     {
         var returns = await _returns.GetPurchaseReturnsAsync(id, cancellationToken);
         return Ok(returns);
     }
 
+    // چرا edit: عملیات برگشت از خرید، تغییر در سند خرید موجود است و به .edit نگاشت می‌شود.
     [HttpPost("{id:int}/returns")]
+    [HasPermission("transactions.purchase.edit")]
     public async Task<IActionResult> CreateReturn(
         int id,
         [FromBody] CreateInvoiceReturnRequest request,
@@ -277,8 +280,11 @@ public class PurchaseInvoiceController : InvoiceControllerBase
         try
         {
             var userId = ResolveCurrentUserId();
+            // چرا تراکنش: ساخت سند برگشت و ثبت نهایی آن باید اتمیک باشند تا در صورت خطای ثبت، سند برگشت ناقص نماند.
+            await using var tx = await Db.Database.BeginTransactionAsync(cancellationToken);
             var returnId = await _returns.CreatePurchaseReturnAsync(id, request, userId, cancellationToken);
             await _posting.PostPurchaseAsync(returnId, userId, cancellationToken);
+            await tx.CommitAsync(cancellationToken);
             return Ok(new
             {
                 message = "برگشت از خرید ثبت شد.",
@@ -292,6 +298,7 @@ public class PurchaseInvoiceController : InvoiceControllerBase
     }
 
     [HttpPost]
+    [HasPermission("transactions.purchase.create")]
     public async Task<IActionResult> Create(
         [FromBody] SavePurchaseInvoiceRequest request,
         CancellationToken cancellationToken)
@@ -361,9 +368,7 @@ public class PurchaseInvoiceController : InvoiceControllerBase
         invoice.InvoiceNumber = InvoiceCodeHelper.ForPurchase(invoice.PurchaseInvoiceID);
         await Db.SaveChangesAsync(cancellationToken);
 
-        await RecordInvoiceExchangeHistoryAsync(invoice, userId, cancellationToken);
-
-        if (request.Status == Data.InvoiceStatus.Inoivce)
+        if (request.Status == Data.InvoiceStatus.Invoice)
         {
             await _posting.PostPurchaseAsync(invoice.PurchaseInvoiceID, userId, cancellationToken);
             return Ok(new { message = "فاکتور خرید ثبت شد. موجودی و مصارف به‌روز شد.", purchaseInvoiceId = invoice.PurchaseInvoiceID });
@@ -373,6 +378,7 @@ public class PurchaseInvoiceController : InvoiceControllerBase
     }
 
     [HttpPut("{id:int}")]
+    [HasPermission("transactions.purchase.edit")]
     public async Task<IActionResult> Update(
         int id,
         [FromBody] SavePurchaseInvoiceRequest request,
@@ -482,9 +488,7 @@ public class PurchaseInvoiceController : InvoiceControllerBase
 
         await Db.SaveChangesAsync(cancellationToken);
 
-        await RecordInvoiceExchangeHistoryAsync(invoice, userId, cancellationToken);
-
-        if (request.Status == Data.InvoiceStatus.Inoivce)
+        if (request.Status == Data.InvoiceStatus.Invoice)
         {
             await _posting.PostPurchaseAsync(invoice.PurchaseInvoiceID, userId, cancellationToken);
             return Ok(new { message = "فاکتور خرید ثبت شد. موجودی و مصارف به‌روز شد." });
@@ -493,9 +497,39 @@ public class PurchaseInvoiceController : InvoiceControllerBase
         return Ok(new { message = "فاکتور خرید با موفقیت ویرایش شد." });
     }
 
+    // چرا edit: ثبت نهایی (Post) تغییر وضعیت سند است و به .edit نگاشت می‌شود.
     [HttpPost("{id:int}/post")]
+    [HasPermission("transactions.purchase.edit")]
     public async Task<IActionResult> Post(int id, CancellationToken cancellationToken)
     {
+        var invoice = await Db.PurchaseInvoices
+            .AsNoTracking()
+            .Where(i => i.PurchaseInvoiceID == id && i.IsDeleted != true)
+            .Select(i => new { i.Status, i.IsPosted, i.DocumentType })
+            .FirstOrDefaultAsync(cancellationToken);
+
+        if (invoice is null)
+        {
+            return NotFound(new { message = "فاکتور خرید یافت نشد." });
+        }
+
+        if (invoice.IsPosted)
+        {
+            return BadRequest(new { message = "این فاکتور قبلاً ثبت نهایی شده است." });
+        }
+
+        // چرا فقط Invoice: ثبت نهایی دستی فقط برای فاکتور نهایی مجاز است؛ در غیر این صورت (استعلام/پیش‌فاکتور/آردر)
+        // ممکن بود مصرف مالی بدون ورود موجودی ثبت شود و داده ناسازگار گردد. اسناد برگشت مسیر ثبت جداگانه دارند.
+        if (invoice.DocumentType != InvoiceDocumentType.Invoice)
+        {
+            return BadRequest(new { message = "اسناد برگشت از این مسیر ثبت نمی‌شوند." });
+        }
+
+        if (invoice.Status != InvoiceStatus.Invoice)
+        {
+            return BadRequest(new { message = "فقط فاکتور نهایی قابل ثبت نهایی است. ابتدا وضعیت فاکتور را به «فاکتور» تغییر دهید." });
+        }
+
         try
         {
             await _posting.PostPurchaseAsync(id, ResolveCurrentUserId(), cancellationToken);
@@ -508,6 +542,7 @@ public class PurchaseInvoiceController : InvoiceControllerBase
     }
 
     [HttpDelete("{id:int}")]
+    [HasPermission("transactions.purchase.delete")]
     public async Task<IActionResult> Delete(int id, CancellationToken cancellationToken)
     {
         var invoice = await Db.PurchaseInvoices
@@ -559,34 +594,6 @@ public class PurchaseInvoiceController : InvoiceControllerBase
         invoice.PaidAmount = paidAmount;
         invoice.IsCash = invoice.TotalAmount > 0 && paidAmount >= invoice.TotalAmount;
         return null;
-    }
-
-    private async Task RecordInvoiceExchangeHistoryAsync(
-        PurchaseInvoice invoice,
-        int? userId,
-        CancellationToken cancellationToken)
-    {
-        if (invoice.CurrencyId == invoice.BaseCurrencyId)
-        {
-            return;
-        }
-
-        if (invoice.BaseUnitsPerUnitAtTransaction <= 0)
-        {
-            return;
-        }
-
-        var historyId = await _exchangeRates.ApplyRateChangeAsync(
-            invoice.CurrencyId,
-            invoice.BaseCurrencyId,
-            invoice.BaseUnitsPerUnitAtTransaction,
-            $"تغییر بر اساس شماره فاکتور {invoice.InvoiceNumber}",
-            invoice.InvoiceDate,
-            userId,
-            cancellationToken);
-
-        invoice.ExchangeHistoryId = historyId;
-        await Db.SaveChangesAsync(cancellationToken);
     }
 
     private async Task<string?> ValidateEntrySourceAsync(

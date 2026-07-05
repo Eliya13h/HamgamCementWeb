@@ -70,7 +70,7 @@ namespace HamgamCementWeb.Server.Data
         [Display(Name = "آردر")]
         Order = 3,
         [Display(Name = "فاکتور")]
-        Inoivce = 4,
+        Invoice = 4,
     }
 
     // نوع سند فاکتور — فاکتور عادی یا برگشت
@@ -123,6 +123,10 @@ namespace HamgamCementWeb.Server.Data
 
         [Display(Name = "برگشت از فروش")]
         SaleReturn = 5,
+
+        // اضافه شد برای اتصال فاکتور مصارف حمل‌ونقل به حسابداری
+        [Display(Name = "هزینه حمل‌ونقل")]
+        TransportExpense = 6,
     }
 
 }

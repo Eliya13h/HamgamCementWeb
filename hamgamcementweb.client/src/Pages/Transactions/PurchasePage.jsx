@@ -174,12 +174,13 @@ function PurchasePage() {
 
     useEffect(() => {
         if (!header.currencyId) {
-            setRateSnapshot(null)
-            setExchangeRate('')
             return
         }
+
+        let cancelled = false
         fetchCurrencyRateAt(header.currencyId, header.invoiceDate || undefined)
             .then((snapshot) => {
+                if (cancelled) return
                 setRateSnapshot(snapshot)
                 const rate = snapshot.isBaseCurrency ? '1' : String(snapshot.baseUnitsPerUnit ?? '')
                 setExchangeRate(rate)
@@ -201,12 +202,17 @@ function PurchasePage() {
                 }
             })
             .catch(() => {
+                if (cancelled) return
                 setRateSnapshot(null)
                 setExchangeRate('')
             })
+
+        return () => {
+            cancelled = true
+        }
     }, [header.currencyId, header.invoiceDate, baseCurrencyId, exchangeRateTouched])
 
-    const isNonBaseCurrency = Boolean(rateSnapshot && !rateSnapshot.isBaseCurrency)
+    const isNonBaseCurrency = Boolean(header.currencyId && rateSnapshot && !rateSnapshot.isBaseCurrency)
 
     const computedLines = useMemo(
         () =>
@@ -238,6 +244,10 @@ function PurchasePage() {
             itemsTotal: lineTotals.total,
         }
     }, [computedLines, header.fixedCost, header.variableCost, header.currencyId, baseCurrencyId, currencyRates, exchangeRate])
+
+    const handleHeaderChange = useCallback((name, value) => {
+        setHeader((prev) => ({ ...prev, [name]: value }))
+    }, [])
 
     useEffect(() => {
         if (String(header.entrySource) !== String(PURCHASE_ENTRY_SOURCE.Production)) {
@@ -276,7 +286,7 @@ function PurchasePage() {
         } catch {
             // ignore
         }
-    }, [header.currencyId, baseCurrencyId, currencyRates, exchangeRate, viewPosted])
+    }, [header.currencyId, baseCurrencyId, currencyRates, exchangeRate, viewPosted, handleHeaderChange])
 
     const openProductionTrace = useCallback(async (purchaseInvoiceId) => {
         try {
@@ -287,19 +297,18 @@ function PurchasePage() {
         }
     }, [])
 
-    const paidAmountNumeric = Number(header.paidAmount) || 0
+    const effectivePaidAmount = useMemo(() => {
+        if (paidAmountTouched || viewPosted) {
+            return header.paidAmount
+        }
+        return totals.total > 0 ? String(totals.total) : ''
+    }, [paidAmountTouched, viewPosted, header.paidAmount, totals.total])
+
+    const paidAmountNumeric = Number(effectivePaidAmount) || 0
     const remainingAmount = Math.max(0, totals.total - paidAmountNumeric)
     const isCashInvoice = totals.total > 0 && paidAmountNumeric >= totals.total
     const isInvoiceStatus = String(header.status) === '4'
     const showReturnedQty = viewPosted && documentType === INVOICE_DOCUMENT_TYPE.Invoice
-
-    useEffect(() => {
-        if (paidAmountTouched) return
-        setHeader((prev) => ({
-            ...prev,
-            paidAmount: totals.total > 0 ? String(totals.total) : '',
-        }))
-    }, [totals.total, paidAmountTouched])
 
     const reloadTable = useCallback(() => {
         tableRef.current?.dt()?.ajax.reload(null, false)
@@ -318,6 +327,7 @@ function PurchasePage() {
         setFormError('')
         setSubmitting(false)
         setExchangeRate('')
+        setRateSnapshot(null)
         setExchangeRateTouched(false)
         setPaidAmountTouched(false)
         setInvoiceCodePreview('')
@@ -440,11 +450,15 @@ function PurchasePage() {
         }
     }, [])
 
-    const handleHeaderChange = (name, value) => {
-        setHeader((prev) => ({ ...prev, [name]: value }))
-    }
-
     const handleCurrencyChange = (newCurrencyId) => {
+        if (!newCurrencyId) {
+            setRateSnapshot(null)
+            setExchangeRate('')
+            setExchangeRateTouched(false)
+            handleHeaderChange('currencyId', newCurrencyId)
+            return
+        }
+
         const oldCurrencyId = header.currencyId
         if (oldCurrencyId && newCurrencyId && oldCurrencyId !== newCurrencyId) {
             const oldRate = getCurrencyRateToBase(
@@ -580,7 +594,7 @@ function PurchasePage() {
         event.preventDefault()
         if (viewPosted) return
 
-        const paid = Number(header.paidAmount) || 0
+        const paid = Number(effectivePaidAmount) || 0
         if (paid < 0) {
             setFormError('مبلغ پرداخت‌شده نمی‌تواند منفی باشد.')
             return
@@ -594,7 +608,11 @@ function PurchasePage() {
         setFormError('')
 
         try {
-            const payload = buildPurchasePayload(header, lines, exchangeRate)
+            const payload = buildPurchasePayload(
+                { ...header, paidAmount: effectivePaidAmount },
+                lines,
+                exchangeRate,
+            )
             if (editId) {
                 await purchaseInvoicesApi.update(editId, payload)
             } else {
@@ -700,6 +718,7 @@ function PurchasePage() {
                         }
                         return badge
                     },
+                    
                 },
                 { data: 'supplierName', name: 'supplierName' },
                 {
@@ -737,19 +756,20 @@ function PurchasePage() {
                 { data: null, name: 'actions', defaultContent: '' },
             ],
             columnDefs: [
-                { targets: 0, orderable: false, searchable: false, width: '56px', className: 'text-center' },
-                { targets: [3, 4, 5, 9], orderable: false },
-                { targets: [2, 6, 7, 8, 9], className: 'text-center' },
+                { targets: 0, orderable: true, searchable: false, width: '56px', className: 'text-center' },
+                { targets: [3, 4, 5, 9], orderable: true, className: 'text-center' },
+                { targets: [2, 6, 7, 8, 9], className: 'text-center', orderable: true, },
                 {
                     targets: 10,
                     orderable: false,
                     searchable: false,
+                    fixed: true,
                     className: 'text-center all dt-actions-col',
                     width: '196px',
                 },
             ],
         }),
-        [],
+        [invoiceTotalRender, baseTotalRender],
     )
 
     const actionSlots = useMemo(
@@ -1080,7 +1100,7 @@ function PurchasePage() {
                                         <div className="col-md-3">
                                             <label className="form-label">مقدار پرداخت‌شده</label>
                                             <AmountField
-                                                value={header.paidAmount}
+                                                value={effectivePaidAmount}
                                                 onChange={(next) => {
                                                     setPaidAmountTouched(true)
                                                     handleHeaderChange('paidAmount', next)

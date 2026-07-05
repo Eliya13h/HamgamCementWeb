@@ -1,5 +1,6 @@
 using System.ComponentModel.DataAnnotations;
 using System.Security.Claims;
+using HamgamCementWeb.Server.Authorization;
 using HamgamCementWeb.Server.Data;
 using HamgamCementWeb.Server.Data.Models.Finance;
 using HamgamCementWeb.Server.Services;
@@ -139,6 +140,7 @@ public class CurrencyController : ControllerBase
     }
 
     [HttpPost("datatable")]
+    [HasPermission("currencies.list.view")]
     public async Task<IActionResult> DataTable(
         [FromBody] DataTableRequest request,
         CancellationToken cancellationToken)
@@ -204,7 +206,9 @@ public class CurrencyController : ControllerBase
         });
     }
 
+    // چرا currencies.exchange: تاریخچه‌ی نوسانات در صفحه‌ی «نوسانات» (currencies.exchange) نمایش داده می‌شود.
     [HttpPost("exchange-history/datatable")]
+    [HasPermission("currencies.exchange.view")]
     public async Task<IActionResult> ExchangeHistoryDataTable(
         [FromBody] ExchangeHistoryDataTableRequest request,
         CancellationToken cancellationToken)
@@ -271,6 +275,7 @@ public class CurrencyController : ControllerBase
     }
 
     [HttpPost]
+    [HasPermission("currencies.list.create")]
     public async Task<IActionResult> Create(
         [FromBody] SaveCurrencyRequest request,
         CancellationToken cancellationToken)
@@ -342,6 +347,7 @@ public class CurrencyController : ControllerBase
     }
 
     [HttpPut("{id:int}")]
+    [HasPermission("currencies.list.edit")]
     public async Task<IActionResult> Update(
         int id,
         [FromBody] SaveCurrencyRequest request,
@@ -393,7 +399,9 @@ public class CurrencyController : ControllerBase
         return Ok(new { message = "ارز با موفقیت ویرایش شد." });
     }
 
+    // چرا setBase: عملیات تعیین ارز پایه، extra action صفحه‌ی ارزهاست.
     [HttpPut("{id:int}/set-base")]
+    [HasPermission("currencies.list.setBase")]
     public async Task<IActionResult> SetBase(int id, CancellationToken cancellationToken)
     {
         var currency = await _db.Currencies
@@ -409,13 +417,51 @@ public class CurrencyController : ControllerBase
             return Ok(new { message = "این ارز از قبل ارز پایه است." });
         }
 
+        var userId = ResolveCurrentUserId();
+
+        // چرا خواندن قبل از تغییر: برای بازمحاسبه نرخ سایر ارزها به نرخ ارز پایه‌ی جدید نسبت به پایه‌ی قدیم (rNew)
+        // و نرخ فعلی هر ارز نسبت به پایه‌ی قدیم (rX) نیاز داریم؛ این مقادیر باید پیش از هر تغییری خوانده شوند.
+        var newBaseRate = await _db.CurrencyExchangeRates
+            .AsNoTracking()
+            .Where(r => r.CurrencyID == id)
+            .Select(r => (decimal?)r.BaseUnitsPerUnit)
+            .FirstOrDefaultAsync(cancellationToken);
+
+        // بدون نرخ معتبر ارز جدید نسبت به پایه‌ی فعلی، بازمحاسبه ممکن نیست؛ برای جلوگیری از خرابی داده، ابتدا نرخ لازم است.
+        if (newBaseRate is not > 0)
+        {
+            return BadRequest(new { message = "برای تعیین این ارز به‌عنوان پایه، ابتدا باید نرخ آن نسبت به ارز پایه‌ی فعلی ثبت شود." });
+        }
+
+        var rNew = newBaseRate.Value;
+
+        var oldBase = await _db.Currencies
+            .FirstOrDefaultAsync(c => c.IsBaseCurrency && c.IsDeleted != true, cancellationToken);
+        var oldBaseId = oldBase?.CurrencyID;
+
+        // نرخ فعلی سایر ارزهای فعال نسبت به پایه‌ی قدیم (به‌جز ارز پایه‌ی جدید که نرخش حذف می‌شود).
+        var otherRates = await _db.CurrencyExchangeRates
+            .AsNoTracking()
+            .Where(r => r.CurrencyID != id)
+            .Join(
+                _db.Currencies.Where(c => c.IsDeleted != true && c.IsActive == true),
+                r => r.CurrencyID,
+                c => c.CurrencyID,
+                (r, c) => new { r.CurrencyID, r.BaseUnitsPerUnit })
+            .ToListAsync(cancellationToken);
+
+        // چرا تراکنش: تغییر ارز پایه شامل حذف نرخ‌ها، بستن تاریخچه و بازمحاسبه‌ی نرخ همه‌ی ارزها با چند SaveChanges است؛
+        // در صورت خطای میانی باید کل عملیات برگردد تا نرخ‌ها ناسازگار (بخشی قدیم/بخشی جدید) نمانند.
+        await using var setBaseTransaction = await _db.Database.BeginTransactionAsync(cancellationToken);
+
         await ClearBaseCurrencyFlagsAsync(cancellationToken);
 
         currency.IsBaseCurrency = true;
         currency.UpdatedAt = DateTime.Now;
         currency.IsUpdated = true;
-        currency.UpdatedBy = ResolveCurrentUserId();
+        currency.UpdatedBy = userId;
 
+        // ارز پایه نباید در جدول نرخ ردیف داشته باشد؛ نرخ قبلی ارز پایه‌ی جدید حذف و تاریخچه‌ی باز آن بسته می‌شود.
         var rates = await _db.CurrencyExchangeRates
             .Where(r => r.CurrencyID == id)
             .ToListAsync(cancellationToken);
@@ -430,15 +476,41 @@ public class CurrencyController : ControllerBase
             history.EffectiveTo = now;
             history.UpdatedAt = now;
             history.IsUpdated = true;
-            history.UpdatedBy = ResolveCurrentUserId();
+            history.UpdatedBy = userId;
         }
 
         await _db.SaveChangesAsync(cancellationToken);
 
-        return Ok(new { message = "ارز پایه با موفقیت تغییر کرد." });
+        // چرا بازمحاسبه: پس از تغییر پایه، نرخ همه‌ی ارزها باید نسبت به پایه‌ی جدید بیان شود.
+        // نرخ ارز X نسبت به پایه‌ی جدید = (نرخ X نسبت به پایه‌ی قدیم) ÷ rNew؛ و نرخ پایه‌ی قدیم نسبت به پایه‌ی جدید = 1 ÷ rNew.
+        var reason = $"بازمحاسبه نرخ به‌دلیل تغییر ارز پایه به «{currency.Name}»";
+        var effectiveFrom = DateTime.Now;
+
+        if (oldBaseId is int oldId)
+        {
+            await _exchangeRates.ApplyRateChangeAsync(
+                oldId, id, 1m / rNew, reason, effectiveFrom, userId, cancellationToken);
+        }
+
+        foreach (var rate in otherRates)
+        {
+            if (rate.CurrencyID == oldBaseId)
+            {
+                continue;
+            }
+
+            await _exchangeRates.ApplyRateChangeAsync(
+                rate.CurrencyID, id, rate.BaseUnitsPerUnit / rNew, reason, effectiveFrom, userId, cancellationToken);
+        }
+
+        await setBaseTransaction.CommitAsync(cancellationToken);
+
+        return Ok(new { message = "ارز پایه با موفقیت تغییر کرد و نرخ سایر ارزها بازمحاسبه شد." });
     }
 
+    // چرا setRate: ثبت نرخ ارز، extra action صفحه‌ی ارزهاست.
     [HttpPost("{id:int}/exchange-rate")]
+    [HasPermission("currencies.list.setRate")]
     public async Task<IActionResult> UpdateExchangeRate(
         int id,
         [FromBody] UpdateExchangeRateRequest request,
@@ -483,6 +555,7 @@ public class CurrencyController : ControllerBase
     }
 
     [HttpDelete("{id:int}")]
+    [HasPermission("currencies.list.delete")]
     public async Task<IActionResult> Delete(int id, CancellationToken cancellationToken)
     {
         var currency = await _db.Currencies

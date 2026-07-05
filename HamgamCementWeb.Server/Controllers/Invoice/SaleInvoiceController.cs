@@ -1,4 +1,5 @@
 using System.ComponentModel.DataAnnotations;
+using HamgamCementWeb.Server.Authorization;
 using HamgamCementWeb.Server.Controllers.Transport;
 using HamgamCementWeb.Server.Data;
 using HamgamCementWeb.Server.Data.Models.Invoice;
@@ -38,6 +39,7 @@ public class SaleInvoiceController : InvoiceControllerBase
     }
 
     [HttpPost("datatable")]
+    [HasPermission("transactions.sale.view")]
     public async Task<IActionResult> DataTable(
         [FromBody] DataTableRequest request,
         CancellationToken cancellationToken)
@@ -125,6 +127,7 @@ public class SaleInvoiceController : InvoiceControllerBase
     }
 
     [HttpGet("{id:int}")]
+    [HasPermission("transactions.sale.view")]
     public async Task<IActionResult> Get(int id, CancellationToken cancellationToken)
     {
         var invoice = await Db.SaleInvoices
@@ -203,6 +206,7 @@ public class SaleInvoiceController : InvoiceControllerBase
     }
 
     [HttpGet("{id:int}/returnable-lines")]
+    [HasPermission("transactions.sale.view")]
     public async Task<IActionResult> GetReturnableLines(int id, CancellationToken cancellationToken)
     {
         try
@@ -217,13 +221,16 @@ public class SaleInvoiceController : InvoiceControllerBase
     }
 
     [HttpGet("{id:int}/returns")]
+    [HasPermission("transactions.sale.view")]
     public async Task<IActionResult> GetReturns(int id, CancellationToken cancellationToken)
     {
         var returns = await _returns.GetSaleReturnsAsync(id, cancellationToken);
         return Ok(returns);
     }
 
+    // چرا edit: برگشت از فروش، تغییر در سند فروش موجود است و به .edit نگاشت می‌شود.
     [HttpPost("{id:int}/returns")]
+    [HasPermission("transactions.sale.edit")]
     public async Task<IActionResult> CreateReturn(
         int id,
         [FromBody] CreateInvoiceReturnRequest request,
@@ -232,8 +239,11 @@ public class SaleInvoiceController : InvoiceControllerBase
         try
         {
             var userId = ResolveCurrentUserId();
+            // چرا تراکنش: ساخت سند برگشت و ثبت نهایی آن باید اتمیک باشند تا در صورت خطای ثبت، سند برگشت ناقص نماند.
+            await using var tx = await Db.Database.BeginTransactionAsync(cancellationToken);
             var returnId = await _returns.CreateSaleReturnAsync(id, request, userId, cancellationToken);
             await _posting.PostSaleAsync(returnId, userId, cancellationToken);
+            await tx.CommitAsync(cancellationToken);
             return Ok(new
             {
                 message = "برگشت از فروش ثبت شد.",
@@ -246,7 +256,9 @@ public class SaleInvoiceController : InvoiceControllerBase
         }
     }
 
+    // چرا view: پیش‌نمایش سود فقط محاسبه‌ی خواندنی است و در فرم فاکتور استفاده می‌شود.
     [HttpPost("preview-profit")]
+    [HasPermission("transactions.sale.view")]
     public async Task<IActionResult> PreviewProfit(
         [FromBody] SaveSaleInvoiceRequest request,
         CancellationToken cancellationToken)
@@ -306,6 +318,7 @@ public class SaleInvoiceController : InvoiceControllerBase
     }
 
     [HttpPost]
+    [HasPermission("transactions.sale.create")]
     public async Task<IActionResult> Create(
         [FromBody] SaveSaleInvoiceRequest request,
         CancellationToken cancellationToken)
@@ -375,7 +388,7 @@ public class SaleInvoiceController : InvoiceControllerBase
         invoice.InvoiceNumber = InvoiceCodeHelper.ForSale(invoice.SaleInvoiceID);
         await Db.SaveChangesAsync(cancellationToken);
 
-        if (request.Status == Data.InvoiceStatus.Inoivce)
+        if (request.Status == Data.InvoiceStatus.Invoice)
         {
             await _posting.PostSaleAsync(invoice.SaleInvoiceID, userId, cancellationToken);
             return Ok(new { message = "فاکتور فروش ثبت شد. موجودی و درآمد به‌روز شد.", saleInvoiceId = invoice.SaleInvoiceID });
@@ -385,6 +398,7 @@ public class SaleInvoiceController : InvoiceControllerBase
     }
 
     [HttpPut("{id:int}")]
+    [HasPermission("transactions.sale.edit")]
     public async Task<IActionResult> Update(
         int id,
         [FromBody] SaveSaleInvoiceRequest request,
@@ -494,7 +508,7 @@ public class SaleInvoiceController : InvoiceControllerBase
 
         await Db.SaveChangesAsync(cancellationToken);
 
-        if (request.Status == Data.InvoiceStatus.Inoivce)
+        if (request.Status == Data.InvoiceStatus.Invoice)
         {
             await _posting.PostSaleAsync(invoice.SaleInvoiceID, userId, cancellationToken);
             return Ok(new { message = "فاکتور فروش ثبت شد. موجودی و درآمد به‌روز شد." });
@@ -503,9 +517,39 @@ public class SaleInvoiceController : InvoiceControllerBase
         return Ok(new { message = "فاکتور فروش با موفقیت ویرایش شد." });
     }
 
+    // چرا edit: ثبت نهایی (Post) تغییر وضعیت سند است و به .edit نگاشت می‌شود.
     [HttpPost("{id:int}/post")]
+    [HasPermission("transactions.sale.edit")]
     public async Task<IActionResult> Post(int id, CancellationToken cancellationToken)
     {
+        var invoice = await Db.SaleInvoices
+            .AsNoTracking()
+            .Where(i => i.SaleInvoiceID == id && i.IsDeleted != true)
+            .Select(i => new { i.Status, i.IsPosted, i.DocumentType })
+            .FirstOrDefaultAsync(cancellationToken);
+
+        if (invoice is null)
+        {
+            return NotFound(new { message = "فاکتور فروش یافت نشد." });
+        }
+
+        if (invoice.IsPosted)
+        {
+            return BadRequest(new { message = "این فاکتور قبلاً ثبت نهایی شده است." });
+        }
+
+        // چرا این محدودیت‌ها: اسناد برگشت مسیر ثبت جداگانه دارند و ثبت «استعلام قیمت» هیچ اثر مالی/انباری ندارد
+        // و فقط سند را بی‌دلیل ثبت‌شده علامت می‌زند؛ سایر وضعیت‌ها (پیش‌فاکتور/آردر/فاکتور) رفتار معنادار دارند.
+        if (invoice.DocumentType != InvoiceDocumentType.Invoice)
+        {
+            return BadRequest(new { message = "اسناد برگشت از این مسیر ثبت نمی‌شوند." });
+        }
+
+        if (invoice.Status == InvoiceStatus.Quotation)
+        {
+            return BadRequest(new { message = "فاکتور استعلام قیمت قابل ثبت نهایی نیست." });
+        }
+
         try
         {
             await _posting.PostSaleAsync(id, ResolveCurrentUserId(), cancellationToken);
@@ -518,6 +562,7 @@ public class SaleInvoiceController : InvoiceControllerBase
     }
 
     [HttpDelete("{id:int}")]
+    [HasPermission("transactions.sale.delete")]
     public async Task<IActionResult> Delete(int id, CancellationToken cancellationToken)
     {
         var invoice = await Db.SaleInvoices

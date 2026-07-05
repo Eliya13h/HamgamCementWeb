@@ -22,6 +22,16 @@ public record ProductionTracePurchase(
     decimal TotalAmount,
     bool IsPosted);
 
+public record ProductionTraceConsumedLot(
+    int ProductionInputLineId,
+    int ProductId,
+    string ProductName,
+    int InventoryLotId,
+    string LotCode,
+    decimal QuantityInBase,
+    decimal UnitCostInBase,
+    decimal LineCostInBase);
+
 public record ProductionTraceResult(
     int ProductionBatchId,
     string BatchNumber,
@@ -34,11 +44,13 @@ public record ProductionTraceResult(
     IReadOnlyList<object> InputLines,
     IReadOnlyList<object> OutputLines,
     IReadOnlyList<ProductionTracePurchase> PurchaseInvoices,
-    IReadOnlyList<ProductionTraceLot> InventoryLots);
+    IReadOnlyList<ProductionTraceLot> InventoryLots,
+    IReadOnlyList<ProductionTraceConsumedLot> ConsumedLots);
 
 public interface IProductionPostingService
 {
     Task PostBatchAsync(int productionBatchId, int? userId, CancellationToken cancellationToken = default);
+    Task UnpostBatchAsync(int productionBatchId, int? userId, CancellationToken cancellationToken = default);
     Task<ProductionTraceResult> GetTraceAsync(int productionBatchId, CancellationToken cancellationToken = default);
 }
 
@@ -58,7 +70,24 @@ public class ProductionPostingService : IProductionPostingService
         _fifo = fifo;
     }
 
+    // چرا تراکنش: ثبت تولید شامل مصرف FIFO مواد و ساخت Lot خروجی با چند SaveChanges است؛ در صورت خطای میانی
+    // همه‌ی تغییرات باید برگردند تا مواد مصرف‌شده بدون تولید خروجی ثبت نشوند.
     public async Task PostBatchAsync(int productionBatchId, int? userId, CancellationToken cancellationToken = default)
+    {
+        var ownsTransaction = _db.Database.CurrentTransaction is null;
+        await using var tx = ownsTransaction
+            ? await _db.Database.BeginTransactionAsync(cancellationToken)
+            : null;
+
+        await PostBatchCoreAsync(productionBatchId, userId, cancellationToken);
+
+        if (tx is not null)
+        {
+            await tx.CommitAsync(cancellationToken);
+        }
+    }
+
+    private async Task PostBatchCoreAsync(int productionBatchId, int? userId, CancellationToken cancellationToken = default)
     {
         var batch = await _db.ProductionBatches
             .Include(b => b.InputLines.Where(x => x.IsDeleted != true))
@@ -115,6 +144,23 @@ public class ProductionPostingService : IProductionPostingService
             line.IsUpdated = true;
             line.UpdatedAt = now;
             line.UpdatedBy = userId;
+
+            // ذخیره تخصیص FIFO هر ردیف مصرف برای Trace کامل و امکان برگشت دقیق (Unpost).
+            foreach (var allocation in allocations)
+            {
+                _db.ProductionInputLotAllocations.Add(new ProductionInputLotAllocation
+                {
+                    ProductionInputLineId = line.ProductionInputLineID,
+                    InventoryLotId = allocation.InventoryLotId,
+                    QuantityInBase = allocation.QuantityInBase,
+                    UnitCostInBase = allocation.UnitCost,
+                    LineCostInBase = allocation.LineCost,
+                    IsActive = true,
+                    IsDeleted = false,
+                    CreatedAt = now,
+                    CreatedBy = userId,
+                });
+            }
         }
 
         var totalOutputBase = batch.OutputLines.Sum(o => o.QuantityInBase);
@@ -172,6 +218,122 @@ public class ProductionPostingService : IProductionPostingService
         batch.Status = ProductionBatchStatus.Posted;
         batch.IsPosted = true;
         batch.PostedAt = now;
+        batch.IsUpdated = true;
+        batch.UpdatedAt = now;
+        batch.UpdatedBy = userId;
+
+        await _db.SaveChangesAsync(cancellationToken);
+    }
+
+    // چرا Unpost: برای اصلاح اشتباه در سند تولید ثبت‌شده لازم است بتوان اثر آن را برگرداند؛
+    // Lot تولیدشده حذف و مواد مصرفی دقیقاً به همان Lotهای اصلی (بر اساس تخصیص ذخیره‌شده) بازگردانده می‌شوند.
+    public async Task UnpostBatchAsync(int productionBatchId, int? userId, CancellationToken cancellationToken = default)
+    {
+        var ownsTransaction = _db.Database.CurrentTransaction is null;
+        await using var tx = ownsTransaction
+            ? await _db.Database.BeginTransactionAsync(cancellationToken)
+            : null;
+
+        await UnpostBatchCoreAsync(productionBatchId, userId, cancellationToken);
+
+        if (tx is not null)
+        {
+            await tx.CommitAsync(cancellationToken);
+        }
+    }
+
+    private async Task UnpostBatchCoreAsync(int productionBatchId, int? userId, CancellationToken cancellationToken)
+    {
+        var batch = await _db.ProductionBatches
+            .Include(b => b.InputLines.Where(x => x.IsDeleted != true))
+            .Include(b => b.OutputLines.Where(x => x.IsDeleted != true))
+            .FirstOrDefaultAsync(b => b.ProductionBatchID == productionBatchId && b.IsDeleted != true, cancellationToken)
+            ?? throw new InvalidOperationException("سند تولید یافت نشد.");
+
+        if (!batch.IsPosted)
+        {
+            throw new InvalidOperationException("این سند تولید ثبت نهایی نشده است.");
+        }
+
+        if (batch.IsTransferredToSales)
+        {
+            throw new InvalidOperationException("این سند تولید به چرخه فروش منتقل شده و قابل برگشت نیست؛ ابتدا فاکتور خرید مرتبط را حذف کنید.");
+        }
+
+        var now = DateTime.Now;
+
+        // حذف Lotهای تولیدشده: فقط اگر هنوز مصرف/فروخته نشده باشند (باقیمانده = دریافتی).
+        foreach (var line in batch.OutputLines)
+        {
+            if (line.InventoryLotId is not int lotId)
+            {
+                continue;
+            }
+
+            var lot = await _db.InventoryLots
+                .FirstOrDefaultAsync(l => l.InventoryLotID == lotId && l.IsDeleted != true, cancellationToken);
+            if (lot is null)
+            {
+                continue;
+            }
+
+            if (lot.RemainingQuantityInBase != lot.ReceivedQuantityInBase)
+            {
+                throw new InvalidOperationException("بخشی از محصول تولیدی مصرف یا جابه‌جا شده است؛ برگشت ممکن نیست.");
+            }
+
+            var stock = await _db.InventoryStocks
+                .FirstOrDefaultAsync(
+                    s => s.WarehouseId == lot.WarehouseId && s.ProductId == lot.ProductId && s.IsDeleted != true,
+                    cancellationToken);
+            if (stock is not null)
+            {
+                stock.QuantityInBase -= lot.RemainingQuantityInBase;
+                stock.IsUpdated = true;
+                stock.UpdatedAt = now;
+                stock.UpdatedBy = userId;
+            }
+
+            lot.RemainingQuantityInBase = 0;
+            lot.IsDeleted = true;
+            lot.DeletedAt = now;
+            lot.DeletedBy = userId;
+
+            line.InventoryLotId = null;
+            line.UnitCostInBase = 0;
+            line.IsUpdated = true;
+            line.UpdatedAt = now;
+            line.UpdatedBy = userId;
+        }
+
+        // بازگرداندن مواد مصرفی دقیقاً به همان Lotهای اصلی بر اساس تخصیص ذخیره‌شده.
+        var inputLineIds = batch.InputLines.Select(l => l.ProductionInputLineID).ToList();
+        var allocations = await _db.ProductionInputLotAllocations
+            .Where(a => inputLineIds.Contains(a.ProductionInputLineId) && a.IsDeleted != true)
+            .ToListAsync(cancellationToken);
+
+        foreach (var allocation in allocations)
+        {
+            await _fifo.RestoreToLotAsync(allocation.InventoryLotId, allocation.QuantityInBase, cancellationToken);
+
+            allocation.IsDeleted = true;
+            allocation.IsActive = false;
+            allocation.DeletedAt = now;
+            allocation.DeletedBy = userId;
+        }
+
+        foreach (var line in batch.InputLines)
+        {
+            line.MaterialCostInBase = 0;
+            line.IsUpdated = true;
+            line.UpdatedAt = now;
+            line.UpdatedBy = userId;
+        }
+
+        batch.IsPosted = false;
+        batch.PostedAt = null;
+        batch.Status = ProductionBatchStatus.Draft;
+        batch.TotalMaterialCostInBase = 0;
         batch.IsUpdated = true;
         batch.UpdatedAt = now;
         batch.UpdatedBy = userId;
@@ -280,6 +442,27 @@ public class ProductionPostingService : IProductionPostingService
                     : null))
             .ToList();
 
+        // Lotهای مصرف‌شده در تولید (تخصیص FIFO ورودی) برای نمایش کامل ردیابی.
+        var inputLineIds = await _db.ProductionInputLines
+            .AsNoTracking()
+            .Where(l => l.ProductionBatchId == productionBatchId && l.IsDeleted != true)
+            .Select(l => l.ProductionInputLineID)
+            .ToListAsync(cancellationToken);
+
+        var consumedLots = await _db.ProductionInputLotAllocations
+            .AsNoTracking()
+            .Where(a => inputLineIds.Contains(a.ProductionInputLineId) && a.IsDeleted != true)
+            .Select(a => new ProductionTraceConsumedLot(
+                a.ProductionInputLineId,
+                a.InputLine.ProductId,
+                a.InputLine.Product.Name,
+                a.InventoryLotId,
+                a.InventoryLot.LotCode,
+                a.QuantityInBase,
+                a.UnitCostInBase,
+                a.LineCostInBase))
+            .ToListAsync(cancellationToken);
+
         return new ProductionTraceResult(
             batch.ProductionBatchID,
             batch.BatchNumber,
@@ -292,6 +475,7 @@ public class ProductionPostingService : IProductionPostingService
             batch.InputLines.Cast<object>().ToList(),
             batch.OutputLines.Cast<object>().ToList(),
             purchaseInvoices,
-            lots);
+            lots,
+            consumedLots);
     }
 }

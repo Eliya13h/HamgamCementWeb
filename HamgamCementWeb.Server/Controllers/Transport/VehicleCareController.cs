@@ -1,4 +1,5 @@
 using System.ComponentModel.DataAnnotations;
+using HamgamCementWeb.Server.Authorization;
 using HamgamCementWeb.Server.Data;
 using HamgamCementWeb.Server.Data.Models.Transport;
 using Microsoft.AspNetCore.Authorization;
@@ -31,6 +32,7 @@ public class VehicleCareController : TransportControllerBase
     };
 
     [HttpPost("maintenances/datatable")]
+    [HasPermission("transport.maintenance.view")]
     public async Task<IActionResult> MaintenancesDataTable(
         [FromBody] DataTableRequest request,
         CancellationToken cancellationToken)
@@ -97,6 +99,7 @@ public class VehicleCareController : TransportControllerBase
     }
 
     [HttpPost("maintenances")]
+    [HasPermission("transport.maintenance.create")]
     public async Task<IActionResult> CreateMaintenance(
         [FromBody] SaveMaintenanceRequest request,
         CancellationToken cancellationToken)
@@ -128,6 +131,7 @@ public class VehicleCareController : TransportControllerBase
     }
 
     [HttpPut("maintenances/{id:int}")]
+    [HasPermission("transport.maintenance.edit")]
     public async Task<IActionResult> UpdateMaintenance(
         int id,
         [FromBody] SaveMaintenanceRequest request,
@@ -163,6 +167,7 @@ public class VehicleCareController : TransportControllerBase
     }
 
     [HttpDelete("maintenances/{id:int}")]
+    [HasPermission("transport.maintenance.delete")]
     public async Task<IActionResult> DeleteMaintenance(int id, CancellationToken cancellationToken)
     {
         var entity = await Db.VehicleMaintenances
@@ -190,6 +195,7 @@ public class VehicleCareController : TransportControllerBase
     };
 
     [HttpPost("parts/datatable")]
+    [HasPermission("transport.maintenance.view")]
     public async Task<IActionResult> PartsDataTable(
         [FromBody] DataTableRequest request,
         CancellationToken cancellationToken)
@@ -255,6 +261,7 @@ public class VehicleCareController : TransportControllerBase
     }
 
     [HttpPost("parts")]
+    [HasPermission("transport.maintenance.create")]
     public async Task<IActionResult> CreatePart(
         [FromBody] SavePartRequest request,
         CancellationToken cancellationToken)
@@ -286,6 +293,7 @@ public class VehicleCareController : TransportControllerBase
     }
 
     [HttpPut("parts/{id:int}")]
+    [HasPermission("transport.maintenance.edit")]
     public async Task<IActionResult> UpdatePart(
         int id,
         [FromBody] SavePartRequest request,
@@ -321,6 +329,7 @@ public class VehicleCareController : TransportControllerBase
     }
 
     [HttpDelete("parts/{id:int}")]
+    [HasPermission("transport.maintenance.delete")]
     public async Task<IActionResult> DeletePart(int id, CancellationToken cancellationToken)
     {
         var entity = await Db.VehiclePartReplacements

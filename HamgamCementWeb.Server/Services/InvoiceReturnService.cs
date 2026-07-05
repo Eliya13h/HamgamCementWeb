@@ -354,7 +354,7 @@ public class InvoiceReturnService : IInvoiceReturnService
 
             InvoiceDate = request.InvoiceDate,
 
-            Status = InvoiceStatus.Inoivce,
+            Status = InvoiceStatus.Invoice,
 
             DocumentType = InvoiceDocumentType.PurchaseReturn,
 
@@ -472,7 +472,7 @@ public class InvoiceReturnService : IInvoiceReturnService
 
             InvoiceDate = request.InvoiceDate,
 
-            Status = InvoiceStatus.Inoivce,
+            Status = InvoiceStatus.Invoice,
 
             DocumentType = InvoiceDocumentType.SaleReturn,
 

@@ -63,6 +63,19 @@ export function isoToJalaliString(iso) {
   return jalali ? jalali.format('YYYY/MM/DD') : ''
 }
 
+export function toLatinDigits(value) {
+  if (value == null || value === '') return ''
+
+  return String(value)
+    .replace(/[۰-۹]/g, (digit) => String('۰۱۲۳۴۵۶۷۸۹'.indexOf(digit)))
+    .replace(/[٠-٩]/g, (digit) => String('٠١٢٣٤٥٦٧٨٩'.indexOf(digit)))
+}
+
+export function toLatinIsoDate(iso) {
+  if (!iso) return ''
+  return toLatinDigits(String(iso).slice(0, 10))
+}
+
 export function jalaliObjectToIso(date) {
   if (!date) return ''
 
@@ -71,7 +84,7 @@ export function jalaliObjectToIso(date) {
 
     if ((!jalali || !jalali.isValid) && typeof date === 'string') {
       jalali = new DateObject({
-        date,
+        date: toLatinDigits(date),
         format: 'YYYY/MM/DD',
         calendar: persian,
         locale: afghanSolarLocale,
@@ -79,7 +92,13 @@ export function jalaliObjectToIso(date) {
     }
 
     if (!jalali?.isValid) return ''
-    return jalali.convert(gregorian).format('YYYY-MM-DD')
+
+    const gregorianDate = jalali.convert(gregorian)
+    const year = gregorianDate.year
+    const month = String(gregorianDate.month?.number ?? gregorianDate.month).padStart(2, '0')
+    const day = String(gregorianDate.day).padStart(2, '0')
+
+    return toLatinDigits(`${year}-${month}-${day}`)
   } catch {
     return ''
   }

@@ -1,5 +1,6 @@
 using System.ComponentModel.DataAnnotations;
 using System.Security.Claims;
+using HamgamCementWeb.Server.Authorization;
 using HamgamCementWeb.Server.Controllers.Transport;
 using HamgamCementWeb.Server.Data;
 using HamgamCementWeb.Server.Data.Models.Production;
@@ -50,6 +51,7 @@ public class ProductionBatchController : ControllerBase
     };
 
     [HttpPost("datatable")]
+    [HasPermission("production.daily.view")]
     public async Task<IActionResult> DataTable(
         [FromBody] DataTableRequest request,
         CancellationToken cancellationToken)
@@ -124,6 +126,7 @@ public class ProductionBatchController : ControllerBase
         });
     }
 
+    // چرا بدون HasPermission: دراپ‌داون سند تولید در فاکتور خرید (ورود از تولید) استفاده می‌شود.
     [HttpGet("list")]
     public async Task<IActionResult> List(
         [FromQuery] bool? availableForSales,
@@ -153,6 +156,7 @@ public class ProductionBatchController : ControllerBase
     }
 
     [HttpGet("{id:int}")]
+    [HasPermission("production.daily.view")]
     public async Task<IActionResult> GetById(int id, CancellationToken cancellationToken)
     {
         var batch = await _db.ProductionBatches
@@ -215,6 +219,7 @@ public class ProductionBatchController : ControllerBase
     }
 
     [HttpGet("{id:int}/trace")]
+    [HasPermission("production.daily.view")]
     public async Task<IActionResult> Trace(int id, CancellationToken cancellationToken)
     {
         try
@@ -229,6 +234,7 @@ public class ProductionBatchController : ControllerBase
     }
 
     [HttpPost]
+    [HasPermission("production.daily.create")]
     public async Task<IActionResult> Create(
         [FromBody] SaveProductionBatchRequest request,
         CancellationToken cancellationToken)
@@ -274,6 +280,7 @@ public class ProductionBatchController : ControllerBase
     }
 
     [HttpPut("{id:int}")]
+    [HasPermission("production.daily.edit")]
     public async Task<IActionResult> Update(
         int id,
         [FromBody] SaveProductionBatchRequest request,
@@ -337,7 +344,9 @@ public class ProductionBatchController : ControllerBase
         return Ok(new { message = "سند تولید ویرایش شد." });
     }
 
+    // چرا edit: ثبت نهایی (Post) تغییر وضعیت سند تولید است و به .edit نگاشت می‌شود.
     [HttpPost("{id:int}/post")]
+    [HasPermission("production.daily.edit")]
     public async Task<IActionResult> Post(int id, CancellationToken cancellationToken)
     {
         try
@@ -351,7 +360,24 @@ public class ProductionBatchController : ControllerBase
         }
     }
 
+    // چرا edit: برگشت ثبت (Unpost) تغییر وضعیت سند تولید است و به .edit نگاشت می‌شود.
+    [HttpPost("{id:int}/unpost")]
+    [HasPermission("production.daily.edit")]
+    public async Task<IActionResult> Unpost(int id, CancellationToken cancellationToken)
+    {
+        try
+        {
+            await _posting.UnpostBatchAsync(id, ResolveCurrentUserId(), cancellationToken);
+            return Ok(new { message = "ثبت سند تولید برگشت خورد. موجودی و مواد مصرفی بازگردانده شد." });
+        }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(new { message = ex.Message });
+        }
+    }
+
     [HttpDelete("{id:int}")]
+    [HasPermission("production.daily.delete")]
     public async Task<IActionResult> Delete(int id, CancellationToken cancellationToken)
     {
         var batch = await _db.ProductionBatches
@@ -437,6 +463,41 @@ public class ProductionBatchController : ControllerBase
             if (warehouse.WarehouseType is not (WarehouseType.RawMaterials or WarehouseType.SemiFinished))
             {
                 return $"انبار «{warehouse.Name}» برای مصرف تولید مجاز نیست.";
+            }
+        }
+
+        // اعتبارسنجی محصول و واحد هر ردیف (مصرف و تولید): محصول باید موجود و فعال باشد و واحد انتخابی
+        // باید جزو واحدهای مجاز همان محصول (ProductMeaurment) باشد تا تبدیل به پایه معنادار باشد.
+        var lineChecks = request.InputLines
+            .Select(l => (l.ProductId, l.MeaurmentId))
+            .Concat(request.OutputLines.Select(l => (l.ProductId, l.MeaurmentId)));
+
+        foreach (var (productId, meaurmentId) in lineChecks)
+        {
+            var product = await _db.Products
+                .AsNoTracking()
+                .FirstOrDefaultAsync(p => p.ProductID == productId && p.IsDeleted != true, cancellationToken);
+
+            if (product is null)
+            {
+                return "یکی از محصولات انتخاب‌شده یافت نشد.";
+            }
+
+            if (product.IsActive != true)
+            {
+                return $"محصول «{product.Name}» غیرفعال است و قابل استفاده در تولید نیست.";
+            }
+
+            var meaurmentAllowed = await _db.ProductMeaurments
+                .AnyAsync(
+                    pm => pm.ProductId == productId &&
+                          pm.MeaurmentId == meaurmentId &&
+                          pm.IsDeleted != true,
+                    cancellationToken);
+
+            if (!meaurmentAllowed)
+            {
+                return $"واحد انتخاب‌شده برای محصول «{product.Name}» مجاز نیست.";
             }
         }
 

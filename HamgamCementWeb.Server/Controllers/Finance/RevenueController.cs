@@ -1,4 +1,5 @@
 using System.ComponentModel.DataAnnotations;
+using HamgamCementWeb.Server.Authorization;
 using HamgamCementWeb.Server.Controllers.Transport;
 using HamgamCementWeb.Server.Data;
 using HamgamCementWeb.Server.Data.Models.Finance;
@@ -30,6 +31,7 @@ public class RevenueController : FinanceControllerBase
     }
 
     [HttpPost("datatable")]
+    [HasPermission("accounting.revenues.view")]
     public async Task<IActionResult> DataTable(
         [FromBody] DataTableRequest request,
         CancellationToken cancellationToken)
@@ -125,6 +127,7 @@ public class RevenueController : FinanceControllerBase
     }
 
     [HttpPost]
+    [HasPermission("accounting.revenues.create")]
     public async Task<IActionResult> Create(
         [FromBody] SaveRevenueRequest request,
         CancellationToken cancellationToken)
@@ -195,6 +198,7 @@ public class RevenueController : FinanceControllerBase
     }
 
     [HttpPut("{id:int}")]
+    [HasPermission("accounting.revenues.edit")]
     public async Task<IActionResult> Update(
         int id,
         [FromBody] SaveRevenueRequest request,
@@ -266,6 +270,7 @@ public class RevenueController : FinanceControllerBase
     }
 
     [HttpDelete("{id:int}")]
+    [HasPermission("accounting.revenues.delete")]
     public async Task<IActionResult> Delete(int id, CancellationToken cancellationToken)
     {
         var revenue = await Db.Revenues

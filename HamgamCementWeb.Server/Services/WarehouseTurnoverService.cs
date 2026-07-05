@@ -144,7 +144,7 @@ public class WarehouseTurnoverService : IWarehouseTurnoverService
                 (
                     i.Invoice.DocumentType == InvoiceDocumentType.PurchaseReturn ||
                     (i.Invoice.DocumentType == InvoiceDocumentType.Invoice &&
-                     i.Invoice.Status == InvoiceStatus.Inoivce)));
+                     i.Invoice.Status == InvoiceStatus.Invoice)));
 
         if (productId is > 0)
         {
@@ -222,7 +222,7 @@ public class WarehouseTurnoverService : IWarehouseTurnoverService
                 (
                     i.Invoice.DocumentType == InvoiceDocumentType.SaleReturn ||
                     (i.Invoice.DocumentType == InvoiceDocumentType.Invoice &&
-                     (i.Invoice.Status == InvoiceStatus.Order || i.Invoice.Status == InvoiceStatus.Inoivce))));
+                     (i.Invoice.Status == InvoiceStatus.Order || i.Invoice.Status == InvoiceStatus.Invoice))));
 
         if (productId is > 0)
         {

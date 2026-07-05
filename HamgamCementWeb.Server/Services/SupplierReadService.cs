@@ -276,7 +276,7 @@ public sealed class SupplierReadService : ISupplierReadService
         parameters.Add("StatusProforma", (int)InvoiceStatus.Proforma);
         parameters.Add("StatusOrder", (int)InvoiceStatus.Order);
         parameters.Add("StatusQuotation", (int)InvoiceStatus.Quotation);
-        parameters.Add("StatusInvoice", (int)InvoiceStatus.Inoivce);
+        parameters.Add("StatusInvoice", (int)InvoiceStatus.Invoice);
 
         const string baseWhere = """
             FROM PurchaseInvoices pi

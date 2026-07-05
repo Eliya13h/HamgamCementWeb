@@ -1,4 +1,5 @@
 using System.ComponentModel.DataAnnotations;
+using HamgamCementWeb.Server.Authorization;
 using HamgamCementWeb.Server.Controllers.Transport;
 using HamgamCementWeb.Server.Data;
 using HamgamCementWeb.Server.Data.Models.Finance;
@@ -25,6 +26,7 @@ public class RevenueCategoryController : FinanceControllerBase
     }
 
     [HttpPost("datatable")]
+    [HasPermission("accounting.revenue-categories.view")]
     public async Task<IActionResult> DataTable(
         [FromBody] DataTableRequest request,
         CancellationToken cancellationToken)
@@ -81,6 +83,8 @@ public class RevenueCategoryController : FinanceControllerBase
         });
     }
 
+    // چرا بدون HasPermission: دراپ‌داون دسته‌بندی در فرم ثبت عاید (صفحه‌ی عواید) هم
+    // استفاده می‌شود؛ فقط احراز هویت لازم است تا کاربرانِ عواید قفل نشوند.
     [HttpGet("list")]
     public async Task<IActionResult> List(
         [FromQuery] bool forEntry = false,
@@ -106,6 +110,7 @@ public class RevenueCategoryController : FinanceControllerBase
     }
 
     [HttpPost]
+    [HasPermission("accounting.revenue-categories.create")]
     public async Task<IActionResult> Create(
         [FromBody] SaveRevenueCategoryRequest request,
         CancellationToken cancellationToken)
@@ -140,6 +145,7 @@ public class RevenueCategoryController : FinanceControllerBase
     }
 
     [HttpPut("{id:int}")]
+    [HasPermission("accounting.revenue-categories.edit")]
     public async Task<IActionResult> Update(
         int id,
         [FromBody] SaveRevenueCategoryRequest request,
@@ -184,6 +190,7 @@ public class RevenueCategoryController : FinanceControllerBase
     }
 
     [HttpDelete("{id:int}")]
+    [HasPermission("accounting.revenue-categories.delete")]
     public async Task<IActionResult> Delete(int id, CancellationToken cancellationToken)
     {
         var category = await Db.RevenueCategories
