@@ -23,18 +23,24 @@ const STATUS_OPTIONS = [
 
 const columns = [
   { data: 'tripNumber', title: 'کد سفر' },
-  { data: 'vehicleLabel', title: 'وسیله نقلیه', orderable: false },
-  { data: 'routeName', title: 'مسیر', orderable: false },
+  { data: 'vehicleLabel', title: 'وسیله / باربری', orderable: false },
+  {
+    data: 'invoiceLink',
+    title: 'فاکتور',
+    orderable: false,
+    render: (data) => data || '—',
+  },
+  {
+    data: 'tripPurposeName',
+    title: 'هدف',
+    orderable: false,
+    render: (data) => data || '—',
+  },
+  { data: 'routeName', title: 'مسیر', orderable: false, render: (data) => data || '—' },
   { data: 'driverName', title: 'راننده', orderable: false, render: (data) => data ?? '—' },
   {
     data: 'departureDate',
     title: 'تاریخ حرکت',
-    className: 'text-center',
-    render: (data) => formatJalaliDate(data),
-  },
-  {
-    data: 'arrivalDate',
-    title: 'تاریخ رسیدن',
     className: 'text-center',
     render: (data) => formatJalaliDate(data),
   },
@@ -79,15 +85,21 @@ const fields = [
     name: 'vehicleId',
     label: 'وسیله نقلیه',
     type: 'select',
-    required: true,
+    required: false,
     col: 4,
     loadOptions: loadVehicleOptions,
+  },
+  {
+    name: 'freightCarrierName',
+    label: 'نام باربری (کرایه‌ای)',
+    type: 'text',
+    col: 4,
   },
   {
     name: 'transportRouteId',
     label: 'مسیر',
     type: 'select',
-    required: true,
+    required: false,
     col: 4,
     loadOptions: fetchRouteOptions,
   },
@@ -100,8 +112,9 @@ const fields = [
     placeholder: 'پیش‌فرض: راننده وسیله',
     fromRow: (row) => row.driverId ?? row.effectiveDriverId ?? '',
   },
-  { name: 'cargoDescription', label: 'شرح بار', type: 'text', col: 8 },
+  { name: 'cargoDescription', label: 'شرح بار', type: 'text', col: 4 },
   { name: 'cargoWeightTon', label: 'وزن بار (تن)', type: 'number', col: 4 },
+  { name: 'freightRatePerTon', label: 'نرخ هر تن', type: 'number', col: 4 },
   {
     name: 'departureDate',
     label: 'تاریخ حرکت (شمسی)',
@@ -163,7 +176,7 @@ function TransportationPage() {
       nameField="tripNumber"
       columns={columns}
       fields={fields}
-      defaultOrder={[[5, 'desc']]}
+      defaultOrder={[[6, 'desc']]}
       permissionPath="/transport/shipping"
       onFormChange={handleFormChange}
     />

@@ -8,6 +8,7 @@
 export const icons = {
   dashboard: 'fa-solid fa-grid-2',
   analytics: 'fa-solid fa-chart-line',
+  cash: 'fa-solid fa-cash-register',
   employees: 'fa-solid fa-users',
   people: 'fa-solid fa-users',
   currencies: 'fa-solid fa-coins',
@@ -22,6 +23,10 @@ export const icons = {
   settings: 'fa-solid fa-gear',
   search: 'fa-solid fa-magnifying-glass',
   bell: 'fa-solid fa-bell',
+  warehouse: 'fa-solid fa-warehouse',
+  'triangle-exclamation': 'fa-solid fa-triangle-exclamation',
+  'cart-shopping': 'fa-solid fa-cart-shopping',
+  'boxes-stacked': 'fa-solid fa-boxes-stacked',
   sun: 'fa-solid fa-sun',
   moon: 'fa-solid fa-moon',
   'sidebar-open': 'fa-solid fa-sidebar',
@@ -45,11 +50,14 @@ export const icons = {
   edit: 'fa-solid fa-pen-to-square',
   trash: 'fa-solid fa-trash-can',
   print: 'fa-solid fa-print',
+  check: 'fa-solid fa-check',
+  route: 'fa-solid fa-route',
   'arrow-right': 'fa-solid fa-arrow-right',
   'rotate-left': 'fa-solid fa-rotate-left',
   'key': 'fa-solid fa-key',
   exchange: 'fa-solid fa-arrow-right-arrow-left',
   star: 'fa-solid fa-star',
+  xmark: 'fa-solid fa-xmark',
 }
 
 export function getIcon(name) {

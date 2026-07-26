@@ -15,6 +15,8 @@ namespace HamgamCementWeb.Server.Data
     {
         public DbSet<User> Users { get; set; }
         public DbSet<Employee> Employees { get; set; }
+        public DbSet<Attendance> Attendances { get; set; }
+        public DbSet<SalaryPayment> SalaryPayments { get; set; }
         public DbSet<Customer> Customers { get; set; }
         public DbSet<Supplier> Suppliers { get; set; }
         public DbSet<Shareholder> Shareholders { get; set; }
@@ -33,6 +35,22 @@ namespace HamgamCementWeb.Server.Data
         public DbSet<Revenue> Revenues { get; set; }
         public DbSet<ExpenseCategory> ExpenseCategories { get; set; }
         public DbSet<RevenueCategory> RevenueCategories { get; set; }
+
+        // دفترکل و صندوق
+        public DbSet<Account> Accounts { get; set; }
+        public DbSet<JournalEntry> JournalEntries { get; set; }
+        public DbSet<JournalLine> JournalLines { get; set; }
+        public DbSet<CashBox> CashBoxes { get; set; }
+        public DbSet<CashBoxUser> CashBoxUsers { get; set; }
+        public DbSet<CashShift> CashShifts { get; set; }
+        public DbSet<CashShiftOpeningLine> CashShiftOpeningLines { get; set; }
+        public DbSet<CashTransfer> CashTransfers { get; set; }
+        public DbSet<CashTransferLine> CashTransferLines { get; set; }
+        public DbSet<FiscalYear> FiscalYears { get; set; }
+        public DbSet<ShareholderEquityTxn> ShareholderEquityTxns { get; set; }
+        public DbSet<FixedAssetCategory> FixedAssetCategories { get; set; }
+        public DbSet<FixedAsset> FixedAssets { get; set; }
+        public DbSet<FixedAssetDepreciation> FixedAssetDepreciations { get; set; }
 
         //invoice tables
 
@@ -69,6 +87,8 @@ namespace HamgamCementWeb.Server.Data
         public DbSet<InventoryLot> InventoryLots { get; set; }
         public DbSet<Stocktaking> Stocktakings { get; set; }
         public DbSet<StocktakingLine> StocktakingLines { get; set; }
+        public DbSet<WarehouseTransfer> WarehouseTransfers { get; set; }
+        public DbSet<WarehouseTransferLine> WarehouseTransferLines { get; set; }
 
         //production tables
 
@@ -77,6 +97,10 @@ namespace HamgamCementWeb.Server.Data
         public DbSet<ProductionOutputLine> ProductionOutputLines { get; set; }
         public DbSet<ProductionInputLotAllocation> ProductionInputLotAllocations { get; set; }
         public DbSet<ProductionPlan> ProductionPlans { get; set; }
+        public DbSet<ProductionFormula> ProductionFormulas { get; set; }
+        public DbSet<ProductionFormulaMaterialLine> ProductionFormulaMaterialLines { get; set; }
+        public DbSet<ProductionFormulaCostLine> ProductionFormulaCostLines { get; set; }
+        public DbSet<ProductionBatchCostLine> ProductionBatchCostLines { get; set; }
 
         public DbSet<GeneralSettings> GeneralSettings { get; set; }
 
@@ -112,6 +136,42 @@ namespace HamgamCementWeb.Server.Data
                 .HasOne(e => e.Department)
                 .WithMany(d => d.Employees)
                 .HasForeignKey(e => e.DepartmentId);
+
+            // هر کارمند در هر روز فقط یک ردیف حضور
+            modelBuilder.Entity<Attendance>()
+                .HasIndex(a => new { a.EmployeeId, a.Date })
+                .IsUnique()
+                .HasFilter("[IsDeleted] = 0");
+
+            modelBuilder.Entity<Attendance>()
+                .HasOne(a => a.Employee)
+                .WithMany()
+                .HasForeignKey(a => a.EmployeeId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            // هر کارمند در هر ماه فقط یک فیش حقوق
+            modelBuilder.Entity<SalaryPayment>()
+                .HasIndex(s => new { s.EmployeeId, s.Year, s.Month })
+                .IsUnique()
+                .HasFilter("[IsDeleted] = 0");
+
+            modelBuilder.Entity<SalaryPayment>()
+                .HasOne(s => s.Employee)
+                .WithMany()
+                .HasForeignKey(s => s.EmployeeId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            modelBuilder.Entity<SalaryPayment>()
+                .HasOne(s => s.CashBox)
+                .WithMany()
+                .HasForeignKey(s => s.CashBoxId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            modelBuilder.Entity<SalaryPayment>()
+                .HasOne(s => s.JournalEntry)
+                .WithMany()
+                .HasForeignKey(s => s.JournalEntryId)
+                .OnDelete(DeleteBehavior.SetNull);
 
             modelBuilder.Entity<Currency>()
                 .HasIndex(c => c.CurrencyCode)
@@ -196,6 +256,12 @@ namespace HamgamCementWeb.Server.Data
                 .HasForeignKey(v => v.VehicleTypeId)
                 .OnDelete(DeleteBehavior.Restrict);
 
+            modelBuilder.Entity<Vehicle>()
+                .HasOne(v => v.FixedAsset)
+                .WithMany()
+                .HasForeignKey(v => v.FixedAssetId)
+                .OnDelete(DeleteBehavior.Restrict);
+
             modelBuilder.Entity<TransportTrip>()
                 .HasIndex(t => t.TripNumber)
                 .IsUnique();
@@ -210,12 +276,25 @@ namespace HamgamCementWeb.Server.Data
                 .HasOne(t => t.Route)
                 .WithMany(r => r.Trips)
                 .HasForeignKey(t => t.TransportRouteId)
+                .IsRequired(false)
                 .OnDelete(DeleteBehavior.Restrict);
 
             modelBuilder.Entity<TransportTrip>()
                 .HasOne(t => t.Driver)
                 .WithMany()
                 .HasForeignKey(t => t.DriverId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            modelBuilder.Entity<TransportTrip>()
+                .HasOne(t => t.PurchaseInvoice)
+                .WithMany()
+                .HasForeignKey(t => t.PurchaseInvoiceId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            modelBuilder.Entity<TransportTrip>()
+                .HasOne(t => t.SaleInvoice)
+                .WithMany()
+                .HasForeignKey(t => t.SaleInvoiceId)
                 .OnDelete(DeleteBehavior.Restrict);
 
             modelBuilder.Entity<TransportInvoice>()
@@ -431,6 +510,53 @@ namespace HamgamCementWeb.Server.Data
                 .HasForeignKey(l => l.CountedMeaurmentId)
                 .OnDelete(DeleteBehavior.Restrict);
 
+            modelBuilder.Entity<Stocktaking>()
+                .HasOne(s => s.JournalEntry)
+                .WithMany()
+                .HasForeignKey(s => s.JournalEntryId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            modelBuilder.Entity<WarehouseTransfer>()
+                .HasIndex(t => t.Code)
+                .IsUnique()
+                .HasFilter("[IsDeleted] = 0");
+
+            modelBuilder.Entity<WarehouseTransfer>()
+                .HasOne(t => t.FromWarehouse)
+                .WithMany()
+                .HasForeignKey(t => t.FromWarehouseId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            modelBuilder.Entity<WarehouseTransfer>()
+                .HasOne(t => t.ToWarehouse)
+                .WithMany()
+                .HasForeignKey(t => t.ToWarehouseId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            modelBuilder.Entity<WarehouseTransfer>()
+                .HasOne(t => t.JournalEntry)
+                .WithMany()
+                .HasForeignKey(t => t.JournalEntryId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            modelBuilder.Entity<WarehouseTransferLine>()
+                .HasOne(l => l.WarehouseTransfer)
+                .WithMany(t => t.Lines)
+                .HasForeignKey(l => l.WarehouseTransferId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            modelBuilder.Entity<WarehouseTransferLine>()
+                .HasOne(l => l.Product)
+                .WithMany()
+                .HasForeignKey(l => l.ProductId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            modelBuilder.Entity<WarehouseTransferLine>()
+                .HasOne(l => l.Meaurment)
+                .WithMany()
+                .HasForeignKey(l => l.MeaurmentId)
+                .OnDelete(DeleteBehavior.Restrict);
+
             // ---------- مالی: مصارف و درآمد — Restrict برای جلوگیری از multiple cascade paths به Currencies ----------
 
             modelBuilder.Entity<Expense>()
@@ -547,6 +673,30 @@ namespace HamgamCementWeb.Server.Data
                 .OnDelete(DeleteBehavior.Restrict);
 
             modelBuilder.Entity<PurchaseInvoice>()
+                .HasOne(i => i.FreightVehicle)
+                .WithMany()
+                .HasForeignKey(i => i.FreightVehicleId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            modelBuilder.Entity<PurchaseInvoice>()
+                .HasOne(i => i.TransportTrip)
+                .WithMany()
+                .HasForeignKey(i => i.TransportTripId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            modelBuilder.Entity<PurchaseInvoice>()
+                .HasOne(i => i.FreightExpense)
+                .WithMany()
+                .HasForeignKey(i => i.FreightExpenseId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            modelBuilder.Entity<PurchaseInvoice>()
+                .HasOne(i => i.FreightJournalEntry)
+                .WithMany()
+                .HasForeignKey(i => i.FreightJournalEntryId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            modelBuilder.Entity<PurchaseInvoice>()
                 .HasOne(i => i.ReferencePurchaseInvoice)
                 .WithMany(i => i.ReturnDocuments)
                 .HasForeignKey(i => i.ReferencePurchaseInvoiceId)
@@ -624,6 +774,30 @@ namespace HamgamCementWeb.Server.Data
                 .OnDelete(DeleteBehavior.Restrict);
 
             modelBuilder.Entity<SaleInvoice>()
+                .HasOne(i => i.FreightVehicle)
+                .WithMany()
+                .HasForeignKey(i => i.FreightVehicleId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            modelBuilder.Entity<SaleInvoice>()
+                .HasOne(i => i.TransportTrip)
+                .WithMany()
+                .HasForeignKey(i => i.TransportTripId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            modelBuilder.Entity<SaleInvoice>()
+                .HasOne(i => i.FreightRevenue)
+                .WithMany()
+                .HasForeignKey(i => i.FreightRevenueId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            modelBuilder.Entity<SaleInvoice>()
+                .HasOne(i => i.FreightJournalEntry)
+                .WithMany()
+                .HasForeignKey(i => i.FreightJournalEntryId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            modelBuilder.Entity<SaleInvoice>()
                 .HasOne(i => i.ReferenceSaleInvoice)
                 .WithMany(i => i.ReturnDocuments)
                 .HasForeignKey(i => i.ReferenceSaleInvoiceId)
@@ -663,6 +837,332 @@ namespace HamgamCementWeb.Server.Data
                 .IsUnique()
                 .HasFilter("[IsDeleted] = 0 AND [RevenueId] IS NOT NULL");
 
+            // ---------- دفترکل و صندوق ----------
+
+            modelBuilder.Entity<Account>()
+                .HasIndex(a => a.Code)
+                .IsUnique()
+                .HasFilter("[IsDeleted] = 0");
+
+            modelBuilder.Entity<Account>()
+                .HasIndex(a => a.SystemCode)
+                .IsUnique()
+                .HasFilter("[IsDeleted] = 0 AND [SystemCode] IS NOT NULL");
+
+            modelBuilder.Entity<Account>()
+                .HasOne(a => a.ParentAccount)
+                .WithMany(a => a.Children)
+                .HasForeignKey(a => a.ParentAccountId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            modelBuilder.Entity<JournalEntry>()
+                .HasIndex(e => e.EntryNumber)
+                .IsUnique()
+                .HasFilter("[IsDeleted] = 0");
+
+            modelBuilder.Entity<JournalEntry>()
+                .HasOne(e => e.BaseCurrency)
+                .WithMany()
+                .HasForeignKey(e => e.BaseCurrencyId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            modelBuilder.Entity<JournalLine>()
+                .HasOne(l => l.JournalEntry)
+                .WithMany(e => e.Lines)
+                .HasForeignKey(l => l.JournalEntryId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            modelBuilder.Entity<JournalLine>()
+                .HasOne(l => l.Account)
+                .WithMany()
+                .HasForeignKey(l => l.AccountId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            modelBuilder.Entity<JournalLine>()
+                .HasOne(l => l.Currency)
+                .WithMany()
+                .HasForeignKey(l => l.CurrencyId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            modelBuilder.Entity<JournalLine>()
+                .HasOne(l => l.CashBox)
+                .WithMany()
+                .HasForeignKey(l => l.CashBoxId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            modelBuilder.Entity<Expense>()
+                .HasOne(e => e.JournalEntry)
+                .WithMany()
+                .HasForeignKey(e => e.JournalEntryId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            modelBuilder.Entity<Revenue>()
+                .HasOne(r => r.JournalEntry)
+                .WithMany()
+                .HasForeignKey(r => r.JournalEntryId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            modelBuilder.Entity<PurchaseInvoice>()
+                .HasOne(i => i.JournalEntry)
+                .WithMany()
+                .HasForeignKey(i => i.JournalEntryId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            modelBuilder.Entity<SaleInvoice>()
+                .HasOne(i => i.JournalEntry)
+                .WithMany()
+                .HasForeignKey(i => i.JournalEntryId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            modelBuilder.Entity<ExpenseCategory>()
+                .HasOne(c => c.Account)
+                .WithMany()
+                .HasForeignKey(c => c.AccountId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            modelBuilder.Entity<RevenueCategory>()
+                .HasOne(c => c.Account)
+                .WithMany()
+                .HasForeignKey(c => c.AccountId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            // ---------- دارایی‌های ثابت ----------
+            modelBuilder.Entity<FixedAssetCategory>()
+                .HasOne(c => c.AssetAccount)
+                .WithMany()
+                .HasForeignKey(c => c.AssetAccountId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            modelBuilder.Entity<FixedAssetCategory>()
+                .HasOne(c => c.AccumulatedDepreciationAccount)
+                .WithMany()
+                .HasForeignKey(c => c.AccumulatedDepreciationAccountId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            modelBuilder.Entity<FixedAssetCategory>()
+                .HasOne(c => c.DepreciationExpenseAccount)
+                .WithMany()
+                .HasForeignKey(c => c.DepreciationExpenseAccountId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            modelBuilder.Entity<FixedAsset>()
+                .HasIndex(a => a.Code)
+                .IsUnique()
+                .HasFilter("[IsDeleted] = 0");
+
+            modelBuilder.Entity<FixedAsset>()
+                .HasOne(a => a.Category)
+                .WithMany(c => c.Assets)
+                .HasForeignKey(a => a.FixedAssetCategoryId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            modelBuilder.Entity<FixedAsset>()
+                .HasOne(a => a.Supplier)
+                .WithMany()
+                .HasForeignKey(a => a.SupplierId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            modelBuilder.Entity<FixedAsset>()
+                .HasOne(a => a.Currency)
+                .WithMany()
+                .HasForeignKey(a => a.CurrencyId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            modelBuilder.Entity<FixedAsset>()
+                .HasOne(a => a.BaseCurrency)
+                .WithMany()
+                .HasForeignKey(a => a.BaseCurrencyId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            modelBuilder.Entity<FixedAsset>()
+                .HasOne(a => a.ExchangeHistory)
+                .WithMany()
+                .HasForeignKey(a => a.ExchangeHistoryId)
+                .OnDelete(DeleteBehavior.SetNull);
+
+            modelBuilder.Entity<FixedAsset>()
+                .HasOne(a => a.AcquisitionJournalEntry)
+                .WithMany()
+                .HasForeignKey(a => a.AcquisitionJournalEntryId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            modelBuilder.Entity<FixedAsset>()
+                .HasOne(a => a.DisposalJournalEntry)
+                .WithMany()
+                .HasForeignKey(a => a.DisposalJournalEntryId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            modelBuilder.Entity<FixedAssetDepreciation>()
+                .HasIndex(d => new { d.FixedAssetId, d.PeriodSolarYear, d.PeriodMonth })
+                .IsUnique()
+                .HasFilter("[IsDeleted] = 0");
+
+            modelBuilder.Entity<FixedAssetDepreciation>()
+                .HasOne(d => d.FixedAsset)
+                .WithMany(a => a.Depreciations)
+                .HasForeignKey(d => d.FixedAssetId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            modelBuilder.Entity<FixedAssetDepreciation>()
+                .HasOne(d => d.JournalEntry)
+                .WithMany()
+                .HasForeignKey(d => d.JournalEntryId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            modelBuilder.Entity<CashBox>()
+                .HasIndex(c => c.Code)
+                .IsUnique()
+                .HasFilter("[IsDeleted] = 0");
+
+            modelBuilder.Entity<CashBox>()
+                .HasOne(c => c.ParentCashBox)
+                .WithMany(c => c.Children)
+                .HasForeignKey(c => c.ParentCashBoxId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            modelBuilder.Entity<CashBox>()
+                .HasOne(c => c.Account)
+                .WithMany()
+                .HasForeignKey(c => c.AccountId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            modelBuilder.Entity<CashBoxUser>()
+                .HasIndex(u => new { u.CashBoxId, u.UserId })
+                .IsUnique()
+                .HasFilter("[IsDeleted] = 0");
+
+            modelBuilder.Entity<CashBoxUser>()
+                .HasOne(u => u.CashBox)
+                .WithMany(c => c.Users)
+                .HasForeignKey(u => u.CashBoxId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            modelBuilder.Entity<CashBoxUser>()
+                .HasOne(u => u.User)
+                .WithMany()
+                .HasForeignKey(u => u.UserId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            modelBuilder.Entity<CashShift>()
+                .HasOne(s => s.CashBox)
+                .WithMany(c => c.Shifts)
+                .HasForeignKey(s => s.CashBoxId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            modelBuilder.Entity<CashShift>()
+                .HasOne(s => s.User)
+                .WithMany()
+                .HasForeignKey(s => s.UserId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            modelBuilder.Entity<CashShift>()
+                .HasOne(s => s.CashTransfer)
+                .WithMany()
+                .HasForeignKey(s => s.CashTransferId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            modelBuilder.Entity<CashTransfer>()
+                .HasOne(t => t.FromCashBox)
+                .WithMany()
+                .HasForeignKey(t => t.FromCashBoxId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            modelBuilder.Entity<CashTransfer>()
+                .HasOne(t => t.ToCashBox)
+                .WithMany()
+                .HasForeignKey(t => t.ToCashBoxId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            modelBuilder.Entity<CashTransfer>()
+                .HasOne(t => t.JournalEntry)
+                .WithMany()
+                .HasForeignKey(t => t.JournalEntryId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            modelBuilder.Entity<CashShiftOpeningLine>()
+                .HasOne(l => l.CashShift)
+                .WithMany(s => s.OpeningLines)
+                .HasForeignKey(l => l.CashShiftId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            modelBuilder.Entity<CashShiftOpeningLine>()
+                .HasOne(l => l.Currency)
+                .WithMany()
+                .HasForeignKey(l => l.CurrencyId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            modelBuilder.Entity<CashTransferLine>()
+                .HasOne(l => l.CashTransfer)
+                .WithMany(t => t.Lines)
+                .HasForeignKey(l => l.CashTransferId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            modelBuilder.Entity<CashTransferLine>()
+                .HasOne(l => l.Currency)
+                .WithMany()
+                .HasForeignKey(l => l.CurrencyId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            // ---------- سال مالی ----------
+            modelBuilder.Entity<FiscalYear>()
+                .HasIndex(y => y.SolarYear)
+                .IsUnique()
+                .HasFilter("[IsDeleted] = 0");
+
+            modelBuilder.Entity<FiscalYear>()
+                .HasOne(y => y.ClosedByUser)
+                .WithMany()
+                .HasForeignKey(y => y.ClosedByUserId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            modelBuilder.Entity<FiscalYear>()
+                .HasOne(y => y.ClosingJournalEntry)
+                .WithMany()
+                .HasForeignKey(y => y.ClosingJournalEntryId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            modelBuilder.Entity<FiscalYear>()
+                .HasOne(y => y.EquityAllocationJournalEntry)
+                .WithMany()
+                .HasForeignKey(y => y.EquityAllocationJournalEntryId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            modelBuilder.Entity<Shareholder>()
+                .HasOne(s => s.Account)
+                .WithMany()
+                .HasForeignKey(s => s.AccountId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            modelBuilder.Entity<ShareholderEquityTxn>()
+                .HasOne(t => t.Shareholder)
+                .WithMany()
+                .HasForeignKey(t => t.ShareholderId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            modelBuilder.Entity<ShareholderEquityTxn>()
+                .HasOne(t => t.CashBox)
+                .WithMany()
+                .HasForeignKey(t => t.CashBoxId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            modelBuilder.Entity<ShareholderEquityTxn>()
+                .HasOne(t => t.JournalEntry)
+                .WithMany()
+                .HasForeignKey(t => t.JournalEntryId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            modelBuilder.Entity<ShareholderEquityTxn>()
+                .HasOne(t => t.Currency)
+                .WithMany()
+                .HasForeignKey(t => t.CurrencyId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            modelBuilder.Entity<ShareholderEquityTxn>()
+                .HasOne(t => t.BaseCurrency)
+                .WithMany()
+                .HasForeignKey(t => t.BaseCurrencyId)
+                .OnDelete(DeleteBehavior.Restrict);
+
             // ---------- تولید ----------
 
             modelBuilder.Entity<ProductionBatch>()
@@ -674,6 +1174,24 @@ namespace HamgamCementWeb.Server.Data
                 .HasOne(b => b.OutputWarehouse)
                 .WithMany()
                 .HasForeignKey(b => b.OutputWarehouseId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            modelBuilder.Entity<ProductionBatch>()
+                .HasOne(b => b.Formula)
+                .WithMany()
+                .HasForeignKey(b => b.ProductionFormulaId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            modelBuilder.Entity<ProductionBatch>()
+                .HasOne(b => b.Plan)
+                .WithMany()
+                .HasForeignKey(b => b.ProductionPlanId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            modelBuilder.Entity<ProductionBatch>()
+                .HasOne(b => b.JournalEntry)
+                .WithMany()
+                .HasForeignKey(b => b.JournalEntryId)
                 .OnDelete(DeleteBehavior.Restrict);
 
             modelBuilder.Entity<ProductionInputLine>()
@@ -736,6 +1254,72 @@ namespace HamgamCementWeb.Server.Data
                 .HasOne(a => a.InventoryLot)
                 .WithMany()
                 .HasForeignKey(a => a.InventoryLotId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            modelBuilder.Entity<ProductionBatchCostLine>()
+                .HasOne(l => l.Batch)
+                .WithMany(b => b.CostLines)
+                .HasForeignKey(l => l.ProductionBatchId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            modelBuilder.Entity<ProductionBatchCostLine>()
+                .HasOne(l => l.Account)
+                .WithMany()
+                .HasForeignKey(l => l.AccountId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            modelBuilder.Entity<ProductionFormula>()
+                .HasOne(f => f.Product)
+                .WithMany()
+                .HasForeignKey(f => f.ProductId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            modelBuilder.Entity<ProductionFormula>()
+                .HasOne(f => f.Meaurment)
+                .WithMany()
+                .HasForeignKey(f => f.MeaurmentId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            // حداکثر یک فرمول پیش‌فرض فعال برای هر محصول
+            modelBuilder.Entity<ProductionFormula>()
+                .HasIndex(f => f.ProductId)
+                .IsUnique()
+                .HasFilter("[IsDefault] = 1 AND [IsDeleted] = 0");
+
+            modelBuilder.Entity<ProductionFormulaMaterialLine>()
+                .HasOne(l => l.Formula)
+                .WithMany(f => f.MaterialLines)
+                .HasForeignKey(l => l.ProductionFormulaId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            modelBuilder.Entity<ProductionFormulaMaterialLine>()
+                .HasOne(l => l.Product)
+                .WithMany()
+                .HasForeignKey(l => l.ProductId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            modelBuilder.Entity<ProductionFormulaMaterialLine>()
+                .HasOne(l => l.Meaurment)
+                .WithMany()
+                .HasForeignKey(l => l.MeaurmentId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            modelBuilder.Entity<ProductionFormulaMaterialLine>()
+                .HasOne(l => l.DefaultWarehouse)
+                .WithMany()
+                .HasForeignKey(l => l.DefaultWarehouseId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            modelBuilder.Entity<ProductionFormulaCostLine>()
+                .HasOne(l => l.Formula)
+                .WithMany(f => f.CostLines)
+                .HasForeignKey(l => l.ProductionFormulaId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            modelBuilder.Entity<ProductionFormulaCostLine>()
+                .HasOne(l => l.Account)
+                .WithMany()
+                .HasForeignKey(l => l.AccountId)
                 .OnDelete(DeleteBehavior.Restrict);
 
             modelBuilder.Entity<ProductionPlan>()

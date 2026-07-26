@@ -24,10 +24,21 @@ public class ExpenseController : FinanceControllerBase
     };
 
     private readonly ICurrencyConversionService _currency;
+    private readonly IOperationalGlService _gl;
+    private readonly ICashBoxService _cashBoxes;
+    private readonly IFinanceReadService _reads;
 
-    public ExpenseController(AppDbContext db, ICurrencyConversionService currency) : base(db)
+    public ExpenseController(
+        AppDbContext db,
+        ICurrencyConversionService currency,
+        IOperationalGlService gl,
+        ICashBoxService cashBoxes,
+        IFinanceReadService reads) : base(db)
     {
         _currency = currency;
+        _gl = gl;
+        _cashBoxes = cashBoxes;
+        _reads = reads;
     }
 
     [HttpPost("datatable")]
@@ -38,62 +49,8 @@ public class ExpenseController : FinanceControllerBase
     {
         var start = Math.Max(request.Start, 0);
         var length = request.Length <= 0 ? 10 : Math.Min(request.Length, 100);
-
-        var query = Db.Expenses
-            .AsNoTracking()
-            .Where(e => e.IsDeleted != true);
-
-        var recordsTotal = await query.CountAsync(cancellationToken);
-
-        var searchValue = request.Search?.Value?.Trim();
-        if (!string.IsNullOrWhiteSpace(searchValue))
-        {
-            query = query.Where(e =>
-                e.Title.Contains(searchValue) ||
-                (e.Description != null && e.Description.Contains(searchValue)) ||
-                (e.Supplier != null && e.Supplier.Name.Contains(searchValue)) ||
-                e.Category.Name.Contains(searchValue));
-        }
-
-        var recordsFiltered = await query.CountAsync(cancellationToken);
-
-        var ordered = query
-            .ApplyDataTableOrder(request.Order, OrderColumns, nameof(Expense.ExpenseDate), defaultDescending: true);
-
-        var rows = await ordered
-            .Skip(start)
-            .Take(length)
-            .Select(e => new
-            {
-                expenseId = e.ExpenseID,
-                title = e.Title,
-                expenseDate = e.ExpenseDate,
-                categoryName = e.Category.Name,
-                expenseCategoryId = e.ExpenseCategoryId,
-                source = e.Source,
-                sourceLabel = e.Source == FinancialEntrySource.ProductPurchase
-                    ? "خرید محصولات"
-                    : e.Source == FinancialEntrySource.PurchaseReturn
-                        ? "برگشت از خرید"
-                        : e.Source == FinancialEntrySource.Miscellaneous
-                            ? "متفرقه"
-                            : e.Source.ToString(),
-                supplierId = e.SupplierId,
-                supplierName = e.Supplier != null ? e.Supplier.Name : null,
-                currencyId = e.CurrencyId,
-                currencyCode = e.Currency.CurrencyCode,
-                currencySymbol = e.Currency.Symbol,
-                amount = e.Amount,
-                amountInBaseCurrency = e.AmountInBaseCurrency,
-                description = e.Description,
-                isFromInvoice = Db.PurchaseInvoices.Any(i =>
-                    i.ExpenseId == e.ExpenseID && i.IsDeleted != true),
-                invoiceNumber = Db.PurchaseInvoices
-                    .Where(i => i.ExpenseId == e.ExpenseID && i.IsDeleted != true)
-                    .Select(i => i.InvoiceNumber)
-                    .FirstOrDefault(),
-            })
-            .ToListAsync(cancellationToken);
+        var (recordsTotal, recordsFiltered, rows) = await _reads.GetExpensesAsync(
+            start, length, request.Search?.Value?.Trim(), cancellationToken);
 
         return Ok(new
         {
@@ -103,23 +60,32 @@ public class ExpenseController : FinanceControllerBase
             data = rows.Select((r, i) => new
             {
                 rowNumber = start + i + 1,
-                r.expenseId,
-                r.title,
-                expenseDate = r.expenseDate.ToString("yyyy-MM-dd"),
-                r.categoryName,
-                r.expenseCategoryId,
-                r.source,
-                r.sourceLabel,
-                r.supplierId,
-                r.supplierName,
-                r.currencyId,
-                r.currencyCode,
-                r.currencySymbol,
-                r.amount,
-                r.amountInBaseCurrency,
-                r.description,
-                r.isFromInvoice,
-                r.invoiceNumber,
+                expenseId = r.ExpenseId,
+                title = r.Title,
+                expenseDate = r.ExpenseDate.ToString("yyyy-MM-dd"),
+                categoryName = r.CategoryName,
+                expenseCategoryId = r.ExpenseCategoryId,
+                source = r.Source,
+                sourceLabel = r.Source == (int)FinancialEntrySource.ProductPurchase
+                    ? "خرید محصولات"
+                    : r.Source == (int)FinancialEntrySource.PurchaseReturn
+                        ? "برگشت از خرید"
+                        : r.Source == (int)FinancialEntrySource.Miscellaneous
+                            ? "متفرقه"
+                            : r.Source == (int)FinancialEntrySource.TransportExpense
+                                ? "هزینه حمل‌ونقل"
+                                : r.Source.ToString(),
+                supplierId = r.SupplierId,
+                supplierName = r.SupplierName,
+                currencyId = r.CurrencyId,
+                currencyCode = r.CurrencyCode,
+                currencySymbol = r.CurrencySymbol,
+                amount = r.Amount,
+                amountInBaseCurrency = r.AmountInBaseCurrency,
+                description = r.Description,
+                journalEntryId = r.JournalEntryId,
+                isFromInvoice = !string.IsNullOrEmpty(r.InvoiceNumber),
+                invoiceNumber = r.InvoiceNumber,
             }),
         });
     }
@@ -191,7 +157,13 @@ public class ExpenseController : FinanceControllerBase
         Db.Expenses.Add(expense);
         await Db.SaveChangesAsync(cancellationToken);
 
-        return Ok(new { message = "مصرف با موفقیت ثبت شد.", expenseId = expense.ExpenseID });
+        var userId = ResolveCurrentUserId();
+        var cashBoxId = await _cashBoxes.ResolveUserCashBoxIdAsync(userId, cancellationToken);
+        var journal = await _gl.PostMiscExpenseAsync(expense, userId, cashBoxId, cancellationToken);
+        expense.JournalEntryId = journal.JournalEntryID;
+        await Db.SaveChangesAsync(cancellationToken);
+
+        return Ok(new { message = "مصرف با موفقیت ثبت شد.", expenseId = expense.ExpenseID, journalEntryId = journal.JournalEntryID });
     }
 
     [HttpPut("{id:int}")]

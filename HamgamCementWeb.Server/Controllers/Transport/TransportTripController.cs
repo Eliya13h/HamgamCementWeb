@@ -64,7 +64,7 @@ public class TransportTripController : TransportControllerBase
                 transportTripId = t.TransportTripID,
                 tripNumber = t.TripNumber,
                 vehicleId = t.VehicleId,
-                vehicleLabel = t.Vehicle != null ? t.Vehicle.Code + " — " + t.Vehicle.PlateNumber : string.Empty,
+                vehicleLabel = t.Vehicle != null ? t.Vehicle.Code + " — " + t.Vehicle.PlateNumber : (t.FreightCarrierName ?? "کرایه‌ای"),
                 transportRouteId = t.TransportRouteId,
                 routeName = t.Route != null ? t.Route.Name : string.Empty,
                 driverId = t.DriverId,
@@ -74,6 +74,14 @@ public class TransportTripController : TransportControllerBase
                         ? t.Vehicle.DefaultDriver.Name + " " + t.Vehicle.DefaultDriver.Family
                         : null),
                 effectiveDriverId = t.DriverId ?? (t.Vehicle != null ? t.Vehicle.DefaultDriverId : null),
+                tripPurpose = (int)t.TripPurpose,
+                freightMode = (int)t.FreightMode,
+                freightRatePerTon = t.FreightRatePerTon,
+                freightCarrierName = t.FreightCarrierName,
+                purchaseInvoiceId = t.PurchaseInvoiceId,
+                purchaseInvoiceNumber = t.PurchaseInvoice != null ? t.PurchaseInvoice.InvoiceNumber : null,
+                saleInvoiceId = t.SaleInvoiceId,
+                saleInvoiceNumber = t.SaleInvoice != null ? t.SaleInvoice.InvoiceNumber : null,
                 cargoDescription = t.CargoDescription,
                 cargoWeightTon = t.CargoWeightTon,
                 departureDate = t.DepartureDate,
@@ -105,6 +113,19 @@ public class TransportTripController : TransportControllerBase
                 r.driverId,
                 r.driverName,
                 r.effectiveDriverId,
+                r.tripPurpose,
+                tripPurposeName = PurposeName((TripPurpose)r.tripPurpose),
+                r.freightMode,
+                freightModeName = FreightModeName((FreightMode)r.freightMode),
+                r.freightRatePerTon,
+                r.freightCarrierName,
+                r.purchaseInvoiceId,
+                r.purchaseInvoiceNumber,
+                r.saleInvoiceId,
+                r.saleInvoiceNumber,
+                invoiceLink = r.purchaseInvoiceNumber != null
+                    ? "خرید " + r.purchaseInvoiceNumber
+                    : (r.saleInvoiceNumber != null ? "فروش " + r.saleInvoiceNumber : null),
                 r.cargoDescription,
                 r.cargoWeightTon,
                 r.departureDate,
@@ -163,6 +184,10 @@ public class TransportTripController : TransportControllerBase
             VehicleId = request.VehicleId,
             TransportRouteId = request.TransportRouteId,
             DriverId = request.DriverId,
+            TripPurpose = TripPurpose.CommercialHaul,
+            FreightMode = request.VehicleId is > 0 ? FreightMode.OwnFleet : FreightMode.Hired,
+            FreightCarrierName = request.FreightCarrierName?.Trim(),
+            FreightRatePerTon = request.FreightRatePerTon,
             CargoDescription = request.CargoDescription?.Trim(),
             CargoWeightTon = request.CargoWeightTon,
             DepartureDate = request.DepartureDate,
@@ -216,6 +241,9 @@ public class TransportTripController : TransportControllerBase
         trip.VehicleId = request.VehicleId;
         trip.TransportRouteId = request.TransportRouteId;
         trip.DriverId = request.DriverId;
+        trip.FreightMode = request.VehicleId is > 0 ? FreightMode.OwnFleet : FreightMode.Hired;
+        trip.FreightCarrierName = request.FreightCarrierName?.Trim();
+        trip.FreightRatePerTon = request.FreightRatePerTon;
         trip.CargoDescription = request.CargoDescription?.Trim();
         trip.CargoWeightTon = request.CargoWeightTon;
         trip.DepartureDate = request.DepartureDate;
@@ -259,18 +287,24 @@ public class TransportTripController : TransportControllerBase
     // اعتبارسنجی کلیدهای خارجی و سازگاری منطقی مقادیر سفر.
     private async Task<string?> ValidateTripAsync(SaveTripRequest request, CancellationToken cancellationToken)
     {
-        var vehicleExists = await Db.Vehicles
-            .AnyAsync(v => v.VehicleID == request.VehicleId && v.IsDeleted != true, cancellationToken);
-        if (!vehicleExists)
+        if (request.VehicleId is > 0)
         {
-            return "وسیله نقلیه انتخاب‌شده یافت نشد.";
+            var vehicleExists = await Db.Vehicles
+                .AnyAsync(v => v.VehicleID == request.VehicleId && v.IsDeleted != true, cancellationToken);
+            if (!vehicleExists)
+            {
+                return "وسیله نقلیه انتخاب‌شده یافت نشد.";
+            }
         }
 
-        var routeExists = await Db.TransportRoutes
-            .AnyAsync(r => r.TransportRouteID == request.TransportRouteId && r.IsDeleted != true, cancellationToken);
-        if (!routeExists)
+        if (request.TransportRouteId is > 0)
         {
-            return "مسیر انتخاب‌شده یافت نشد.";
+            var routeExists = await Db.TransportRoutes
+                .AnyAsync(r => r.TransportRouteID == request.TransportRouteId && r.IsDeleted != true, cancellationToken);
+            if (!routeExists)
+            {
+                return "مسیر انتخاب‌شده یافت نشد.";
+            }
         }
 
         if (request.DriverId is > 0)
@@ -307,16 +341,38 @@ public class TransportTripController : TransportControllerBase
         _ => string.Empty,
     };
 
+    private static string PurposeName(TripPurpose purpose) => purpose switch
+    {
+        TripPurpose.PurchaseInbound => "ورود خرید",
+        TripPurpose.SaleDelivery => "تحویل فروش",
+        TripPurpose.CommercialHaul => "باربری تجاری",
+        _ => string.Empty,
+    };
+
+    private static string FreightModeName(FreightMode mode) => mode switch
+    {
+        FreightMode.OwnFleet => "خودی",
+        FreightMode.Hired => "کرایه‌ای",
+        FreightMode.None => "بدون حمل",
+        _ => string.Empty,
+    };
+
     public class SaveTripRequest
     {
-        [Range(1, int.MaxValue, ErrorMessage = "انتخاب وسیله نقلیه الزامی است.")]
-        public int VehicleId { get; set; }
+        // برای باربری کرایه‌ای می‌تواند خالی باشد
+        public int? VehicleId { get; set; }
 
-        [Range(1, int.MaxValue, ErrorMessage = "انتخاب مسیر الزامی است.")]
-        public int TransportRouteId { get; set; }
+        // مسیر اختیاری
+        public int? TransportRouteId { get; set; }
 
         // راننده سفر — اگر خالی باشد از راننده پیش‌فرض وسیله استفاده می‌شود
         public int? DriverId { get; set; }
+
+        [MaxLength(200)]
+        public string? FreightCarrierName { get; set; }
+
+        [Range(0, double.MaxValue, ErrorMessage = "نرخ کرایه نامعتبر است.")]
+        public decimal FreightRatePerTon { get; set; }
 
         [MaxLength(500)]
         public string? CargoDescription { get; set; }

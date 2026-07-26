@@ -1,6 +1,7 @@
 using System.ComponentModel.DataAnnotations;
 using System.ComponentModel.DataAnnotations.Schema;
 using HamgamCementWeb.Server.Data;
+using HamgamCementWeb.Server.Data.Models.Finance;
 
 namespace HamgamCementWeb.Server.Data.Models.Inventory
 {
@@ -19,11 +20,17 @@ namespace HamgamCementWeb.Server.Data.Models.Inventory
 
         public StocktakingStatus Status { get; set; } = StocktakingStatus.Draft;
 
+        // لینک سند دابل‌انتری کسری/اضافی (حساب موجودی ↔ SYS_INV_ADJ)
+        public int? JournalEntryId { get; set; }
+
         [MaxLength(2000)]
         public string? Notes { get; set; }
 
         [ForeignKey(nameof(WarehouseId))]
         public virtual Warehouse Warehouse { get; set; } = null!;
+
+        [ForeignKey(nameof(JournalEntryId))]
+        public virtual JournalEntry? JournalEntry { get; set; }
 
         public virtual ICollection<StocktakingLine> Lines { get; set; } = [];
     }

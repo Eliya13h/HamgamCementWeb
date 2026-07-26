@@ -42,19 +42,28 @@ public class InvoicePostingService : IInvoicePostingService
     private readonly IMeaurmentConversionService _conversion;
     private readonly IFifoInventoryService _fifo;
     private readonly IFinanceCategoryService _financeCategories;
+    private readonly IOperationalGlService _gl;
+    private readonly ICashBoxService _cashBoxes;
+    private readonly IFreightTripService _freight;
 
     public InvoicePostingService(
         AppDbContext db,
         ICurrencyConversionService currency,
         IMeaurmentConversionService conversion,
         IFifoInventoryService fifo,
-        IFinanceCategoryService financeCategories)
+        IFinanceCategoryService financeCategories,
+        IOperationalGlService gl,
+        ICashBoxService cashBoxes,
+        IFreightTripService freight)
     {
         _db = db;
         _currency = currency;
         _conversion = conversion;
         _fifo = fifo;
         _financeCategories = financeCategories;
+        _gl = gl;
+        _cashBoxes = cashBoxes;
+        _freight = freight;
     }
 
     // چرا این helper: نرخ اسنپ‌شات ذخیره‌شده روی فاکتور را فقط در صورت ارز غیرپایه و معتبر بودن به‌عنوان override برمی‌گرداند
@@ -88,11 +97,6 @@ public class InvoicePostingService : IInvoicePostingService
             total += item.LineTotal;
             totalBase += item.LineTotalInBaseCurrency;
         }
-
-        invoice.FixedCostInBaseCurrency = _currency.ConvertToBase(invoice.FixedCost, snapshot);
-        invoice.VariableCostInBaseCurrency = _currency.ConvertToBase(invoice.VariableCost, snapshot);
-        total += invoice.FixedCost + invoice.VariableCost;
-        totalBase += invoice.FixedCostInBaseCurrency + invoice.VariableCostInBaseCurrency;
 
         invoice.TotalAmount = total;
         invoice.TotalAmountInBaseCurrency = totalBase;
@@ -237,9 +241,6 @@ public class InvoicePostingService : IInvoicePostingService
                 }
             }
 
-            var itemsBaseTotal = invoice.Items.Sum(i => i.LineTotalInBaseCurrency);
-            var extraBaseCost = invoice.FixedCostInBaseCurrency + invoice.VariableCostInBaseCurrency;
-
             foreach (var item in invoice.Items)
             {
                 if (item.QuantityInBase <= 0)
@@ -261,11 +262,7 @@ public class InvoicePostingService : IInvoicePostingService
                     }, allowInsufficientStock: false, cancellationToken);
                 }
 
-                var lineShare = itemsBaseTotal > 0
-                    ? item.LineTotalInBaseCurrency / itemsBaseTotal
-                    : 1m / invoice.Items.Count;
-                var lineExtraCost = extraBaseCost * lineShare;
-                var unitCostInBase = (item.LineTotalInBaseCurrency + lineExtraCost) / item.QuantityInBase;
+                var unitCostInBase = item.LineTotalInBaseCurrency / item.QuantityInBase;
 
                 var lot = await _fifo.ReceiveAsync(new ReceiveStockRequest
                 {
@@ -299,6 +296,28 @@ public class InvoicePostingService : IInvoicePostingService
         invoice.UpdatedBy = userId;
 
         await _db.SaveChangesAsync(cancellationToken);
+
+        if (invoice.TotalAmount > 0)
+        {
+            var cashBoxId = await _cashBoxes.ResolveUserCashBoxIdAsync(userId, cancellationToken);
+            var journal = await _gl.PostPurchaseAsync(invoice, userId, cashBoxId, cancellationToken);
+            invoice.JournalEntryId = journal.JournalEntryID;
+            if (invoice.ExpenseId is int expenseId)
+            {
+                var expense = await _db.Expenses.FirstAsync(e => e.ExpenseID == expenseId, cancellationToken);
+                expense.JournalEntryId = journal.JournalEntryID;
+            }
+
+            await _db.SaveChangesAsync(cancellationToken);
+
+            // کرایه حمل = هزینه دوره جدا؛ وارد بهای تمام‌شده / FIFO نمی‌شود
+            await _freight.ApplyPurchaseFreightAsync(invoice, userId, cashBoxId, cancellationToken);
+        }
+        else
+        {
+            var cashBoxId = await _cashBoxes.ResolveUserCashBoxIdAsync(userId, cancellationToken);
+            await _freight.ApplyPurchaseFreightAsync(invoice, userId, cashBoxId, cancellationToken);
+        }
     }
 
     public Task PostSaleAsync(int saleInvoiceId, int? userId, CancellationToken cancellationToken = default) =>
@@ -456,6 +475,27 @@ public class InvoicePostingService : IInvoicePostingService
         invoice.UpdatedBy = userId;
 
         await _db.SaveChangesAsync(cancellationToken);
+
+        var saleCashBoxId = await _cashBoxes.ResolveUserCashBoxIdAsync(userId, cancellationToken);
+
+        if (InvoiceStatusRules.AddsRevenue(invoice.Status) && invoice.TotalAmount > 0)
+        {
+            var journal = await _gl.PostSaleAsync(invoice, userId, saleCashBoxId, cancellationToken);
+            invoice.JournalEntryId = journal.JournalEntryID;
+            if (invoice.RevenueId is int revenueId)
+            {
+                var revenue = await _db.Revenues.FirstAsync(r => r.RevenueID == revenueId, cancellationToken);
+                revenue.JournalEntryId = journal.JournalEntryID;
+            }
+
+            await _db.SaveChangesAsync(cancellationToken);
+        }
+
+        // کرایه تحویل فروش — درآمد حمل جدا از مبلغ کالا
+        if (InvoiceStatusRules.AddsRevenue(invoice.Status))
+        {
+            await _freight.ApplySaleFreightAsync(invoice, userId, saleCashBoxId, cancellationToken);
+        }
     }
 
     public async Task ValidateSaleStockAsync(
@@ -628,6 +668,20 @@ public class InvoicePostingService : IInvoicePostingService
         invoice.UpdatedAt = now;
         invoice.UpdatedBy = userId;
         await _db.SaveChangesAsync(cancellationToken);
+
+        if (invoice.TotalAmount > 0)
+        {
+            var cashBoxId = await _cashBoxes.ResolveUserCashBoxIdAsync(userId, cancellationToken);
+            var journal = await _gl.PostPurchaseReturnAsync(invoice, userId, cashBoxId, cancellationToken);
+            invoice.JournalEntryId = journal.JournalEntryID;
+            if (invoice.ExpenseId is int expenseId)
+            {
+                var expense = await _db.Expenses.FirstAsync(e => e.ExpenseID == expenseId, cancellationToken);
+                expense.JournalEntryId = journal.JournalEntryID;
+            }
+
+            await _db.SaveChangesAsync(cancellationToken);
+        }
     }
 
     private async Task PostSaleReturnAsync(
@@ -759,6 +813,15 @@ public class InvoicePostingService : IInvoicePostingService
         invoice.UpdatedAt = now;
         invoice.UpdatedBy = userId;
         await _db.SaveChangesAsync(cancellationToken);
+
+        if (invoice.TotalAmount > 0)
+        {
+            var cashBoxId = await _cashBoxes.ResolveUserCashBoxIdAsync(userId, cancellationToken);
+            var journal = await _gl.PostSaleReturnAsync(invoice, userId, cashBoxId, cancellationToken);
+            invoice.JournalEntryId = journal.JournalEntryID;
+            revenue.JournalEntryId = journal.JournalEntryID;
+            await _db.SaveChangesAsync(cancellationToken);
+        }
     }
 }
 

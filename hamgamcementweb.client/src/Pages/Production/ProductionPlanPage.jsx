@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import Icon from '../../components/common/Icon'
 import JalaliDateField from '../../components/common/JalaliDateField'
 import SearchableSelect from '../../components/common/SearchableSelect'
@@ -9,8 +10,17 @@ import { fetchMeaurmentOptions, fetchProductOptions } from '../../services/produ
 import { buildProductionPlanPayload, productionPlansApi } from '../../services/productionApi'
 import { dataTableLanguage, formatAmount, formatJalaliDate } from '../Transport/CrudTablePage'
 
+const planColumns = [
+  { data: 'productName', title: 'محصول' },
+  { data: 'planDate', title: 'تاریخ' },
+  { data: 'plannedQuantity', title: 'مقدار برنامه' },
+  { data: 'statusLabel', title: 'وضعیت' },
+  { data: 'notes', title: 'یادداشت' },
+]
+
 function ProductionPlanPage() {
   const tableRef = useRef(null)
+  const navigate = useNavigate()
   const { canCreate, canEdit, canDelete } = usePageCrud('/production/plan')
   const [loadError, setLoadError] = useState('')
   const [showForm, setShowForm] = useState(false)
@@ -143,28 +153,41 @@ function ProductionPlanPage() {
       },
       columns: [
         { data: 'rowNumber', name: 'rowNumber' },
-        { data: 'productName', name: 'productName' },
+        { data: 'productName', name: 'productName', title: 'محصول' },
         {
           data: 'planDate',
           name: 'planDate',
+          title: 'تاریخ',
           render: (data) => formatJalaliDate(data),
         },
         {
           data: 'plannedQuantity',
           name: 'plannedQuantity',
+          title: 'مقدار برنامه',
           render: (data, _type, row) => `${formatAmount(data)} ${row.meaurmentName ?? ''}`.trim(),
         },
-        { data: 'notes', name: 'notes', orderable: false },
-        { data: null, name: 'actions', defaultContent: '' },
+        {
+          data: 'statusLabel',
+          name: 'statusLabel',
+          title: 'وضعیت',
+          orderable: false,
+          render: (data, _type, row) => {
+            if (row.postedBatchesCount > 0) return '<span class="badge badge-active">تولید شده</span>'
+            if (row.linkedBatchesCount > 0) return '<span class="badge badge-inactive">در حال تولید</span>'
+            return '<span class="text-muted">برنامه‌ریزی</span>'
+          },
+        },
+        { data: 'notes', name: 'notes', title: 'یادداشت', orderable: false },
+        { data: null, name: 'actions', defaultContent: '', title: 'عملیات' },
       ],
       columnDefs: [
         { targets: 0, orderable: false, searchable: false, width: '56px', className: 'text-center' },
         {
-          targets: 5,
+          targets: 6,
           orderable: false,
           searchable: false,
           className: 'text-center all dt-actions-col',
-          width: '100px',
+          width: '140px',
         },
       ],
     }),
@@ -173,8 +196,16 @@ function ProductionPlanPage() {
 
   const actionSlots = useMemo(
     () => ({
-      5: (_data, _type, row) => (
+      6: (_data, _type, row) => (
         <div className="dt-actions">
+          <button
+            type="button"
+            className="dt-action-btn"
+            title="ایجاد سند تولید از این برنامه"
+            onClick={() => navigate(`/production/daily?planId=${row.productionPlanId}`)}
+          >
+            <Icon name="production" />
+          </button>
           {canEdit && (
             <button type="button" className="dt-action-btn" title="ویرایش" onClick={() => openEdit(row)}>
               <Icon name="edit" />
@@ -188,16 +219,16 @@ function ProductionPlanPage() {
         </div>
       ),
     }),
-    [canDelete, canEdit, openEdit],
+    [canDelete, canEdit, navigate, openEdit],
   )
 
   return (
-    <div className="content-card card border-0">
+    <div className="content-card card border-0 production-page">
       <div className="card-body p-4">
         <div className="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3">
           <div>
             <h2 className="card-title mb-1">برنامه تولید</h2>
-            <p className="text-muted mb-0 small">برنامه‌ریزی مقدار تولید محصولات</p>
+            <p className="text-muted mb-0 small">هدف تولید را مشخص کنید؛ سپس از روی آن سند تولید روزانه بسازید</p>
           </div>
           {canCreate && (
             <button type="button" className="btn btn-primary d-inline-flex align-items-center gap-2" onClick={openCreate}>
@@ -209,11 +240,23 @@ function ProductionPlanPage() {
 
         {loadError && <div className="alert alert-danger">{loadError}</div>}
 
-        <DataTable ref={tableRef} options={tableOptions} actionSlots={actionSlots} />
+        <div className="users-table-wrapper">
+          <DataTable ref={tableRef} className="table table-hover w-100 align-middle" options={tableOptions} slots={actionSlots}>
+            <thead>
+              <tr>
+                <th>#</th>
+                {planColumns.map((col) => (
+                  <th key={col.data}>{col.title}</th>
+                ))}
+                <th>عملیات</th>
+              </tr>
+            </thead>
+          </DataTable>
+        </div>
 
         {showForm && (
-          <div className="modal show d-block" tabIndex={-1} style={{ backgroundColor: 'rgba(0,0,0,0.5)' }}>
-            <div className="modal-dialog">
+          <div className="modal show d-block production-modal" tabIndex={-1} style={{ backgroundColor: 'rgba(0,0,0,0.5)' }}>
+            <div className="modal-dialog modal-dialog-scrollable">
               <div className="modal-content">
                 <form onSubmit={handleSubmit}>
                   <div className="modal-header">
@@ -236,7 +279,7 @@ function ProductionPlanPage() {
                         <SearchableSelect
                           options={products}
                           value={form.productId}
-                          onChange={(value) => setForm((prev) => ({ ...prev, productId: value }))}
+                          onChange={(value) => setForm((prev) => ({ ...prev, productId: value, meaurmentId: '' }))}
                           required
                         />
                       </div>

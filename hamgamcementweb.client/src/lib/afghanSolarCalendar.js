@@ -113,4 +113,68 @@ export function todayGregorianIso() {
   return new DateObject({ calendar: gregorian }).format('YYYY-MM-DD')
 }
 
+/** سال و ماه جاری شمسی */
+export function currentJalaliYearMonth() {
+  const now = new DateObject({ calendar: persian, locale: afghanSolarLocale })
+  return {
+    year: now.year,
+    month: Number(now.month?.number ?? now.month),
+  }
+}
+
+/**
+ * ابتدا و انتهای یک ماه شمسی به صورت ISO میلادی.
+ * برای فیلتر حضور/حقوق ماهانه.
+ */
+export function getJalaliMonthRange(year, month) {
+  const start = new DateObject({
+    year: Number(year),
+    month: Number(month),
+    day: 1,
+    calendar: persian,
+    locale: afghanSolarLocale,
+  })
+
+  if (!start.isValid) {
+    return { from: '', to: '' }
+  }
+
+  const daysInMonth = start.month.length
+  const end = new DateObject(start).setDay(daysInMonth)
+
+  return {
+    from: jalaliObjectToIso(start),
+    to: jalaliObjectToIso(end),
+  }
+}
+
+/** ابتدا و انتهای سال شمسی به صورت ISO میلادی */
+export function getJalaliYearRange(year) {
+  const start = new DateObject({
+    year: Number(year),
+    month: 1,
+    day: 1,
+    calendar: persian,
+    locale: afghanSolarLocale,
+  })
+
+  if (!start.isValid) {
+    return { from: '', to: '' }
+  }
+
+  const endMonth = new DateObject({
+    year: Number(year),
+    month: 12,
+    day: 1,
+    calendar: persian,
+    locale: afghanSolarLocale,
+  })
+  const end = new DateObject(endMonth).setDay(endMonth.month.length)
+
+  return {
+    from: jalaliObjectToIso(start),
+    to: jalaliObjectToIso(end),
+  }
+}
+
 export { gregorian, persian }

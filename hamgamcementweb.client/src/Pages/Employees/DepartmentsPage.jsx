@@ -27,7 +27,7 @@ const dataTableLanguage = {
   },
 }
 
-function DepartmentsPage() {
+function DepartmentsPage({ embedded = false }) {
   const tableRef = useRef(null)
   const { canCreate, canEdit, canDelete } = usePageCrud('/people/departments')
   const [loadError, setLoadError] = useState('')
@@ -207,51 +207,55 @@ function DepartmentsPage() {
     [openEdit, openDelete, canEdit, canDelete],
   )
 
-  return (
-    <div className="users-page">
-      <div className="content-card card border-0 h-100">
-        <div className="card-header bg-transparent border-0 pt-4 px-4 pb-0 d-flex align-items-center justify-content-between gap-3 flex-wrap">
-          <h2 className="card-title mb-0">بخش‌ها</h2>
-          {canCreate && (
-            <button
-              type="button"
-              className="btn btn-sm btn-accent btn-users-new d-inline-flex align-items-center gap-2"
-              title="بخش جدید"
-              onClick={openCreate}
-            >
-              <Icon name="plus" />
-              <span>بخش جدید</span>
-            </button>
-          )}
-        </div>
+  const content = (
+    <>
+      <div className="card-header bg-transparent border-0 pt-4 px-4 pb-0 d-flex align-items-center justify-content-between gap-3 flex-wrap">
+        <h2 className="card-title mb-0">بخش‌ها</h2>
+        {canCreate && (
+          <button
+            type="button"
+            className="btn btn-sm btn-accent btn-users-new d-inline-flex align-items-center gap-2"
+            title="بخش جدید"
+            onClick={openCreate}
+          >
+            <Icon name="plus" />
+            <span>بخش جدید</span>
+          </button>
+        )}
+      </div>
 
-        <div className="card-body card-body-table">
-          {loadError && (
-            <div className="alert alert-danger py-2 users-load-error mb-0">
-              {loadError}
-            </div>
-          )}
-
-          <div className="users-table-wrapper">
-            <DataTable
-              ref={tableRef}
-              className="table table-hover w-100 align-middle"
-              options={tableOptions}
-              slots={actionSlots}
-            >
-              <thead>
-                <tr>
-                  <th>#</th>
-                  <th>نام بخش</th>
-                  <th>توضیحات</th>
-                  <th>تعداد کارمندان</th>
-                  <th>عملیات</th>
-                </tr>
-              </thead>
-            </DataTable>
+      <div className="card-body card-body-table">
+        {loadError && (
+          <div className="alert alert-danger py-2 users-load-error mb-0">
+            {loadError}
           </div>
+        )}
+
+        <div className="users-table-wrapper">
+          <DataTable
+            ref={tableRef}
+            className="table table-hover w-100 align-middle"
+            options={tableOptions}
+            slots={actionSlots}
+          >
+            <thead>
+              <tr>
+                <th>#</th>
+                <th>نام بخش</th>
+                <th>توضیحات</th>
+                <th>تعداد کارمندان</th>
+                <th>عملیات</th>
+              </tr>
+            </thead>
+          </DataTable>
         </div>
       </div>
+    </>
+  )
+
+  return (
+    <div className="users-page">
+      {embedded ? content : <div className="content-card card border-0 h-100">{content}</div>}
 
       {showCreate && (
         <>

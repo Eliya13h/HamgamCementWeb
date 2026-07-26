@@ -37,7 +37,23 @@ public sealed class CustomerReadService : ICustomerReadService
                     WHEN si.DocumentType = 1 THEN si.TotalAmountInBaseCurrency
                     WHEN si.DocumentType = 3 THEN -si.TotalAmountInBaseCurrency
                     ELSE 0
-                END) AS TotalPurchase
+                END) AS TotalPurchase,
+                -- دریافت به ارز فاکتور است؛ برای جمع‌بندی باید به ارز پایه تبدیل شود
+                SUM(CASE
+                    WHEN si.DocumentType = 1 THEN
+                        CASE
+                            WHEN si.TotalAmount <> 0
+                                THEN ROUND(si.PaidAmount * si.TotalAmountInBaseCurrency / si.TotalAmount, 4)
+                            ELSE ROUND(si.PaidAmount * ISNULL(NULLIF(si.BaseUnitsPerUnitAtTransaction, 0), 1), 4)
+                        END
+                    WHEN si.DocumentType = 3 THEN
+                        -CASE
+                            WHEN si.TotalAmount <> 0
+                                THEN ROUND(si.PaidAmount * si.TotalAmountInBaseCurrency / si.TotalAmount, 4)
+                            ELSE ROUND(si.PaidAmount * ISNULL(NULLIF(si.BaseUnitsPerUnitAtTransaction, 0), 1), 4)
+                        END
+                    ELSE 0
+                END) AS TotalPayment
             FROM SaleInvoices si
             WHERE ISNULL(si.IsDeleted, 0) = 0
               AND si.IsPosted = 1
@@ -47,6 +63,10 @@ public sealed class CustomerReadService : ICustomerReadService
             SELECT
                 c.CustomerID AS CustomerId,
                 c.Name,
+                ISNULL(
+                    acc.Code,
+                    CONCAT(N'121-', RIGHT(CONCAT(N'00000', CAST(c.CustomerID AS varchar(10))), 5))
+                ) AS AccountCode,
                 c.PhoneNumber,
                 c.Address,
                 c.City,
@@ -56,21 +76,25 @@ public sealed class CustomerReadService : ICustomerReadService
                 CASE WHEN ISNULL(c.IsActive, 0) = 1 THEN 1 ELSE 0 END AS IsActive,
                 CASE WHEN ISNULL(c.IsDeleted, 0) = 1 THEN 1 ELSE 0 END AS IsDeleted,
                 ISNULL(pt.TotalPurchase, 0) AS TotalPurchase,
-                CAST(0 AS DECIMAL(18, 4)) AS TotalPayment,
-                ISNULL(c.InitialBalance, 0) - ISNULL(pt.TotalPurchase, 0) AS Balance,
+                ISNULL(pt.TotalPayment, 0) AS TotalPayment,
+                -- مانده منفی = مشتری به ما بدهکار است (فروش − دریافت)
+                ISNULL(c.InitialBalance, 0) - ISNULL(pt.TotalPurchase, 0) + ISNULL(pt.TotalPayment, 0) AS Balance,
                 CASE
-                    WHEN ISNULL(c.InitialBalance, 0) - ISNULL(pt.TotalPurchase, 0) > 0 THEN N'طلبکار'
-                    WHEN ISNULL(c.InitialBalance, 0) - ISNULL(pt.TotalPurchase, 0) < 0 THEN N'بدهکار'
+                    WHEN ISNULL(c.InitialBalance, 0) - ISNULL(pt.TotalPurchase, 0) + ISNULL(pt.TotalPayment, 0) > 0 THEN N'طلبکار'
+                    WHEN ISNULL(c.InitialBalance, 0) - ISNULL(pt.TotalPurchase, 0) + ISNULL(pt.TotalPayment, 0) < 0 THEN N'بدهکار'
                     ELSE N'تسویه'
                 END AS AccountStatus,
                 CASE
-                    WHEN ISNULL(c.InitialBalance, 0) - ISNULL(pt.TotalPurchase, 0) > 0 THEN 'creditor'
-                    WHEN ISNULL(c.InitialBalance, 0) - ISNULL(pt.TotalPurchase, 0) < 0 THEN 'debtor'
+                    WHEN ISNULL(c.InitialBalance, 0) - ISNULL(pt.TotalPurchase, 0) + ISNULL(pt.TotalPayment, 0) > 0 THEN 'creditor'
+                    WHEN ISNULL(c.InitialBalance, 0) - ISNULL(pt.TotalPurchase, 0) + ISNULL(pt.TotalPayment, 0) < 0 THEN 'debtor'
                     ELSE 'settled'
                 END AS AccountStatusCode,
                 c.CreatedAt
             FROM Customers c
             LEFT JOIN PurchaseTotals pt ON pt.CustomerId = c.CustomerID
+            LEFT JOIN Accounts acc
+                ON acc.SystemCode = CONCAT(N'CUST_', c.CustomerID)
+               AND ISNULL(acc.IsDeleted, 0) = 0
             WHERE (@IncludeDeleted = 1 OR ISNULL(c.IsDeleted, 0) = 0)
         )
         """;
@@ -78,12 +102,13 @@ public sealed class CustomerReadService : ICustomerReadService
     private static readonly Dictionary<int, string> CustomerOrderColumns = new()
     {
         [1] = "s.Name",
-        [2] = "s.PhoneNumber",
-        [3] = "s.InitialBalance",
-        [4] = "s.TotalPurchase",
-        [5] = "s.TotalPayment",
-        [6] = "s.Balance",
-        [7] = "s.AccountStatus",
+        [2] = "s.AccountCode",
+        [3] = "s.PhoneNumber",
+        [4] = "s.InitialBalance",
+        [5] = "s.TotalPurchase",
+        [6] = "s.TotalPayment",
+        [7] = "s.Balance",
+        [8] = "s.AccountStatus",
     };
 
     private static readonly Dictionary<int, string> InvoiceOrderColumns = new()
@@ -91,6 +116,13 @@ public sealed class CustomerReadService : ICustomerReadService
         [1] = "si.InvoiceNumber",
         [2] = "si.InvoiceDate",
         [4] = "si.TotalAmountInBaseCurrency",
+        [5] = """
+            CASE
+                WHEN si.TotalAmount <> 0
+                    THEN ROUND(si.PaidAmount * si.TotalAmountInBaseCurrency / si.TotalAmount, 4)
+                ELSE ROUND(si.PaidAmount * ISNULL(NULLIF(si.BaseUnitsPerUnitAtTransaction, 0), 1), 4)
+            END
+            """,
         [6] = "si.Status",
     };
 
@@ -129,6 +161,7 @@ public sealed class CustomerReadService : ICustomerReadService
             SELECT TOP (1)
                 s.CustomerId,
                 s.Name,
+                s.AccountCode,
                 s.PhoneNumber,
                 s.Address,
                 s.City,
@@ -189,6 +222,7 @@ public sealed class CustomerReadService : ICustomerReadService
             ? """
               AND (
                   s.Name LIKE @Search
+                  OR s.AccountCode LIKE @Search
                   OR s.PhoneNumber LIKE @Search
                   OR s.AccountStatus LIKE @Search
                   OR (@WantsDebtor = 1 AND s.Balance < 0)
@@ -212,6 +246,7 @@ public sealed class CustomerReadService : ICustomerReadService
             SELECT
                 s.CustomerId,
                 s.Name,
+                s.AccountCode,
                 s.PhoneNumber,
                 s.Address,
                 s.City,
@@ -281,6 +316,13 @@ public sealed class CustomerReadService : ICustomerReadService
                   si.InvoiceNumber LIKE @Search
                   OR ISNULL(si.Description, '') LIKE @Search
                   OR CAST(si.TotalAmountInBaseCurrency AS NVARCHAR(50)) LIKE @Search
+                  OR CAST(
+                        CASE
+                            WHEN si.TotalAmount <> 0
+                                THEN ROUND(si.PaidAmount * si.TotalAmountInBaseCurrency / si.TotalAmount, 4)
+                            ELSE ROUND(si.PaidAmount * ISNULL(NULLIF(si.BaseUnitsPerUnitAtTransaction, 0), 1), 4)
+                        END
+                     AS NVARCHAR(50)) LIKE @Search
                   OR (@SearchRaw LIKE N'%پیش%' AND si.Status = @StatusProforma)
                   OR (@SearchRaw LIKE N'%آردر%' AND si.Status = @StatusOrder)
                   OR (@SearchRaw LIKE N'%استعلام%' AND si.Status = @StatusQuotation)
@@ -299,7 +341,11 @@ public sealed class CustomerReadService : ICustomerReadService
                 si.InvoiceDate,
                 si.Status,
                 si.TotalAmountInBaseCurrency AS TotalAmount,
-                si.PaidAmount,
+                CASE
+                    WHEN si.TotalAmount <> 0
+                        THEN ROUND(si.PaidAmount * si.TotalAmountInBaseCurrency / si.TotalAmount, 4)
+                    ELSE ROUND(si.PaidAmount * ISNULL(NULLIF(si.BaseUnitsPerUnitAtTransaction, 0), 1), 4)
+                END AS PaidAmount,
                 (
                     SELECT COUNT(*)
                     FROM SalesItems x
@@ -316,10 +362,29 @@ public sealed class CustomerReadService : ICustomerReadService
 
         const string totalsSql = """
             SELECT
-                ISNULL(SUM(si.TotalAmountInBaseCurrency), 0) AS TotalPurchase,
-                ISNULL(SUM(si.PaidAmount), 0) AS TotalPayment
+                ISNULL(SUM(CASE
+                    WHEN si.DocumentType = 1 THEN si.TotalAmountInBaseCurrency
+                    WHEN si.DocumentType = 3 THEN -si.TotalAmountInBaseCurrency
+                    ELSE 0
+                END), 0) AS TotalPurchase,
+                ISNULL(SUM(CASE
+                    WHEN si.DocumentType = 1 THEN
+                        CASE
+                            WHEN si.TotalAmount <> 0
+                                THEN ROUND(si.PaidAmount * si.TotalAmountInBaseCurrency / si.TotalAmount, 4)
+                            ELSE ROUND(si.PaidAmount * ISNULL(NULLIF(si.BaseUnitsPerUnitAtTransaction, 0), 1), 4)
+                        END
+                    WHEN si.DocumentType = 3 THEN
+                        -CASE
+                            WHEN si.TotalAmount <> 0
+                                THEN ROUND(si.PaidAmount * si.TotalAmountInBaseCurrency / si.TotalAmount, 4)
+                            ELSE ROUND(si.PaidAmount * ISNULL(NULLIF(si.BaseUnitsPerUnitAtTransaction, 0), 1), 4)
+                        END
+                    ELSE 0
+                END), 0) AS TotalPayment
             FROM SaleInvoices si
             WHERE ISNULL(si.IsDeleted, 0) = 0
+              AND si.IsPosted = 1
               AND si.CustomerId = @CustomerId
             """;
 
@@ -456,6 +521,7 @@ public sealed class CustomerDetailRow
 {
     public int CustomerId { get; set; }
     public string Name { get; set; } = string.Empty;
+    public string? AccountCode { get; set; }
     public string PhoneNumber { get; set; } = string.Empty;
     public string Address { get; set; } = string.Empty;
     public string City { get; set; } = string.Empty;
@@ -476,6 +542,7 @@ public sealed class CustomerSummaryRow
 {
     public int CustomerId { get; set; }
     public string Name { get; set; } = string.Empty;
+    public string? AccountCode { get; set; }
     public string PhoneNumber { get; set; } = string.Empty;
     public string Address { get; set; } = string.Empty;
     public string City { get; set; } = string.Empty;

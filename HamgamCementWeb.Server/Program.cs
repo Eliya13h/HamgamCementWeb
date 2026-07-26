@@ -44,17 +44,34 @@ builder.Services.AddDataProtection();
 builder.Services.AddScoped<IPasswordHasher<AppUser>, PasswordHasher<AppUser>>();
 builder.Services.AddScoped<IMeaurmentConversionService, MeaurmentConversionService>();
 builder.Services.AddScoped<IFifoInventoryService, FifoInventoryService>();
+builder.Services.AddScoped<IProductPurchasePriceHintService, ProductPurchasePriceHintService>();
 builder.Services.AddScoped<ICurrencyConversionService, CurrencyConversionService>();
 builder.Services.AddScoped<ICurrencyExchangeRateService, CurrencyExchangeRateService>();
-builder.Services.AddScoped<IInvoicePostingService, InvoicePostingService>();
-builder.Services.AddScoped<IInvoiceReturnService, InvoiceReturnService>();
+        builder.Services.AddScoped<IInvoicePostingService, InvoicePostingService>();
+        builder.Services.AddScoped<IFreightTripService, FreightTripService>();
+        builder.Services.AddScoped<IInvoiceReturnService, InvoiceReturnService>();
 builder.Services.AddScoped<ICustomerReadService, CustomerReadService>();
 builder.Services.AddScoped<ISupplierReadService, SupplierReadService>();
 builder.Services.AddScoped<IInvoiceReportService, InvoiceReportService>();
 builder.Services.AddScoped<IJournalReportService, JournalReportService>();
+builder.Services.AddScoped<IProductReportService, ProductReportService>();
 builder.Services.AddScoped<IWarehouseTurnoverService, WarehouseTurnoverService>();
 builder.Services.AddScoped<IFinanceCategoryService, FinanceCategoryService>();
 builder.Services.AddScoped<IProductionPostingService, ProductionPostingService>();
+builder.Services.AddScoped<IJournalPostingService, JournalPostingService>();
+builder.Services.AddScoped<IAccountLookupService, AccountLookupService>();
+builder.Services.AddScoped<IOperationalGlService, OperationalGlService>();
+builder.Services.AddScoped<IFixedAssetPostingService, FixedAssetPostingService>();
+builder.Services.AddScoped<ICashBoxService, CashBoxService>();
+builder.Services.AddScoped<ICashBalanceService, CashBalanceService>();
+        builder.Services.AddScoped<IFiscalYearCloseService, FiscalYearCloseService>();
+        builder.Services.AddScoped<IShareholderEquityPostingService, ShareholderEquityPostingService>();
+        builder.Services.AddScoped<ISqlConnectionFactory, SqlConnectionFactory>();
+builder.Services.AddScoped<IFinanceReadService, FinanceReadService>();
+builder.Services.AddScoped<IFinanceStatementService, FinanceStatementService>();
+builder.Services.AddScoped<IPurchaseInvoiceReadService, PurchaseInvoiceReadService>();
+builder.Services.AddScoped<IDashboardReadService, DashboardReadService>();
+builder.Services.AddScoped<ITransportReportService, TransportReportService>();
 
 builder.Services.AddAuthentication(CookieAuthenticationDefaults.AuthenticationScheme)
     .AddCookie(options =>

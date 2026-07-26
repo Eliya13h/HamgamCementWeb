@@ -18,14 +18,21 @@ const columns = [
   { data: 'name', title: 'نام' },
   { data: 'categoriesText', title: 'دسته‌بندی', orderable: false },
   {
-    data: 'defaultPurchasePrice',
-    title: 'قیمت خرید / فروش',
+    data: 'suggestedPurchasePrice',
+    title: 'بهای خرید (لحظه‌ای)',
     orderable: false,
     className: 'text-end',
-    render: (_data, type, row) =>
-      type === 'display'
-        ? `${formatAmount(row.defaultPurchasePrice)} / ${formatAmount(row.defaultSalePrice)}`
-        : row.defaultPurchasePrice,
+    render: (data, type) => {
+      if (type !== 'display') return data
+      if (data == null || data === '') return '—'
+      return formatAmount(data)
+    },
+  },
+  {
+    data: 'defaultSalePrice',
+    title: 'قیمت فروش پیشنهادی',
+    className: 'text-end',
+    render: (data, type) => (type === 'display' ? formatAmount(data) : data),
   },
   {
     data: 'totalStockQuantity',
@@ -50,7 +57,6 @@ const emptyForm = {
   description: '',
   baseMeaurmentId: '',
   defaultMeaurmentId: '',
-  defaultPurchasePrice: '',
   defaultSalePrice: '',
   minStockQuantity: '',
   categoryId: '',
@@ -194,7 +200,6 @@ function ProductListPage() {
         description: detail.description ?? '',
         baseMeaurmentId: detail.baseMeaurmentId ?? '',
         defaultMeaurmentId: detail.defaultMeaurmentId ?? '',
-        defaultPurchasePrice: detail.defaultPurchasePrice ?? '',
         defaultSalePrice: detail.defaultSalePrice ?? '',
         minStockQuantity: detail.minStockQuantity ?? '',
         categoryId: detail.categoryIds?.[0] ?? '',
@@ -230,7 +235,6 @@ function ProductListPage() {
       defaultMeaurmentId: form.defaultMeaurmentId
         ? Number(form.defaultMeaurmentId)
         : null,
-      defaultPurchasePrice: form.defaultPurchasePrice === '' ? 0 : Number(form.defaultPurchasePrice),
       defaultSalePrice: form.defaultSalePrice === '' ? 0 : Number(form.defaultSalePrice),
       minStockQuantity: form.minStockQuantity === '' ? 0 : Number(form.minStockQuantity),
       categoryIds: form.categoryId ? [Number(form.categoryId)] : [],
@@ -322,6 +326,8 @@ function ProductListPage() {
           data: col.data,
           name: col.data,
           render: col.render,
+          orderable: col.orderable !== false,
+          className: col.className,
         })),
         { data: null, name: 'actions', defaultContent: '' },
       ],
@@ -493,22 +499,7 @@ function ProductListPage() {
                       </select>
                     </div>
                     <div className="col-md-3">
-                      <label className="form-label">قیمت خرید پیش‌فرض</label>
-                      <div className="input-group">
-                        <input
-                          type="number"
-                          step="any"
-                          className="form-control"
-                          value={form.defaultPurchasePrice}
-                          onChange={(e) =>
-                            setForm({ ...form, defaultPurchasePrice: e.target.value })
-                          }
-                        />
-                        <span className="input-group-text">{baseCurrencySymbol || '—'}</span>
-                      </div>
-                    </div>
-                    <div className="col-md-3">
-                      <label className="form-label">قیمت فروش پیش‌فرض</label>
+                      <label className="form-label">قیمت فروش پیشنهادی</label>
                       <div className="input-group">
                         <input
                           type="number"

@@ -12,7 +12,7 @@ import { fetchBaseCurrency, fetchCurrencyRates } from '../../services/currencies
 import { usePageCrud } from '../../permissions/usePageCrud'
 import { fetchWarehouseOptions } from '../../services/inventoryApi'
 import { fetchMeaurmentOptions, fetchProductOptions } from '../../services/productsApi'
-import { fetchCurrencyOptions } from '../../services/transportApi'
+import { fetchCurrencyOptions, fetchVehicleOptions } from '../../services/transportApi'
 import {
   INVOICE_STATUSES,
   INVOICE_DOCUMENT_TYPE,
@@ -29,6 +29,11 @@ import {
   sumTotals,
 } from '../../services/transactionsApi'
 import InvoiceReturnModal from '../../components/transactions/InvoiceReturnModal'
+import InvoiceFreightFields, {
+  emptyFreight,
+  freightWeightTonFromLines,
+  FREIGHT_MODE,
+} from '../../components/transactions/InvoiceFreightFields'
 import { dataTableLanguage, formatAmount, formatJalaliDate } from '../Transport/CrudTablePage'
 import '../../styles/purchase-invoice-lines.css'
 
@@ -40,6 +45,7 @@ const emptyHeader = {
   currencyId: '',
   description: '',
   paidAmount: '',
+  ...emptyFreight,
 }
 
 const emptyLine = {
@@ -82,6 +88,8 @@ function SalePage() {
   const [referenceInvoiceNumber, setReferenceInvoiceNumber] = useState('')
   const [pastReturns, setPastReturns] = useState([])
   const [returnSource, setReturnSource] = useState(null)
+  const [vehicles, setVehicles] = useState([])
+  const [freightWeightTouched, setFreightWeightTouched] = useState(false)
 
   const currencySymbolById = useMemo(
     () => Object.fromEntries(currencies.map((c) => [String(c.value), c.symbol ?? ''])),
@@ -106,6 +114,7 @@ function SalePage() {
     fetchProductOptions().then(setProducts).catch(() => setProducts([]))
     fetchMeaurmentOptions().then(setMeaurments).catch(() => setMeaurments([]))
     fetchCurrencyOptions().then(setCurrencies).catch(() => setCurrencies([]))
+    fetchVehicleOptions().then(setVehicles).catch(() => setVehicles([]))
     fetchCurrencyRates()
       .then((data) => {
         setBaseCurrencyId(String(data?.baseCurrencyId ?? ''))
@@ -174,6 +183,42 @@ function SalePage() {
   )
   const totals = useMemo(() => sumTotals(computedLines), [computedLines])
 
+  const autoFreightWeightTon = useMemo(
+    () => freightWeightTonFromLines(computedLines),
+    [computedLines],
+  )
+
+  useEffect(() => {
+    if (viewPosted || freightWeightTouched) return
+    if (Number(header.freightMode) === FREIGHT_MODE.None) return
+    const next = autoFreightWeightTon > 0 ? String(autoFreightWeightTon) : ''
+    if (String(header.freightWeightTon ?? '') !== next) {
+      setHeader((prev) => ({ ...prev, freightWeightTon: next }))
+    }
+  }, [autoFreightWeightTon, freightWeightTouched, viewPosted, header.freightMode, header.freightWeightTon])
+
+  const handleFreightChange = useCallback((name, value) => {
+    if (name === 'freightWeightTon') {
+      setFreightWeightTouched(true)
+    }
+    if (name === 'freightMode') {
+      const mode = Number(value) || 0
+      setHeader((prev) => ({
+        ...prev,
+        freightMode: value,
+        freightVehicleId: mode === FREIGHT_MODE.OwnFleet ? prev.freightVehicleId : '',
+        freightCarrierName: mode === FREIGHT_MODE.Hired ? prev.freightCarrierName : '',
+        freightRatePerTon: mode === FREIGHT_MODE.None ? '' : prev.freightRatePerTon,
+        freightWeightTon: mode === FREIGHT_MODE.None ? '' : prev.freightWeightTon,
+      }))
+      if (mode === FREIGHT_MODE.None) {
+        setFreightWeightTouched(false)
+      }
+      return
+    }
+    setHeader((prev) => ({ ...prev, [name]: value }))
+  }, [])
+
   const paidAmountNumeric = Number(header.paidAmount) || 0
   const remainingAmount = Math.max(0, totals.total - paidAmountNumeric)
   const isCashInvoice = totals.total > 0 && paidAmountNumeric >= totals.total
@@ -213,6 +258,7 @@ function SalePage() {
     setExchangeRate('')
     setExchangeRateTouched(false)
     setPaidAmountTouched(false)
+    setFreightWeightTouched(false)
     setPostedTotals(null)
     setInvoiceCodePreview('')
     setDocumentType(INVOICE_DOCUMENT_TYPE.Invoice)
@@ -225,6 +271,7 @@ function SalePage() {
     setFormError('')
     setExchangeRateTouched(false)
     setPaidAmountTouched(false)
+    setFreightWeightTouched(false)
     setExchangeRate('')
 
     let defaultCurrencyId = ''
@@ -286,7 +333,13 @@ function SalePage() {
         currencyId: invoice.currencyId,
         description: invoice.description ?? '',
         paidAmount: invoice.paidAmount ?? invoice.totalAmount ?? '',
+        freightMode: String(invoice.freightMode ?? 0),
+        freightRatePerTon: invoice.freightRatePerTon || '',
+        freightWeightTon: invoice.freightWeightTon || '',
+        freightVehicleId: invoice.freightVehicleId ?? '',
+        freightCarrierName: invoice.freightCarrierName ?? '',
       })
+      setFreightWeightTouched(true)
       setExchangeRate(
         invoice.baseUnitsPerUnitAtTransaction != null
           ? String(invoice.baseUnitsPerUnitAtTransaction)
@@ -950,6 +1003,20 @@ function SalePage() {
                         value={header.description}
                         disabled={viewPosted}
                         onChange={(e) => handleHeaderChange('description', e.target.value)}
+                      />
+                    </div>
+                    <div className="col-12">
+                      <InvoiceFreightFields
+                        freight={header}
+                        onChange={handleFreightChange}
+                        vehicleOptions={vehicles}
+                        currencySymbol={invoiceCurrencySymbol}
+                        disabled={viewPosted}
+                        weightAutoHint={
+                          !freightWeightTouched && Number(header.freightMode) !== FREIGHT_MODE.None
+                            ? 'وزن از جمع خطوط (کیلو÷۱۰۰۰) محاسبه می‌شود'
+                            : null
+                        }
                       />
                     </div>
                   </div>

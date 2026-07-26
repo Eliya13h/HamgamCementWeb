@@ -33,7 +33,7 @@ const dataTableLanguage = {
   },
 }
 
-function EmployeesPage() {
+function EmployeesPage({ embedded = false }) {
   const tableRef = useRef(null)
   const { canCreate, canEdit, canDelete } = usePageCrud('/people/employees')
   const [departments, setDepartments] = useState([])
@@ -293,54 +293,58 @@ function EmployeesPage() {
     [openEdit, openDelete, canEdit, canDelete],
   )
 
-  return (
-    <div className="users-page">
-      <div className="content-card card border-0 h-100">
-        <div className="card-header bg-transparent border-0 pt-4 px-4 pb-0 d-flex align-items-center justify-content-between gap-3 flex-wrap">
-          <h2 className="card-title mb-0">کارمندان</h2>
-          {canCreate && (
-            <button
-              type="button"
-              className="btn btn-sm btn-accent btn-users-new d-inline-flex align-items-center gap-2"
-              title="کارمند جدید"
-              onClick={openCreate}
-            >
-              <Icon name="plus" />
-              <span>کارمند جدید</span>
-            </button>
-          )}
-        </div>
+  const content = (
+    <>
+      <div className="card-header bg-transparent border-0 pt-4 px-4 pb-0 d-flex align-items-center justify-content-between gap-3 flex-wrap">
+        <h2 className="card-title mb-0">کارمندان</h2>
+        {canCreate && (
+          <button
+            type="button"
+            className="btn btn-sm btn-accent btn-users-new d-inline-flex align-items-center gap-2"
+            title="کارمند جدید"
+            onClick={openCreate}
+          >
+            <Icon name="plus" />
+            <span>کارمند جدید</span>
+          </button>
+        )}
+      </div>
 
-        <div className="card-body card-body-table">
-          {loadError && (
-            <div className="alert alert-danger py-2 users-load-error mb-0">
-              {loadError}
-            </div>
-          )}
-
-          <div className="users-table-wrapper">
-            <DataTable
-              ref={tableRef}
-              className="table table-hover w-100 align-middle"
-              options={tableOptions}
-              slots={actionSlots}
-            >
-              <thead>
-                <tr>
-                  <th>#</th>
-                  <th>نام</th>
-                  <th>کد ملی</th>
-                  <th>موبایل</th>
-                  <th>بخش</th>
-                  <th>حقوق</th>
-                  <th>وضعیت</th>
-                  <th>عملیات</th>
-                </tr>
-              </thead>
-            </DataTable>
+      <div className="card-body card-body-table">
+        {loadError && (
+          <div className="alert alert-danger py-2 users-load-error mb-0">
+            {loadError}
           </div>
+        )}
+
+        <div className="users-table-wrapper">
+          <DataTable
+            ref={tableRef}
+            className="table table-hover w-100 align-middle"
+            options={tableOptions}
+            slots={actionSlots}
+          >
+            <thead>
+              <tr>
+                <th>#</th>
+                <th>نام</th>
+                <th>شماره تذکره</th>
+                <th>موبایل</th>
+                <th>بخش</th>
+                <th>حقوق</th>
+                <th>وضعیت</th>
+                <th>عملیات</th>
+              </tr>
+            </thead>
+          </DataTable>
         </div>
       </div>
+    </>
+  )
+
+  return (
+    <div className="users-page">
+      {embedded ? content : <div className="content-card card border-0 h-100">{content}</div>}
 
       {showCreate && (
         <>
@@ -382,7 +386,7 @@ function EmployeesPage() {
                   </div>
                   <div className="row g-3 mb-3">
                     <div className="col-md-6">
-                      <label className="form-label">کد ملی</label>
+                      <label className="form-label">شماره تذکره</label>
                       <input type="text" className="form-control" value={createForm.nationalCode}
                         onChange={(e) => setCreateForm((prev) => ({ ...prev, nationalCode: e.target.value }))} />
                     </div>
@@ -509,7 +513,7 @@ function EmployeesPage() {
                   </div>
                   <div className="row g-3 mb-3">
                     <div className="col-md-6">
-                      <label className="form-label">کد ملی</label>
+                      <label className="form-label">شماره تذکره</label>
                       <input
                         type="text"
                         className="form-control"

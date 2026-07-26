@@ -24,14 +24,17 @@ public class StocktakingController : InventoryControllerBase
 
     private readonly IMeaurmentConversionService _conversion;
     private readonly IFifoInventoryService _fifo;
+    private readonly IOperationalGlService _gl;
 
     public StocktakingController(
         AppDbContext db,
         IMeaurmentConversionService conversion,
-        IFifoInventoryService fifo) : base(db)
+        IFifoInventoryService fifo,
+        IOperationalGlService gl) : base(db)
     {
         _conversion = conversion;
         _fifo = fifo;
+        _gl = gl;
     }
 
     [HttpPost("datatable")]
@@ -72,6 +75,7 @@ public class StocktakingController : InventoryControllerBase
                 warehouseName = s.Warehouse.Name,
                 stocktakingDate = s.StocktakingDate,
                 status = s.Status,
+                journalEntryId = s.JournalEntryId,
                 linesCount = s.Lines.Count(l => l.IsDeleted != true),
                 notes = s.Notes,
             })
@@ -92,6 +96,7 @@ public class StocktakingController : InventoryControllerBase
                 stocktakingDate = r.stocktakingDate.ToString("yyyy-MM-dd"),
                 status = r.status.ToString(),
                 statusLabel = GetStatusLabel(r.status),
+                r.journalEntryId,
                 r.linesCount,
                 r.notes,
             }),
@@ -113,6 +118,7 @@ public class StocktakingController : InventoryControllerBase
                 warehouseName = s.Warehouse.Name,
                 stocktakingDate = s.StocktakingDate,
                 status = s.Status,
+                journalEntryId = s.JournalEntryId,
                 notes = s.Notes,
                 lines = s.Lines
                     .Where(l => l.IsDeleted != true)
@@ -128,6 +134,7 @@ public class StocktakingController : InventoryControllerBase
                         countedMeaurmentName = l.CountedMeaurment.Name,
                         countedQuantityInBase = l.CountedQuantityInBase,
                         differenceInBase = l.DifferenceInBase,
+                        adjustmentCostInBase = l.AdjustmentCostInBase,
                         notes = l.Notes,
                     })
                     .ToList(),
@@ -227,6 +234,7 @@ public class StocktakingController : InventoryControllerBase
     {
         var stocktaking = await Db.Stocktakings
             .Include(s => s.Lines)
+            .Include(s => s.Warehouse)
             .FirstOrDefaultAsync(s => s.StocktakingID == id && s.IsDeleted != true, cancellationToken);
 
         if (stocktaking is null)
@@ -245,27 +253,57 @@ public class StocktakingController : InventoryControllerBase
         }
 
         var userId = ResolveCurrentUserId();
+        await using var tx = await Db.Database.BeginTransactionAsync(cancellationToken);
 
-        // چرا AdjustToCountAsync: هم موجودی تجمیعی و هم مجموع Lotها را با مقدار شمارش‌شده هماهنگ می‌کند
-        // تا FIFO پس از انبارگردانی از موجودی واقعی تخصیص دهد و ناسازگاری Stock/Lot رخ ندهد.
-        foreach (var line in stocktaking.Lines.Where(l => l.IsDeleted != true))
+        try
         {
-            await _fifo.AdjustToCountAsync(
-                line.ProductId,
-                stocktaking.WarehouseId,
-                line.CountedQuantityInBase,
-                stocktaking.StocktakingDate,
+            // چرا AdjustToCountAsync: هم موجودی تجمیعی و هم مجموع Lotها را با مقدار شمارش‌شده هماهنگ می‌کند
+            // تا FIFO پس از انبارگردانی از موجودی واقعی تخصیص دهد و ناسازگاری Stock/Lot رخ ندهد.
+            foreach (var line in stocktaking.Lines.Where(l => l.IsDeleted != true))
+            {
+                var result = await _fifo.AdjustToCountAsync(
+                    line.ProductId,
+                    stocktaking.WarehouseId,
+                    line.CountedQuantityInBase,
+                    stocktaking.StocktakingDate,
+                    userId,
+                    cancellationToken);
+
+                line.DifferenceInBase = result.DifferenceInBase;
+                line.AdjustmentCostInBase = result.AdjustmentCostInBase;
+                line.IsUpdated = true;
+                line.UpdatedAt = DateTime.Now;
+                line.UpdatedBy = userId;
+            }
+
+            var journal = await _gl.PostStocktakingAsync(
+                stocktaking,
+                stocktaking.Warehouse,
                 userId,
                 cancellationToken);
+
+            stocktaking.JournalEntryId = journal?.JournalEntryID;
+            stocktaking.Status = StocktakingStatus.Confirmed;
+            stocktaking.IsUpdated = true;
+            stocktaking.UpdatedAt = DateTime.Now;
+            stocktaking.UpdatedBy = userId;
+
+            await Db.SaveChangesAsync(cancellationToken);
+            await tx.CommitAsync(cancellationToken);
+
+            return Ok(new
+            {
+                message = journal is null
+                    ? "انبارگردانی تأیید شد و موجودی انبار به‌روزرسانی شد."
+                    : "انبارگردانی تأیید شد؛ موجودی و سند دابل‌انتری ثبت شد.",
+                journalEntryId = stocktaking.JournalEntryId,
+            });
         }
-
-        stocktaking.Status = StocktakingStatus.Confirmed;
-        stocktaking.IsUpdated = true;
-        stocktaking.UpdatedAt = DateTime.Now;
-        stocktaking.UpdatedBy = ResolveCurrentUserId();
-
-        await Db.SaveChangesAsync(cancellationToken);
-        return Ok(new { message = "انبارگردانی تأیید شد و موجودی انبار به‌روزرسانی شد." });
+        catch (Exception)
+        {
+            await tx.RollbackAsync(cancellationToken);
+            throw;
+        }
     }
 
     [HttpDelete("{id:int}")]

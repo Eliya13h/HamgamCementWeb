@@ -48,6 +48,8 @@ namespace HamgamCementWeb.Server.Data.Models.Product
 
 
 
+        // منسوخ برای ورود داده: قیمت خرید دیگر در فرم محصول ویرایش نمی‌شود؛
+        // پیشنهاد لحظه‌ای از میانگین لات/آخرین خرید محاسبه می‌شود. ستون برای سازگاری اسکیما نگه داشته شد.
         [Column(TypeName = "decimal(18,4)")]
 
         public decimal DefaultPurchasePrice { get; set; }

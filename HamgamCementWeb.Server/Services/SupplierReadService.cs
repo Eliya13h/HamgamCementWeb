@@ -39,8 +39,18 @@ public sealed class SupplierReadService : ISupplierReadService
                     ELSE 0
                 END) AS TotalPurchase,
                 SUM(CASE
-                    WHEN pi.DocumentType = 1 THEN pi.PaidAmount
-                    WHEN pi.DocumentType = 2 THEN -pi.PaidAmount
+                    WHEN pi.DocumentType = 1 THEN
+                        CASE
+                            WHEN pi.TotalAmount <> 0
+                                THEN ROUND(pi.PaidAmount * pi.TotalAmountInBaseCurrency / pi.TotalAmount, 4)
+                            ELSE ROUND(pi.PaidAmount * ISNULL(NULLIF(pi.BaseUnitsPerUnitAtTransaction, 0), 1), 4)
+                        END
+                    WHEN pi.DocumentType = 2 THEN
+                        -CASE
+                            WHEN pi.TotalAmount <> 0
+                                THEN ROUND(pi.PaidAmount * pi.TotalAmountInBaseCurrency / pi.TotalAmount, 4)
+                            ELSE ROUND(pi.PaidAmount * ISNULL(NULLIF(pi.BaseUnitsPerUnitAtTransaction, 0), 1), 4)
+                        END
                     ELSE 0
                 END) AS TotalPayment
             FROM PurchaseInvoices pi
@@ -53,6 +63,10 @@ public sealed class SupplierReadService : ISupplierReadService
                 s.SupplierID AS SupplierId,
                 s.Title,
                 s.Name,
+                ISNULL(
+                    acc.Code,
+                    CONCAT(N'211-', RIGHT(CONCAT(N'00000', CAST(s.SupplierID AS varchar(10))), 5))
+                ) AS AccountCode,
                 s.PhoneNumber,
                 s.Address,
                 s.City,
@@ -64,19 +78,23 @@ public sealed class SupplierReadService : ISupplierReadService
                 ISNULL(pt.TotalPurchase, 0) AS TotalPurchase,
                 ISNULL(pt.TotalPayment, 0) AS TotalPayment,
                 ISNULL(s.InitialBalance, 0) + ISNULL(pt.TotalPurchase, 0) - ISNULL(pt.TotalPayment, 0) AS Balance,
+                -- مانده مثبت = بدهی ما به تأمین‌کننده → تأمین‌کننده طلبکار است
                 CASE
-                    WHEN ISNULL(s.InitialBalance, 0) + ISNULL(pt.TotalPurchase, 0) - ISNULL(pt.TotalPayment, 0) > 0 THEN N'بدهکار'
-                    WHEN ISNULL(s.InitialBalance, 0) + ISNULL(pt.TotalPurchase, 0) - ISNULL(pt.TotalPayment, 0) < 0 THEN N'طلبکار'
+                    WHEN ISNULL(s.InitialBalance, 0) + ISNULL(pt.TotalPurchase, 0) - ISNULL(pt.TotalPayment, 0) > 0 THEN N'طلبکار'
+                    WHEN ISNULL(s.InitialBalance, 0) + ISNULL(pt.TotalPurchase, 0) - ISNULL(pt.TotalPayment, 0) < 0 THEN N'بدهکار'
                     ELSE N'تسویه'
                 END AS AccountStatus,
                 CASE
-                    WHEN ISNULL(s.InitialBalance, 0) + ISNULL(pt.TotalPurchase, 0) - ISNULL(pt.TotalPayment, 0) > 0 THEN 'debtor'
-                    WHEN ISNULL(s.InitialBalance, 0) + ISNULL(pt.TotalPurchase, 0) - ISNULL(pt.TotalPayment, 0) < 0 THEN 'creditor'
+                    WHEN ISNULL(s.InitialBalance, 0) + ISNULL(pt.TotalPurchase, 0) - ISNULL(pt.TotalPayment, 0) > 0 THEN 'creditor'
+                    WHEN ISNULL(s.InitialBalance, 0) + ISNULL(pt.TotalPurchase, 0) - ISNULL(pt.TotalPayment, 0) < 0 THEN 'debtor'
                     ELSE 'settled'
                 END AS AccountStatusCode,
                 s.CreatedAt
             FROM Suppliers s
             LEFT JOIN PurchaseTotals pt ON pt.SupplierId = s.SupplierID
+            LEFT JOIN Accounts acc
+                ON acc.SystemCode = CONCAT(N'SUPP_', s.SupplierID)
+               AND ISNULL(acc.IsDeleted, 0) = 0
             WHERE (@IncludeDeleted = 1 OR ISNULL(s.IsDeleted, 0) = 0)
         )
         """;
@@ -84,12 +102,13 @@ public sealed class SupplierReadService : ISupplierReadService
     private static readonly Dictionary<int, string> SupplierOrderColumns = new()
     {
         [1] = "s.Name",
-        [2] = "s.PhoneNumber",
-        [3] = "s.InitialBalance",
-        [4] = "s.TotalPurchase",
-        [5] = "s.TotalPayment",
-        [6] = "s.Balance",
-        [7] = "s.AccountStatus",
+        [2] = "s.AccountCode",
+        [3] = "s.PhoneNumber",
+        [4] = "s.InitialBalance",
+        [5] = "s.TotalPurchase",
+        [6] = "s.TotalPayment",
+        [7] = "s.Balance",
+        [8] = "s.AccountStatus",
     };
 
     private static readonly Dictionary<int, string> InvoiceOrderColumns = new()
@@ -97,7 +116,13 @@ public sealed class SupplierReadService : ISupplierReadService
         [1] = "pi.InvoiceNumber",
         [2] = "pi.InvoiceDate",
         [4] = "pi.TotalAmountInBaseCurrency",
-        [5] = "pi.PaidAmount",
+        [5] = """
+            CASE
+                WHEN pi.TotalAmount <> 0
+                    THEN ROUND(pi.PaidAmount * pi.TotalAmountInBaseCurrency / pi.TotalAmount, 4)
+                ELSE ROUND(pi.PaidAmount * ISNULL(NULLIF(pi.BaseUnitsPerUnitAtTransaction, 0), 1), 4)
+            END
+            """,
         [6] = "pi.Status",
     };
 
@@ -137,6 +162,7 @@ public sealed class SupplierReadService : ISupplierReadService
                 s.SupplierId,
                 s.Title,
                 s.Name,
+                s.AccountCode,
                 s.PhoneNumber,
                 s.Address,
                 s.City,
@@ -197,10 +223,11 @@ public sealed class SupplierReadService : ISupplierReadService
             ? """
               AND (
                   s.Name LIKE @Search
+                  OR s.AccountCode LIKE @Search
                   OR s.PhoneNumber LIKE @Search
                   OR s.AccountStatus LIKE @Search
-                  OR (@WantsDebtor = 1 AND s.Balance > 0)
-                  OR (@WantsCreditor = 1 AND s.Balance < 0)
+                  OR (@WantsDebtor = 1 AND s.Balance < 0)
+                  OR (@WantsCreditor = 1 AND s.Balance > 0)
                   OR (@WantsSettled = 1 AND s.Balance = 0)
                   OR (
                       @NumericSearch = 1
@@ -221,6 +248,7 @@ public sealed class SupplierReadService : ISupplierReadService
                 s.SupplierId,
                 s.Title,
                 s.Name,
+                s.AccountCode,
                 s.PhoneNumber,
                 s.Address,
                 s.City,
@@ -290,7 +318,13 @@ public sealed class SupplierReadService : ISupplierReadService
                   pi.InvoiceNumber LIKE @Search
                   OR ISNULL(pi.Description, '') LIKE @Search
                   OR CAST(pi.TotalAmountInBaseCurrency AS NVARCHAR(50)) LIKE @Search
-                  OR CAST(pi.PaidAmount AS NVARCHAR(50)) LIKE @Search
+                  OR CAST(
+                        CASE
+                            WHEN pi.TotalAmount <> 0
+                                THEN ROUND(pi.PaidAmount * pi.TotalAmountInBaseCurrency / pi.TotalAmount, 4)
+                            ELSE ROUND(pi.PaidAmount * ISNULL(NULLIF(pi.BaseUnitsPerUnitAtTransaction, 0), 1), 4)
+                        END
+                     AS NVARCHAR(50)) LIKE @Search
                   OR (@SearchRaw LIKE N'%پیش%' AND pi.Status = @StatusProforma)
                   OR (@SearchRaw LIKE N'%آردر%' AND pi.Status = @StatusOrder)
                   OR (@SearchRaw LIKE N'%استعلام%' AND pi.Status = @StatusQuotation)
@@ -309,7 +343,11 @@ public sealed class SupplierReadService : ISupplierReadService
                 pi.InvoiceDate,
                 pi.Status,
                 pi.TotalAmountInBaseCurrency AS TotalAmount,
-                pi.PaidAmount,
+                CASE
+                    WHEN pi.TotalAmount <> 0
+                        THEN ROUND(pi.PaidAmount * pi.TotalAmountInBaseCurrency / pi.TotalAmount, 4)
+                    ELSE ROUND(pi.PaidAmount * ISNULL(NULLIF(pi.BaseUnitsPerUnitAtTransaction, 0), 1), 4)
+                END AS PaidAmount,
                 (
                     SELECT COUNT(*)
                     FROM PurchaseItems x
@@ -332,8 +370,18 @@ public sealed class SupplierReadService : ISupplierReadService
                     ELSE 0
                 END), 0) AS TotalPurchase,
                 ISNULL(SUM(CASE
-                    WHEN pi.DocumentType = 1 THEN pi.PaidAmount
-                    WHEN pi.DocumentType = 2 THEN -pi.PaidAmount
+                    WHEN pi.DocumentType = 1 THEN
+                        CASE
+                            WHEN pi.TotalAmount <> 0
+                                THEN ROUND(pi.PaidAmount * pi.TotalAmountInBaseCurrency / pi.TotalAmount, 4)
+                            ELSE ROUND(pi.PaidAmount * ISNULL(NULLIF(pi.BaseUnitsPerUnitAtTransaction, 0), 1), 4)
+                        END
+                    WHEN pi.DocumentType = 2 THEN
+                        -CASE
+                            WHEN pi.TotalAmount <> 0
+                                THEN ROUND(pi.PaidAmount * pi.TotalAmountInBaseCurrency / pi.TotalAmount, 4)
+                            ELSE ROUND(pi.PaidAmount * ISNULL(NULLIF(pi.BaseUnitsPerUnitAtTransaction, 0), 1), 4)
+                        END
                     ELSE 0
                 END), 0) AS TotalPayment
             FROM PurchaseInvoices pi
@@ -476,6 +524,7 @@ public sealed class SupplierDetailRow
     public int SupplierId { get; set; }
     public PersonTitle Title { get; set; }
     public string Name { get; set; } = string.Empty;
+    public string? AccountCode { get; set; }
     public string PhoneNumber { get; set; } = string.Empty;
     public string Address { get; set; } = string.Empty;
     public string City { get; set; } = string.Empty;
@@ -497,6 +546,7 @@ public sealed class SupplierSummaryRow
     public int SupplierId { get; set; }
     public PersonTitle Title { get; set; }
     public string Name { get; set; } = string.Empty;
+    public string? AccountCode { get; set; }
     public string PhoneNumber { get; set; } = string.Empty;
     public string Address { get; set; } = string.Empty;
     public string City { get; set; } = string.Empty;

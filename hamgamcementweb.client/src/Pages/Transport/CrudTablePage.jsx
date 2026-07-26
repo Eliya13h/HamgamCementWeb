@@ -28,6 +28,8 @@ function buildInitialForm(fields) {
       form[field.name] = field.default
     } else if (field.type === 'switch') {
       form[field.name] = true
+    } else if (field.type === 'multiselect') {
+      form[field.name] = []
     } else {
       form[field.name] = ''
     }
@@ -40,9 +42,17 @@ function rowToForm(fields, row) {
   for (const field of fields) {
     let value = field.fromRow ? field.fromRow(row) : row[field.name]
     if (value === null || value === undefined) {
-      value = field.type === 'switch' ? false : ''
+      value =
+        field.type === 'switch' ? false : field.type === 'multiselect' ? [] : ''
     } else if (field.type === 'date' || field.type === 'jalali-date') {
       value = String(value).slice(0, 10)
+    } else if (field.type === 'multiselect' && !Array.isArray(value)) {
+      value = String(value)
+        .split(/[,\s]+/)
+        .map((x) => x.trim())
+        .filter(Boolean)
+    } else if (field.type === 'multiselect') {
+      value = value.map(String)
     }
     form[field.name] = value
   }
@@ -67,6 +77,15 @@ function formToPayload(fields, form) {
             : field.stringValue
               ? raw
               : Number(raw)
+        break
+      case 'multiselect':
+        payload[field.name] = (Array.isArray(raw) ? raw : [])
+          .map((v) => (field.stringValue ? String(v) : Number(v)))
+          .filter((v) =>
+            field.stringValue
+              ? String(v).length > 0
+              : Number.isFinite(v) && v > 0,
+          )
         break
       case 'date':
       case 'jalali-date':
@@ -114,6 +133,45 @@ function FieldInput({ field, value, onChange, optionsMap, readOnly }) {
             </option>
           ))}
         </select>
+      )
+    }
+    case 'multiselect': {
+      const options = field.options ?? optionsMap[field.name] ?? []
+      const selected = new Set(
+        (Array.isArray(value) ? value : []).map(String),
+      )
+      const toggle = (optionValue) => {
+        const next = new Set(selected)
+        const key = String(optionValue)
+        if (next.has(key)) next.delete(key)
+        else next.add(key)
+        onChange(field.name, Array.from(next))
+      }
+      return (
+        <div className="crud-multiselect border rounded px-2 py-2">
+          {options.length === 0 ? (
+            <div className="text-muted small py-1">موردی برای انتخاب نیست.</div>
+          ) : (
+            options.map((option) => {
+              const key = String(option.value)
+              const id = `crud-ms-${field.name}-${key}`
+              return (
+                <div className="form-check" key={key}>
+                  <input
+                    className="form-check-input"
+                    type="checkbox"
+                    id={id}
+                    checked={selected.has(key)}
+                    onChange={() => toggle(option.value)}
+                  />
+                  <label className="form-check-label" htmlFor={id}>
+                    {option.label}
+                  </label>
+                </div>
+              )
+            })
+          )}
+        </div>
       )
     }
     case 'textarea':
@@ -174,7 +232,10 @@ function CrudTablePage({
     let cancelled = false
 
     async function loadAll() {
-      const loaders = fields.filter((f) => f.type === 'select' && f.loadOptions)
+      const loaders = fields.filter(
+        (f) =>
+          (f.type === 'select' || f.type === 'multiselect') && f.loadOptions,
+      )
       for (const field of loaders) {
         try {
           const options = await field.loadOptions()

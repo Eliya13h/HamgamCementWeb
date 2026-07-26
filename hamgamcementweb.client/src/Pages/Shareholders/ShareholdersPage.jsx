@@ -8,6 +8,7 @@ import {
   deleteShareholder,
   updateShareholder,
 } from '../../services/shareholdersApi'
+import { postShareholderOpeningBalance } from '../../services/equityApi'
 
 const TITLE_OPTIONS = [
   { value: 0, label: 'آقا' },
@@ -176,6 +177,19 @@ function ShareholdersPage() {
     }
   }
 
+  const handlePostOpening = useCallback(
+    async (row) => {
+      setFormError('')
+      try {
+        await postShareholderOpeningBalance(row.shareholderId)
+        reloadTable()
+      } catch (error) {
+        setLoadError(error.message)
+      }
+    },
+    [reloadTable],
+  )
+
   const tableOptions = useMemo(
     () => ({
       processing: true,
@@ -208,6 +222,12 @@ function ShareholdersPage() {
       columns: [
         { data: 'rowNumber', name: 'rowNumber' },
         { data: 'fullName', name: 'fullName' },
+        {
+          data: 'accountCode',
+          name: 'accountCode',
+          orderable: false,
+          render: (data) => data || '—',
+        },
         { data: 'profitShare', name: 'profitShare' },
         { data: 'lossShare', name: 'lossShare' },
         { data: 'initialBalance', name: 'initialBalance' },
@@ -229,13 +249,13 @@ function ShareholdersPage() {
           width: '56px',
           className: 'text-center',
         },
-        { targets: 5, className: 'text-center' },
+        { targets: 6, className: 'text-center' },
         {
-          targets: 6,
+          targets: 7,
           orderable: false,
           searchable: false,
           className: 'text-center all dt-actions-col',
-          width: '100px',
+          width: '140px',
         },
       ],
     }),
@@ -244,8 +264,18 @@ function ShareholdersPage() {
 
   const actionSlots = useMemo(
     () => ({
-      6: (_data, _type, row) => (
+      7: (_data, _type, row) => (
         <div className="dt-actions">
+          {canEdit && !row.hasOpeningBalance && Number(row.initialBalance) > 0 && (
+            <button
+              type="button"
+              className="dt-action-btn"
+              title="ثبت مانده اولیه سرمایه"
+              onClick={() => handlePostOpening(row)}
+            >
+              <Icon name="plus" />
+            </button>
+          )}
           {canEdit && (
             <button
               type="button"
@@ -269,7 +299,7 @@ function ShareholdersPage() {
         </div>
       ),
     }),
-    [openEdit, openDelete, canEdit, canDelete],
+    [openEdit, openDelete, handlePostOpening, canEdit, canDelete],
   )
 
   return (
@@ -308,6 +338,7 @@ function ShareholdersPage() {
                 <tr>
                   <th>#</th>
                   <th>نام</th>
+                  <th>کد حساب</th>
                   <th>سهم سود (%)</th>
                   <th>سهم ضرر (%)</th>
                   <th>موجودی اولیه</th>

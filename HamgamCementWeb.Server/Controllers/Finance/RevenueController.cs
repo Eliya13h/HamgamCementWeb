@@ -24,10 +24,21 @@ public class RevenueController : FinanceControllerBase
     };
 
     private readonly ICurrencyConversionService _currency;
+    private readonly IOperationalGlService _gl;
+    private readonly ICashBoxService _cashBoxes;
+    private readonly IFinanceReadService _reads;
 
-    public RevenueController(AppDbContext db, ICurrencyConversionService currency) : base(db)
+    public RevenueController(
+        AppDbContext db,
+        ICurrencyConversionService currency,
+        IOperationalGlService gl,
+        ICashBoxService cashBoxes,
+        IFinanceReadService reads) : base(db)
     {
         _currency = currency;
+        _gl = gl;
+        _cashBoxes = cashBoxes;
+        _reads = reads;
     }
 
     [HttpPost("datatable")]
@@ -38,63 +49,8 @@ public class RevenueController : FinanceControllerBase
     {
         var start = Math.Max(request.Start, 0);
         var length = request.Length <= 0 ? 10 : Math.Min(request.Length, 100);
-
-        var query = Db.Revenues
-            .AsNoTracking()
-            .Where(r => r.IsDeleted != true);
-
-        var recordsTotal = await query.CountAsync(cancellationToken);
-
-        var searchValue = request.Search?.Value?.Trim();
-        if (!string.IsNullOrWhiteSpace(searchValue))
-        {
-            query = query.Where(r =>
-                r.Title.Contains(searchValue) ||
-                (r.Description != null && r.Description.Contains(searchValue)) ||
-                (r.Customer != null && r.Customer.Name.Contains(searchValue)) ||
-                r.Category.Name.Contains(searchValue));
-        }
-
-        var recordsFiltered = await query.CountAsync(cancellationToken);
-
-        var ordered = query
-            .ApplyDataTableOrder(request.Order, OrderColumns, nameof(Revenue.RevenueDate), defaultDescending: true);
-
-        var rows = await ordered
-            .Skip(start)
-            .Take(length)
-            .Select(r => new
-            {
-                revenueId = r.RevenueID,
-                title = r.Title,
-                revenueDate = r.RevenueDate,
-                categoryName = r.Category.Name,
-                revenueCategoryId = r.RevenueCategoryId,
-                source = r.Source,
-                sourceLabel = r.Source == FinancialEntrySource.ProductSale
-                    ? "فروش محصولات"
-                    : r.Source == FinancialEntrySource.SaleReturn
-                        ? "برگشت از فروش"
-                        : r.Source == FinancialEntrySource.Miscellaneous
-                            ? "متفرقه"
-                            : r.Source.ToString(),
-                customerId = r.CustomerId,
-                customerName = r.Customer != null ? r.Customer.Name : null,
-                currencyId = r.CurrencyId,
-                currencyCode = r.Currency.CurrencyCode,
-                currencySymbol = r.Currency.Symbol,
-                amount = r.Amount,
-                amountInBaseCurrency = r.AmountInBaseCurrency,
-                profitInBaseCurrency = r.ProfitInBaseCurrency,
-                description = r.Description,
-                isFromInvoice = Db.SaleInvoices.Any(i =>
-                    i.RevenueId == r.RevenueID && i.IsDeleted != true),
-                invoiceNumber = Db.SaleInvoices
-                    .Where(i => i.RevenueId == r.RevenueID && i.IsDeleted != true)
-                    .Select(i => i.InvoiceNumber)
-                    .FirstOrDefault(),
-            })
-            .ToListAsync(cancellationToken);
+        var (recordsTotal, recordsFiltered, rows) = await _reads.GetRevenuesAsync(
+            start, length, request.Search?.Value?.Trim(), cancellationToken);
 
         return Ok(new
         {
@@ -104,24 +60,31 @@ public class RevenueController : FinanceControllerBase
             data = rows.Select((r, i) => new
             {
                 rowNumber = start + i + 1,
-                r.revenueId,
-                r.title,
-                revenueDate = r.revenueDate.ToString("yyyy-MM-dd"),
-                r.categoryName,
-                r.revenueCategoryId,
-                r.source,
-                r.sourceLabel,
-                r.customerId,
-                r.customerName,
-                r.currencyId,
-                r.currencyCode,
-                r.currencySymbol,
-                r.amount,
-                r.amountInBaseCurrency,
-                r.profitInBaseCurrency,
-                r.description,
-                r.isFromInvoice,
-                r.invoiceNumber,
+                revenueId = r.RevenueId,
+                title = r.Title,
+                revenueDate = r.RevenueDate.ToString("yyyy-MM-dd"),
+                categoryName = r.CategoryName,
+                revenueCategoryId = r.RevenueCategoryId,
+                source = r.Source,
+                sourceLabel = r.Source == (int)FinancialEntrySource.ProductSale
+                    ? "فروش محصولات"
+                    : r.Source == (int)FinancialEntrySource.SaleReturn
+                        ? "برگشت از فروش"
+                        : r.Source == (int)FinancialEntrySource.Miscellaneous
+                            ? "متفرقه"
+                            : r.Source.ToString(),
+                customerId = r.CustomerId,
+                customerName = r.CustomerName,
+                currencyId = r.CurrencyId,
+                currencyCode = r.CurrencyCode,
+                currencySymbol = r.CurrencySymbol,
+                amount = r.Amount,
+                amountInBaseCurrency = r.AmountInBaseCurrency,
+                profitInBaseCurrency = r.ProfitInBaseCurrency,
+                description = r.Description,
+                journalEntryId = r.JournalEntryId,
+                isFromInvoice = !string.IsNullOrEmpty(r.InvoiceNumber),
+                invoiceNumber = r.InvoiceNumber,
             }),
         });
     }
@@ -194,7 +157,13 @@ public class RevenueController : FinanceControllerBase
         Db.Revenues.Add(revenue);
         await Db.SaveChangesAsync(cancellationToken);
 
-        return Ok(new { message = "عاید با موفقیت ثبت شد.", revenueId = revenue.RevenueID });
+        var userId = ResolveCurrentUserId();
+        var cashBoxId = await _cashBoxes.ResolveUserCashBoxIdAsync(userId, cancellationToken);
+        var journal = await _gl.PostMiscRevenueAsync(revenue, userId, cashBoxId, cancellationToken);
+        revenue.JournalEntryId = journal.JournalEntryID;
+        await Db.SaveChangesAsync(cancellationToken);
+
+        return Ok(new { message = "عاید با موفقیت ثبت شد.", revenueId = revenue.RevenueID, journalEntryId = journal.JournalEntryID });
     }
 
     [HttpPut("{id:int}")]

@@ -81,7 +81,13 @@ function makeResource(base) {
 }
 
 export const warehousesApi = makeResource('/api/inventory/warehouses')
-export const inventoryStocksApi = makeResource('/api/inventory/stocks')
+export const inventoryStocksApi = {
+  ...makeResource('/api/inventory/stocks'),
+  fetchLots: (warehouseId, productId) =>
+    request(
+      `/api/inventory/stocks/lots?warehouseId=${warehouseId}&productId=${productId}`,
+    ),
+}
 
 export const stocktakingsApi = {
   ...makeResource('/api/inventory/stocktakings'),
@@ -90,10 +96,20 @@ export const stocktakingsApi = {
     request(`/api/inventory/stocktakings/${id}/confirm`, { method: 'POST' }),
 }
 
+export const warehouseTransfersApi = {
+  ...makeResource('/api/inventory/transfers'),
+  getById: (id) => request(`/api/inventory/transfers/${id}`),
+  post: (id) =>
+    request(`/api/inventory/transfers/${id}/post`, { method: 'POST' }),
+}
+
 export const fetchWarehouseOptions = (types) => {
   const params = types ? `?types=${encodeURIComponent(types)}` : ''
   return request(`/api/inventory/warehouses/list${params}`)
 }
+
+export const fetchWarehouseFillLevels = () =>
+  request('/api/inventory/warehouses/fill-levels')
 
 export const fetchProductionMaterialWarehouses = () => fetchWarehouseOptions('RawMaterials,SemiFinished')
 

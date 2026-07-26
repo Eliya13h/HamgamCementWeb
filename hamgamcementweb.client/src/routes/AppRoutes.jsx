@@ -9,15 +9,20 @@ import {
   CustomersPage,
   CustomerDetailPage,
   DashboardPage,
-  DepartmentsPage,
   DriversPage,
-  EmployeesPage,
+  PersonnelPage,
+  SalaryPaymentsPage,
   ExchangeHistoryPage,
   ExpenseCategoriesPage,
   ExpensesPage,
   ExpensesReportPage,
-  AccountingExpenseCategoriesPage,
-  RevenueCategoriesPage,
+  AccountsPage,
+  JournalEntriesPage,
+  FixedAssetsPage,
+  AccountingCategoriesPage,
+  EquityTxnsPage,
+  CashBoxesPage,
+  CashShiftsPage,
   InventoryStockPage,
   JournalPage,
   Login,
@@ -27,14 +32,17 @@ import {
   ProductionReportPage,
   DailyProductionPage,
   ProductionPlanPage,
+  ProductionFormulasPage,
   ProductsReportPage,
   PurchasePage,
   RevenuesPage,
   RevenuesReportPage,
+  ReportsPage,
   RoutesPage,
   SalePage,
   ShareholdersPage,
   StocktakingHistoryPage,
+  WarehouseTransfersPage,
   WarehouseTurnoverPage,
   SuppliersPage,
   SupplierDetailPage,
@@ -57,17 +65,6 @@ function PageLoader() {
   )
 }
 
-function PlaceholderPage({ title }) {
-  return (
-    <div className="content-card card border-0">
-      <div className="card-body p-4">
-        <h2 className="card-title mb-2">{title}</h2>
-        <p className="text-muted mb-0">محتوای این صفحه به‌زودی اضافه می‌شود.</p>
-      </div>
-    </div>
-  )
-}
-
 function AppRoutes() {
   return (
     <Suspense fallback={<PageLoader />}>
@@ -77,21 +74,34 @@ function AppRoutes() {
         <Route element={<ProtectedRoute />}>
           <Route element={<DashboardLayout />}>
             <Route index element={<DashboardPage />} />
-            <Route path="reports" element={<PlaceholderPage title="آمار و تحلیل" />} />
+            <Route path="reports" element={<ReportsPage />} />
 
             <Route path="people/customers" element={<CustomersPage />} />
             <Route path="people/customers/:id" element={<CustomerDetailPage />} />
             <Route path="people/suppliers" element={<SuppliersPage />} />
             <Route path="people/suppliers/:id" element={<SupplierDetailPage />} />
-            <Route path="people/employees" element={<EmployeesPage />} />
+            <Route path="people/personnel" element={<PersonnelPage />} />
+            <Route
+              path="people/employees"
+              element={<Navigate to="/people/personnel?tab=employees" replace />}
+            />
+            <Route
+              path="people/attendance"
+              element={<Navigate to="/people/personnel?tab=attendance" replace />}
+            />
+            <Route
+              path="people/departments"
+              element={<Navigate to="/people/personnel?tab=departments" replace />}
+            />
+            <Route path="people/salaries" element={<SalaryPaymentsPage />} />
             <Route path="people/drivers" element={<DriversPage />} />
             <Route path="people/vehicle-owners" element={<VehicleOwnersPage />} />
-            <Route path="people/departments" element={<DepartmentsPage />} />
             <Route path="people/shareholders" element={<ShareholdersPage />} />
 
             <Route path="currencies/list" element={<CurrenciesListPage />} />
             <Route path="currencies/exchange" element={<ExchangeHistoryPage />} />
 
+            <Route path="production/formulas" element={<ProductionFormulasPage />} />
             <Route path="production/daily" element={<DailyProductionPage />} />
             <Route path="production/plan" element={<ProductionPlanPage />} />
 
@@ -113,12 +123,31 @@ function AppRoutes() {
             <Route path="inventory/warehouses" element={<WarehousesPage />} />
             <Route path="inventory/stock" element={<InventoryStockPage />} />
             <Route path="inventory/turnover" element={<WarehouseTurnoverPage />} />
+            <Route path="inventory/transfers" element={<WarehouseTransfersPage />} />
             <Route path="inventory/stocktaking" element={<StocktakingHistoryPage />} />
 
+            <Route path="accounting/accounts" element={<AccountsPage />} />
+            <Route path="accounting/journal-entries" element={<JournalEntriesPage />} />
+            <Route path="accounting/equity" element={<EquityTxnsPage />} />
+            <Route path="accounting/fixed-assets" element={<FixedAssetsPage />} />
             <Route path="accounting/revenues" element={<RevenuesPage />} />
             <Route path="accounting/expenses" element={<ExpensesPage />} />
-            <Route path="accounting/revenue-categories" element={<RevenueCategoriesPage />} />
-            <Route path="accounting/expense-categories" element={<AccountingExpenseCategoriesPage />} />
+            <Route path="accounting/categories" element={<AccountingCategoriesPage />} />
+            <Route
+              path="accounting/expense-categories"
+              element={<Navigate to="/accounting/categories?tab=expenses" replace />}
+            />
+            <Route
+              path="accounting/revenue-categories"
+              element={<Navigate to="/accounting/categories?tab=revenues" replace />}
+            />
+            <Route
+              path="accounting/fixed-asset-categories"
+              element={<Navigate to="/accounting/categories?tab=fixed-assets" replace />}
+            />
+
+            <Route path="cash/boxes" element={<CashBoxesPage />} />
+            <Route path="cash/shifts" element={<CashShiftsPage />} />
 
             <Route path="reporting/products" element={<ProductsReportPage />} />
             <Route path="reporting/production" element={<ProductionReportPage />} />

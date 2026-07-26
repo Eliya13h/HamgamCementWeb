@@ -4,6 +4,7 @@ using HamgamCementWeb.Server.Data;
 using HamgamCementWeb.Server.Data.Models.Finance;
 using HamgamCementWeb.Server.Data.Models.Inventory;
 using HamgamCementWeb.Server.Data.Models.People;
+using HamgamCementWeb.Server.Data.Models.Transport;
 
 namespace HamgamCementWeb.Server.Data.Models.Invoice;
 
@@ -63,6 +64,44 @@ public class SaleInvoice : BaseEntity
 
     public int? RevenueId { get; set; }
 
+    // سند دفترروزنامه پس از ثبت نهایی
+    public int? JournalEntryId { get; set; }
+
+    // نوع حمل — بدون / خودی / کرایه‌ای
+    public FreightMode FreightMode { get; set; } = FreightMode.None;
+
+    // نرخ کرایه به‌ازای هر تن (ارز فاکتور)
+    [Column(TypeName = "decimal(18,4)")]
+    public decimal FreightRatePerTon { get; set; }
+
+    // وزن حمل به تن
+    [Column(TypeName = "decimal(18,4)")]
+    public decimal FreightWeightTon { get; set; }
+
+    // مبلغ کرایه = نرخ × تن (ارز فاکتور)
+    [Column(TypeName = "decimal(18,4)")]
+    public decimal FreightAmount { get; set; }
+
+    // مبلغ کرایه به ارز پایه
+    [Column(TypeName = "decimal(18,4)")]
+    public decimal FreightAmountInBaseCurrency { get; set; }
+
+    // وسیله ناوگان خودی
+    public int? FreightVehicleId { get; set; }
+
+    // نام باربری / مالک خارجی
+    [MaxLength(200)]
+    public string? FreightCarrierName { get; set; }
+
+    // سفر ساخته‌شده هنگام ثبت نهایی
+    public int? TransportTripId { get; set; }
+
+    // عاید حسابداری مربوط به کرایه حمل
+    public int? FreightRevenueId { get; set; }
+
+    // سند دفترروزنامه کرایه حمل
+    public int? FreightJournalEntryId { get; set; }
+
     [ForeignKey(nameof(CustomerId))]
     public virtual Customer Customer { get; set; } = null!;
 
@@ -80,8 +119,23 @@ public class SaleInvoice : BaseEntity
 
     public virtual Revenue? Revenue { get; set; }
 
+    [ForeignKey(nameof(JournalEntryId))]
+    public virtual JournalEntry? JournalEntry { get; set; }
+
     [ForeignKey(nameof(ReferenceSaleInvoiceId))]
     public virtual SaleInvoice? ReferenceSaleInvoice { get; set; }
+
+    [ForeignKey(nameof(FreightVehicleId))]
+    public virtual Vehicle? FreightVehicle { get; set; }
+
+    [ForeignKey(nameof(TransportTripId))]
+    public virtual TransportTrip? TransportTrip { get; set; }
+
+    [ForeignKey(nameof(FreightRevenueId))]
+    public virtual Revenue? FreightRevenue { get; set; }
+
+    [ForeignKey(nameof(FreightJournalEntryId))]
+    public virtual JournalEntry? FreightJournalEntry { get; set; }
 
     public virtual ICollection<SaleInvoice> ReturnDocuments { get; set; } = [];
 

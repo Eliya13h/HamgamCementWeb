@@ -1,5 +1,6 @@
 using System.ComponentModel.DataAnnotations;
 using System.ComponentModel.DataAnnotations.Schema;
+using HamgamCementWeb.Server.Data.Models.Finance;
 using HamgamCementWeb.Server.Data.Models.People;
 
 namespace HamgamCementWeb.Server.Data.Models.Transport
@@ -48,6 +49,9 @@ namespace HamgamCementWeb.Server.Data.Models.Transport
         // صاحب / مالک وسیله نقلیه — هر مالک می‌تواند چند وسیله داشته باشد
         public int? VehicleOwnerId { get; set; }
 
+        // لینک اختیاری به کارت دارایی ثابت — برای گزارش استهلاک ناوگان
+        public int? FixedAssetId { get; set; }
+
         public virtual Driver? DefaultDriver { get; set; }
 
         [ForeignKey(nameof(VehicleOwnerId))]
@@ -55,5 +59,8 @@ namespace HamgamCementWeb.Server.Data.Models.Transport
 
         [ForeignKey(nameof(VehicleTypeId))]
         public virtual VehicleType? VehicleType { get; set; }
+
+        [ForeignKey(nameof(FixedAssetId))]
+        public virtual FixedAsset? FixedAsset { get; set; }
     }
 }

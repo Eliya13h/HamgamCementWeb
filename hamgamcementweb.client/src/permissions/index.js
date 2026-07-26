@@ -15,6 +15,7 @@ export {
   canAccess,
   canViewPage,
   filterNavByPermission,
+  getNavAccessPaths,
   pagePermission,
   pathPermission,
 } from './utils'

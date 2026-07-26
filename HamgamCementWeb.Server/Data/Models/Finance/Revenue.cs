@@ -45,11 +45,17 @@ public class Revenue : BaseEntity
     // منبع ثبت: فاکتور فروش، متفرقه و ...
     public FinancialEntrySource Source { get; set; } = FinancialEntrySource.Miscellaneous;
 
+    // سند دفترروزنامه متناظر با این عاید
+    public int? JournalEntryId { get; set; }
+
     [ForeignKey(nameof(CustomerId))]
     public virtual Customer? Customer { get; set; }
 
     [ForeignKey(nameof(RevenueCategoryId))]
     public virtual RevenueCategory Category { get; set; } = null!;
+
+    [ForeignKey(nameof(JournalEntryId))]
+    public virtual JournalEntry? JournalEntry { get; set; }
 
     // ناوبری معکوس — FK فقط روی SaleInvoice.RevenueId است
     public virtual SaleInvoice? SaleInvoice { get; set; }

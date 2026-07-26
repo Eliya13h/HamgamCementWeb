@@ -1,28 +1,54 @@
 .users-page {
   display: flex;
   flex-direction: column;
-  height: calc(100dvh - var(--hc-header-height) - 2.5rem);
-  min-height: 520px;
+  min-height: calc(100dvh - var(--hc-header-height) - 2.5rem);
 }
 
 .users-page .content-card {
   display: flex;
   flex-direction: column;
-  flex: 1;
+  flex: 1 0 auto;
+  min-height: 100%;
+  height: auto;
+}
+
+/* کارت متناسب با محتوا — برای بخش‌های فرم بالای جدول */
+.users-page .content-card.content-card-fit {
+  flex: 0 0 auto;
+  min-height: auto;
+  height: auto;
+}
+
+.users-page .content-card.content-card-fill {
+  flex: 1 1 auto;
   min-height: 0;
+}
+
+.cash-shift-panel {
+  height: auto;
+  min-height: 0;
+  align-self: flex-start;
+}
+
+.crud-multiselect {
+  max-height: 220px;
+  overflow: auto;
+  background: var(--hc-bg-surface, #fff);
+}
+
+.crud-multiselect .form-check {
+  margin: 0.15rem 0;
 }
 
 .users-page .card-body-table {
   display: flex;
   flex-direction: column;
-  flex: 1;
-  min-height: 0;
+  flex: 1 0 auto;
   padding: 0.75rem 1.25rem 1.25rem;
 }
 
 .users-table-wrapper {
-  flex: 1;
-  min-height: 0;
+  flex: 1 0 auto;
   direction: rtl;
 }
 
@@ -30,7 +56,6 @@
   display: flex;
   flex-direction: column;
   gap: 0.75rem;
-  min-height: 0;
 }
 
 .users-table-wrapper .dt-layout-row {
@@ -40,9 +65,7 @@
 }
 
 .users-table-wrapper .dt-layout-row.dt-layout-table {
-  flex: 1;
-  min-height: 0;
-  overflow: auto;
+  flex: 0 0 auto;
 }
 
 .users-table-wrapper .dt-layout-cell {
@@ -478,6 +501,51 @@
   overflow-y: auto;
 }
 
+/* مدال‌های بخش تولید — اسکرول مطمئن + هدر جدول ثابت */
+.production-page .production-modal .modal-dialog {
+  max-height: calc(100dvh - 2rem);
+  margin: 1rem auto;
+}
+
+.production-page .production-modal .modal-dialog-scrollable .modal-content {
+  max-height: calc(100dvh - 2rem);
+  overflow: hidden;
+}
+
+.production-page .production-modal .modal-dialog-scrollable .modal-body {
+  overflow-y: auto;
+  max-height: calc(100dvh - 10rem);
+}
+
+.production-page .production-lines-table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: var(--bs-body-bg, #fff);
+  box-shadow: 0 1px 0 rgba(0, 0, 0, 0.08);
+}
+
+.production-page .production-summary {
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  border-radius: 0.5rem;
+  padding: 0.85rem 1rem;
+  background: rgba(0, 0, 0, 0.02);
+}
+
+.production-page .production-summary-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.2rem 0;
+}
+
+.production-page .production-summary-row.total {
+  font-weight: 700;
+  border-top: 1px solid rgba(0, 0, 0, 0.1);
+  margin-top: 0.35rem;
+  padding-top: 0.45rem;
+}
+
 .btn-accent {
   --bs-btn-color: #fff;
   --bs-btn-bg: var(--hc-accent);
@@ -485,4 +553,45 @@
   --bs-btn-hover-bg: var(--hc-accent-hover);
   --bs-btn-hover-border-color: var(--hc-accent-hover);
   --bs-btn-hover-color: #fff;
+}
+
+.warehouse-fill-cell {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 0.3rem;
+  min-width: 9.5rem;
+}
+
+.warehouse-fill-bar {
+  width: 100%;
+  height: 0.35rem;
+  border-radius: 999px;
+  background: rgba(139, 148, 158, 0.2);
+  overflow: hidden;
+}
+
+.warehouse-fill-bar > span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: #3fb950;
+}
+
+.warehouse-fill-cell.is-warning .warehouse-fill-bar > span {
+  background: #d29922;
+}
+
+.warehouse-fill-cell.is-critical .warehouse-fill-bar > span {
+  background: #f85149;
+}
+
+.warehouse-fill-text {
+  font-size: 0.8rem;
+  color: var(--hc-text-muted, #8b949e);
+  white-space: nowrap;
+}
+
+[data-bs-theme='light'] .warehouse-fill-cell.is-ok .warehouse-fill-bar > span {
+  background: #1a7f37;
 }

@@ -28,14 +28,17 @@ public class SaleInvoiceController : InvoiceControllerBase
 
     private readonly IInvoicePostingService _posting;
     private readonly IInvoiceReturnService _returns;
+    private readonly IFreightTripService _freight;
 
     public SaleInvoiceController(
         AppDbContext db,
         IInvoicePostingService posting,
-        IInvoiceReturnService returns) : base(db)
+        IInvoiceReturnService returns,
+        IFreightTripService freight) : base(db)
     {
         _posting = posting;
         _returns = returns;
+        _freight = freight;
     }
 
     [HttpPost("datatable")]
@@ -159,6 +162,14 @@ public class SaleInvoiceController : InvoiceControllerBase
                 isPosted = i.IsPosted,
                 postedAt = i.PostedAt,
                 description = i.Description,
+                freightMode = (int)i.FreightMode,
+                freightRatePerTon = i.FreightRatePerTon,
+                freightWeightTon = i.FreightWeightTon,
+                freightAmount = i.FreightAmount,
+                freightAmountInBaseCurrency = i.FreightAmountInBaseCurrency,
+                freightVehicleId = i.FreightVehicleId,
+                freightCarrierName = i.FreightCarrierName,
+                transportTripId = i.TransportTripId,
                 items = i.Items
                     .Where(x => x.IsDeleted != true)
                     .OrderBy(x => x.SalesItemID)
@@ -345,6 +356,11 @@ public class SaleInvoiceController : InvoiceControllerBase
             Status = request.Status,
             CurrencyId = request.CurrencyId,
             Description = request.Description?.Trim(),
+            FreightMode = request.FreightMode,
+            FreightRatePerTon = request.FreightRatePerTon,
+            FreightWeightTon = request.FreightWeightTon,
+            FreightVehicleId = request.FreightVehicleId,
+            FreightCarrierName = request.FreightCarrierName?.Trim(),
             IsDeleted = false,
             IsActive = true,
             CreatedAt = now,
@@ -366,6 +382,14 @@ public class SaleInvoiceController : InvoiceControllerBase
         }
 
         await _posting.ApplySaleCurrencyAsync(invoice, cancellationToken, request.BaseUnitsPerUnit);
+        try
+        {
+            _freight.NormalizeAndValidateSaleFreight(invoice);
+        }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(new { message = ex.Message });
+        }
 
         var paidError = TrySetPaidAmount(invoice, request.PaidAmount);
         if (paidError is not null)
@@ -390,7 +414,15 @@ public class SaleInvoiceController : InvoiceControllerBase
 
         if (request.Status == Data.InvoiceStatus.Invoice)
         {
-            await _posting.PostSaleAsync(invoice.SaleInvoiceID, userId, cancellationToken);
+            try
+            {
+                await _posting.PostSaleAsync(invoice.SaleInvoiceID, userId, cancellationToken);
+            }
+            catch (InvalidOperationException ex)
+            {
+                return BadRequest(new { message = ex.Message, saleInvoiceId = invoice.SaleInvoiceID });
+            }
+
             return Ok(new { message = "فاکتور فروش ثبت شد. موجودی و درآمد به‌روز شد.", saleInvoiceId = invoice.SaleInvoiceID });
         }
 
@@ -442,6 +474,11 @@ public class SaleInvoiceController : InvoiceControllerBase
         invoice.Status = request.Status;
         invoice.CurrencyId = request.CurrencyId;
         invoice.Description = request.Description?.Trim();
+        invoice.FreightMode = request.FreightMode;
+        invoice.FreightRatePerTon = request.FreightRatePerTon;
+        invoice.FreightWeightTon = request.FreightWeightTon;
+        invoice.FreightVehicleId = request.FreightVehicleId;
+        invoice.FreightCarrierName = request.FreightCarrierName?.Trim();
         invoice.IsUpdated = true;
         invoice.UpdatedAt = now;
         invoice.UpdatedBy = userId;
@@ -490,6 +527,14 @@ public class SaleInvoiceController : InvoiceControllerBase
         }
 
         await _posting.ApplySaleCurrencyAsync(invoice, cancellationToken, request.BaseUnitsPerUnit);
+        try
+        {
+            _freight.NormalizeAndValidateSaleFreight(invoice);
+        }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(new { message = ex.Message });
+        }
 
         var paidError = TrySetPaidAmount(invoice, request.PaidAmount);
         if (paidError is not null)
@@ -510,7 +555,15 @@ public class SaleInvoiceController : InvoiceControllerBase
 
         if (request.Status == Data.InvoiceStatus.Invoice)
         {
-            await _posting.PostSaleAsync(invoice.SaleInvoiceID, userId, cancellationToken);
+            try
+            {
+                await _posting.PostSaleAsync(invoice.SaleInvoiceID, userId, cancellationToken);
+            }
+            catch (InvalidOperationException ex)
+            {
+                return BadRequest(new { message = ex.Message });
+            }
+
             return Ok(new { message = "فاکتور فروش ثبت شد. موجودی و درآمد به‌روز شد." });
         }
 
@@ -645,6 +698,19 @@ public class SaleInvoiceController : InvoiceControllerBase
         public decimal PaidAmount { get; set; }
 
         public decimal? BaseUnitsPerUnit { get; set; }
+
+        public FreightMode FreightMode { get; set; } = FreightMode.None;
+
+        [Range(0, double.MaxValue)]
+        public decimal FreightRatePerTon { get; set; }
+
+        [Range(0, double.MaxValue)]
+        public decimal FreightWeightTon { get; set; }
+
+        public int? FreightVehicleId { get; set; }
+
+        [MaxLength(200)]
+        public string? FreightCarrierName { get; set; }
 
         public List<SaveSaleItemRequest> Items { get; set; } = [];
     }

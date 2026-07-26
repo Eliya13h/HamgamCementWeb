@@ -85,7 +85,17 @@ export const productsApi = {
   getById: (id) => request(`/api/products/${id}`),
   convert: (payload) =>
     request('/api/products/convert', { method: 'POST', body: JSON.stringify(payload) }),
+  suggestedPurchasePrice: (id, warehouseId) => {
+    const qs =
+      warehouseId != null && warehouseId !== ''
+        ? `?warehouseId=${encodeURIComponent(warehouseId)}`
+        : ''
+    return request(`/api/products/${id}/suggested-purchase-price${qs}`)
+  },
 }
+
+export const fetchSuggestedPurchasePrice = (productId, warehouseId) =>
+  productsApi.suggestedPurchasePrice(productId, warehouseId)
 
 export const categoriesApi = makeResource('/api/products/categories')
 export const meaurmentsApi = makeResource('/api/products/meaurments')

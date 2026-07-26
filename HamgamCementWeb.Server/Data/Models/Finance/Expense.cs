@@ -42,11 +42,17 @@ public class Expense : BaseEntity
     // منبع ثبت: فاکتور خرید، متفرقه و ...
     public FinancialEntrySource Source { get; set; } = FinancialEntrySource.Miscellaneous;
 
+    // سند دفترروزنامه متناظر با این مصرف
+    public int? JournalEntryId { get; set; }
+
     [ForeignKey(nameof(SupplierId))]
     public virtual Supplier? Supplier { get; set; }
 
     [ForeignKey(nameof(ExpenseCategoryId))]
     public virtual ExpenseCategory Category { get; set; } = null!;
+
+    [ForeignKey(nameof(JournalEntryId))]
+    public virtual JournalEntry? JournalEntry { get; set; }
 
     // ناوبری معکوس — FK فقط روی PurchaseInvoice.ExpenseId است
     public virtual PurchaseInvoice? PurchaseInvoice { get; set; }

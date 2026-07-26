@@ -19,15 +19,19 @@ public class ProductController : ProductControllerBase
     {
         [1] = nameof(Data.Models.Product.Product.Code),
         [2] = nameof(Data.Models.Product.Product.Name),
-        [3] = nameof(Data.Models.Product.Product.DefaultPurchasePrice),
-        [4] = nameof(Data.Models.Product.Product.DefaultSalePrice),
+        [5] = nameof(Data.Models.Product.Product.DefaultSalePrice),
     };
 
     private readonly IMeaurmentConversionService _conversion;
+    private readonly IProductPurchasePriceHintService _purchasePriceHints;
 
-    public ProductController(AppDbContext db, IMeaurmentConversionService conversion) : base(db)
+    public ProductController(
+        AppDbContext db,
+        IMeaurmentConversionService conversion,
+        IProductPurchasePriceHintService purchasePriceHints) : base(db)
     {
         _conversion = conversion;
+        _purchasePriceHints = purchasePriceHints;
     }
 
     [HttpPost("datatable")]
@@ -66,7 +70,6 @@ public class ProductController : ProductControllerBase
                 code = p.Code,
                 name = p.Name,
                 baseMeaurmentName = p.BaseMeaurment.Name,
-                defaultPurchasePrice = p.DefaultPurchasePrice,
                 defaultSalePrice = p.DefaultSalePrice,
                 minStockQuantity = p.MinStockQuantity,
                 totalStockQuantity = Db.InventoryStocks
@@ -79,24 +82,33 @@ public class ProductController : ProductControllerBase
             })
             .ToListAsync(cancellationToken);
 
+        var hints = await _purchasePriceHints.GetHintsAsync(
+            rows.Select(r => r.productId),
+            cancellationToken: cancellationToken);
+
         return Ok(new
         {
             draw = request.Draw,
             recordsTotal,
             recordsFiltered,
-            data = rows.Select((r, i) => new
+            data = rows.Select((r, i) =>
             {
-                rowNumber = start + i + 1,
-                r.productId,
-                r.code,
-                r.name,
-                r.baseMeaurmentName,
-                r.defaultPurchasePrice,
-                r.defaultSalePrice,
-                r.minStockQuantity,
-                r.totalStockQuantity,
-                isBelowMinStock = r.minStockQuantity > 0 && r.totalStockQuantity < r.minStockQuantity,
-                categoriesText = string.Join("، ", r.categories),
+                hints.TryGetValue(r.productId, out var hint);
+                return new
+                {
+                    rowNumber = start + i + 1,
+                    r.productId,
+                    r.code,
+                    r.name,
+                    r.baseMeaurmentName,
+                    suggestedPurchasePrice = hint?.UnitCostInBase,
+                    purchasePriceSource = hint?.Source.ToString(),
+                    r.defaultSalePrice,
+                    r.minStockQuantity,
+                    r.totalStockQuantity,
+                    isBelowMinStock = r.minStockQuantity > 0 && r.totalStockQuantity < r.minStockQuantity,
+                    categoriesText = string.Join("، ", r.categories),
+                };
             }),
         });
     }
@@ -115,12 +127,43 @@ public class ProductController : ProductControllerBase
                 label = $"{p.Code} — {p.Name}",
                 baseMeaurmentId = p.BaseMeaurmentId,
                 defaultMeaurmentId = p.DefaultMeaurmentId,
-                defaultPurchasePrice = p.DefaultPurchasePrice,
                 defaultSalePrice = p.DefaultSalePrice,
             })
             .ToListAsync(cancellationToken);
 
         return Ok(items);
+    }
+
+    // پیشنهاد لحظه‌ای قیمت خرید از میانگین موجودی / آخرین لات / آخرین فاکتور خرید
+    [HttpGet("{id:int}/suggested-purchase-price")]
+    public async Task<IActionResult> SuggestedPurchasePrice(
+        int id,
+        [FromQuery] int? warehouseId,
+        CancellationToken cancellationToken)
+    {
+        var exists = await Db.Products
+            .AsNoTracking()
+            .AnyAsync(p => p.ProductID == id && p.IsDeleted != true, cancellationToken);
+        if (!exists)
+        {
+            return NotFound(new { message = "محصول یافت نشد." });
+        }
+
+        var hint = await _purchasePriceHints.GetHintAsync(id, warehouseId, cancellationToken);
+        return Ok(new
+        {
+            productId = id,
+            warehouseId,
+            unitCostInBase = hint.UnitCostInBase,
+            source = hint.Source.ToString(),
+            sourceLabel = hint.Source switch
+            {
+                ProductPurchasePriceSource.WeightedAverageStock => "میانگین موزون موجودی",
+                ProductPurchasePriceSource.LastLot => "آخرین لات دریافت‌شده",
+                ProductPurchasePriceSource.LastPurchaseInvoice => "آخرین فاکتور خرید",
+                _ => "بدون سابقه",
+            },
+        });
     }
 
     [HttpGet("next-code-preview")]
@@ -146,7 +189,6 @@ public class ProductController : ProductControllerBase
                 description = p.Description,
                 baseMeaurmentId = p.BaseMeaurmentId,
                 defaultMeaurmentId = p.DefaultMeaurmentId,
-                defaultPurchasePrice = p.DefaultPurchasePrice,
                 defaultSalePrice = p.DefaultSalePrice,
                 minStockQuantity = p.MinStockQuantity,
                 categoryIds = p.ProductCategories
@@ -204,7 +246,8 @@ public class ProductController : ProductControllerBase
             Description = request.Description?.Trim(),
             BaseMeaurmentId = request.BaseMeaurmentId,
             DefaultMeaurmentId = request.DefaultMeaurmentId,
-            DefaultPurchasePrice = request.DefaultPurchasePrice,
+            // قیمت خرید دیگر روی محصول ذخیره نمی‌شود؛ از FIFO/آخرین خرید پیشنهاد می‌شود
+            DefaultPurchasePrice = 0,
             DefaultSalePrice = request.DefaultSalePrice,
             MinStockQuantity = request.MinStockQuantity,
             IsActive = request.IsActive,
@@ -262,7 +305,6 @@ public class ProductController : ProductControllerBase
         entity.Name = request.Name.Trim();
         entity.Description = request.Description?.Trim();
         entity.DefaultMeaurmentId = request.DefaultMeaurmentId;
-        entity.DefaultPurchasePrice = request.DefaultPurchasePrice;
         entity.DefaultSalePrice = request.DefaultSalePrice;
         entity.MinStockQuantity = request.MinStockQuantity;
         entity.IsActive = request.IsActive;
@@ -476,8 +518,6 @@ public class ProductController : ProductControllerBase
         public int BaseMeaurmentId { get; set; }
 
         public int? DefaultMeaurmentId { get; set; }
-
-        public decimal DefaultPurchasePrice { get; set; }
 
         public decimal DefaultSalePrice { get; set; }
 

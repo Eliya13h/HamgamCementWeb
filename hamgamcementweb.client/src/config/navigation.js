@@ -9,10 +9,19 @@ export const navItems = [
     children: [
       { path: '/people/customers', label: 'مشتریان' },
       { path: '/people/suppliers', label: 'تأمین‌کننده‌ها' },
-      { path: '/people/employees', label: 'کارمندان' },
+      {
+        path: '/people/personnel',
+        label: 'پرسونل',
+        // دسترسی‌های جداگانهٔ تب‌ها — برای سایدبار و درخت نقش‌ها
+        permissionPages: [
+          { path: '/people/employees', label: 'کارمندان' },
+          { path: '/people/attendance', label: 'حضور و غیاب' },
+          { path: '/people/departments', label: 'بخش‌ها' },
+        ],
+      },
+      { path: '/people/salaries', label: 'حقوق و مزایا' },
       { path: '/people/drivers', label: 'رانندگان' },
       { path: '/people/vehicle-owners', label: 'موترداران' },
-      { path: '/people/departments', label: 'بخش‌ها' },
       { path: '/people/shareholders', label: 'سهام‌داران' },
     ],
   },
@@ -30,7 +39,8 @@ export const navItems = [
     label: 'تولید',
     icon: 'production',
     children: [
-      { path: '/production/daily', label: 'گزارش روزانه' },
+      { path: '/production/formulas', label: 'فرمول ساخت' },
+      { path: '/production/daily', label: 'تولید روزانه' },
       { path: '/production/plan', label: 'برنامه تولید' },
     ],
   },
@@ -75,6 +85,7 @@ export const navItems = [
       { path: '/inventory/warehouses', label: 'انبارها' },
       { path: '/inventory/stock', label: 'موجودی' },
       { path: '/inventory/turnover', label: 'گردش کالا' },
+      { path: '/inventory/transfers', label: 'انتقال بین انبار' },
       { path: '/inventory/stocktaking', label: 'سابقه انبارگردانی' },
     ],
   },
@@ -83,10 +94,31 @@ export const navItems = [
     label: 'حسابداری',
     icon: 'accounting',
     children: [
+      { path: '/accounting/accounts', label: 'کدینگ حساب‌ها' },
+      { path: '/accounting/journal-entries', label: 'اسناد دفتر' },
+      { path: '/accounting/equity', label: 'حقوق صاحبان سهام' },
+      { path: '/accounting/fixed-assets', label: 'دارایی‌های ثابت' },
       { path: '/accounting/revenues', label: 'عواید' },
       { path: '/accounting/expenses', label: 'مصارف' },
-      { path: '/accounting/revenue-categories', label: 'دسته‌بندی عواید' },
-      { path: '/accounting/expense-categories', label: 'دسته‌بندی مصارف' },
+      {
+        path: '/accounting/categories',
+        label: 'دسته‌بندی‌ها',
+        // دسترسی‌های جداگانهٔ تب‌ها — برای سایدبار و درخت نقش‌ها
+        permissionPages: [
+          { path: '/accounting/expense-categories', label: 'دسته‌بندی مصارف' },
+          { path: '/accounting/revenue-categories', label: 'دسته‌بندی عواید' },
+          { path: '/accounting/fixed-asset-categories', label: 'دسته‌بندی دارایی ثابت' },
+        ],
+      },
+    ],
+  },
+  {
+    id: 'cash',
+    label: 'صندوق',
+    icon: 'currencies',
+    children: [
+      { path: '/cash/boxes', label: 'تعریف صندوق' },
+      { path: '/cash/shifts', label: 'شیفت و تحویل' },
     ],
   },
   {

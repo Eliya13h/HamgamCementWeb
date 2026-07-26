@@ -1,5 +1,6 @@
 using HamgamCementWeb.Server.Data.Models;
 using HamgamCementWeb.Server.Data.Models.Finance;
+using HamgamCementWeb.Server.Data.Models.Inventory;
 using HamgamCementWeb.Server.Data.Models.People;
 using HamgamCementWeb.Server.Data.Models.Product;
 using HamgamCementWeb.Server.Data.Models.Transport;
@@ -32,9 +33,20 @@ public static class DataSeeder
         await EnsureUserAsync(db, passwordHasher, employee, role, cancellationToken);
         await SeedData(db, cancellationToken);
         await EnsureMeaurmentsAsync(db, cancellationToken);
+        await EnsureProductCategoriesAsync(db, cancellationToken);
+        await EnsureWarehousesAsync(db, cancellationToken);
 
         var financeCategories = scope.ServiceProvider.GetRequiredService<IFinanceCategoryService>();
         await financeCategories.EnsureSystemCategoriesAsync(cancellationToken);
+        await ChartOfAccountsSeeder.EnsureAsync(db, cancellationToken);
+        await ProductionSchemaSeeder.EnsureAsync(db, cancellationToken);
+        await InventorySchemaSeeder.EnsureAsync(db, cancellationToken);
+        await FiscalYearSchemaSeeder.EnsureAsync(db, cancellationToken);
+        await CashSchemaSeeder.EnsureAsync(db, cancellationToken);
+        var cashBoxService = scope.ServiceProvider.GetRequiredService<ICashBoxService>();
+        await CashSchemaSeeder.EnsureDefaultCashBoxAsync(db, cashBoxService, cancellationToken);
+        await FixedAssetSchemaSeeder.EnsureAsync(db, cancellationToken);
+        await EquitySchemaSeeder.EnsureAsync(db, cancellationToken);
         await EnsureGeneralSettingsAsync(db, cancellationToken);
     }
 
@@ -295,7 +307,7 @@ public static class DataSeeder
             new Supplier { Title = PersonTitle.Mr, Name = "محمد جواد اصغری", PhoneNumber = "93701234503", Address = "چهارراهی ملک، ناحیه ۳", City = "هرات", Country = "افغانستان", InitialBalance = 0, SupplierType = PersonType.NaturalPerson, CreatedBy = 1 },
             new Supplier { Title = PersonTitle.Mr, Name = "شرکت واردات مصالح شرق", PhoneNumber = "93701234504", Address = "کارته پروان، سرک ۱۵", City = "کابل", Country = "افغانستان", InitialBalance = 0, SupplierType = PersonType.LegalEntity, CreatedBy = 1 },
             new Supplier { Title = PersonTitle.Mr, Name = "احمد شاه صادقی", PhoneNumber = "93701234505", Address = "سراب، ناحیه ۵", City = "مزار شریف", Country = "افغانستان", InitialBalance = 0, SupplierType = PersonType.NaturalPerson, CreatedBy = 1 },
-            new Supplier { Title = PersonTitle.Mr, Name = "شرکت سیمان و مصالح قندهار", PhoneNumber = "93701234506", Address = "ناحیه ۲، سرک اصلی", City = "قندهار", Country = "افغانستان", InitialBalance = 0, SupplierType = PersonType.LegalEntity, CreatedBy = 1 },
+            new Supplier { Title = PersonTitle.Mr, Name = "شرکت سمنت و مصالح قندهار", PhoneNumber = "93701234506", Address = "ناحیه ۲، سرک اصلی", City = "قندهار", Country = "افغانستان", InitialBalance = 0, SupplierType = PersonType.LegalEntity, CreatedBy = 1 },
             new Supplier { Title = PersonTitle.Mr, Name = "عبدالرحمن کریمی", PhoneNumber = "93701234507", Address = "جاده ایار، ناحیه ۷", City = "هرات", Country = "افغانستان", InitialBalance = 0, SupplierType = PersonType.NaturalPerson, CreatedBy = 1 },
             new Supplier { Title = PersonTitle.Mr, Name = "مجموعه تجاری پدرام", PhoneNumber = "93701234508", Address = "خیرخانه، سرک ۲۲", City = "کابل", Country = "افغانستان", InitialBalance = 0, SupplierType = PersonType.LegalEntity, CreatedBy = 1 },
             new Supplier { Title = PersonTitle.Mr, Name = "ناصر احمدی", PhoneNumber = "93701234509", Address = "دهدشت، مرکز شهر", City = "بلخ", Country = "افغانستان", InitialBalance = 0, SupplierType = PersonType.NaturalPerson, CreatedBy = 1 },
@@ -396,6 +408,80 @@ public static class DataSeeder
                 CreatedBy = 1,
             });
         await db.SaveChangesAsync(cancellationToken);
+    }
+
+    // دسته‌بندی‌های پایه محصول: بدون دسته‌بندی / خام / پروسس شده
+    private static async Task EnsureProductCategoriesAsync(AppDbContext db, CancellationToken cancellationToken)
+    {
+        var names = new[] { "بدون دسته‌بندی", "خام", "پروسس شده" };
+        var now = DateTime.Now;
+        var added = false;
+
+        foreach (var name in names)
+        {
+            var exists = await db.Categories
+                .AnyAsync(c => c.Name == name && c.IsDeleted != true, cancellationToken);
+            if (exists)
+            {
+                continue;
+            }
+
+            db.Categories.Add(new Category
+            {
+                Name = name,
+                IsActive = true,
+                IsDeleted = false,
+                CreatedAt = now,
+                CreatedBy = 1,
+            });
+            added = true;
+        }
+
+        if (added)
+        {
+            await db.SaveChangesAsync(cancellationToken);
+        }
+    }
+
+    // انبارهای پایه: سیلو مرکزی (پروسس‌شده) و سیلو کارگاه (خام)
+    private static async Task EnsureWarehousesAsync(AppDbContext db, CancellationToken cancellationToken)
+    {
+        var warehouses = new (string Name, WarehouseType Type, string Description)[]
+        {
+            ("سیلو مرکزی", WarehouseType.Processed, "انبار پروسس شده"),
+            ("سیلو کارگاه", WarehouseType.RawMaterials, "انبار خام"),
+        };
+        var now = DateTime.Now;
+        var added = false;
+
+        foreach (var (name, type, description) in warehouses)
+        {
+            var exists = await db.Warehouses
+                .AnyAsync(w => w.Name == name && w.IsDeleted != true, cancellationToken);
+            if (exists)
+            {
+                continue;
+            }
+
+            db.Warehouses.Add(new Warehouse
+            {
+                Name = name,
+                WarehouseType = type,
+                Description = description,
+                IsActive = true,
+                IsDeleted = false,
+                CreatedAt = now,
+                Capacity = 10000,
+                CapacityMeaurmentId = 1,
+                CreatedBy = 1,
+            });
+            added = true;
+        }
+
+        if (added)
+        {
+            await db.SaveChangesAsync(cancellationToken);
+        }
     }
 
     private static async Task EnsureUserAsync(

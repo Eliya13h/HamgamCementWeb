@@ -20,11 +20,19 @@ export const dataTableLanguage = {
 
 const PHONE_FIELD_PATTERN = /phone|mobile|tel|userName/i
 
+/** فرمت مبلغ با جداکننده هزارگان؛ صفرهای اعشارِ انتهایی نمایش داده نمی‌شوند */
 export function formatAmount(value) {
   if (value === null || value === undefined || value === '') return '—'
   const num = Number(value)
   if (Number.isNaN(num)) return String(value)
-  return num.toLocaleString('en-US')
+
+  const sign = num < 0 ? '-' : ''
+  const abs = Math.abs(num)
+  // حداکثر ۸ رقم اعشار (هم‌تراز decimalهای مالی)، سپس حذف صفرهای انتهایی
+  const fixed = abs.toFixed(8).replace(/\.?0+$/, '')
+  const [intPart, fracPart] = fixed.split('.')
+  const grouped = intPart.replace(/\B(?=(\d{3})+(?!\d))/g, ',')
+  return sign + (fracPart ? `${grouped}.${fracPart}` : grouped)
 }
 
 export function isPhoneField(fieldName) {

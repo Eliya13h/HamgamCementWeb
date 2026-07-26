@@ -72,6 +72,10 @@ export default defineConfig({
                 target,
                 secure: false
             },
+            '^/uploads': {
+                target,
+                secure: false,
+            },
             '^/report-viewer': {
                 target,
                 secure: false,

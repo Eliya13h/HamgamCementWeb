@@ -94,7 +94,7 @@ function PersonFormFields({ form, setForm, idPrefix }) {
       </div>
       <div className="row g-3 mb-3">
         <div className="col-md-6">
-          <label className="form-label">کد ملی</label>
+          <label className="form-label">شماره تذکره</label>
           <input
             type="text"
             className="form-control"
@@ -396,7 +396,7 @@ function DriversPage() {
                 <tr>
                   <th>#</th>
                   <th>نام</th>
-                  <th>کد ملی</th>
+                  <th>شماره تذکره</th>
                   <th>موبایل</th>
                   <th>سهم پیش‌فرض</th>
                   <th>وضعیت</th>

@@ -51,6 +51,7 @@ public class CustomerController : ControllerBase
         {
             customerId = customer.CustomerId,
             customer.Name,
+            accountCode = customer.AccountCode,
             customer.PhoneNumber,
             customer.Address,
             customer.City,
@@ -97,6 +98,7 @@ public class CustomerController : ControllerBase
             rowNumber = start + index + 1,
             row.CustomerId,
             row.Name,
+            accountCode = row.AccountCode,
             row.PhoneNumber,
             row.Address,
             row.City,

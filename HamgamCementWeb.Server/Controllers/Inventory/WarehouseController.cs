@@ -4,6 +4,7 @@ using HamgamCementWeb.Server.Authorization;
 using HamgamCementWeb.Server.Controllers.Transport;
 using HamgamCementWeb.Server.Data;
 using HamgamCementWeb.Server.Data.Models.Inventory;
+using HamgamCementWeb.Server.Services;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
@@ -45,12 +46,14 @@ public class WarehouseController : InventoryControllerBase
         [2] = nameof(Warehouse.WarehouseType),
         [3] = nameof(Warehouse.Location),
         [4] = nameof(Warehouse.Capacity),
-        [5] = "ProductsCount",
         [6] = nameof(Warehouse.IsActive),
     };
 
-    public WarehouseController(AppDbContext db) : base(db)
+    private readonly IMeaurmentConversionService _conversion;
+
+    public WarehouseController(AppDbContext db, IMeaurmentConversionService conversion) : base(db)
     {
+        _conversion = conversion;
     }
 
     [HttpPost("datatable")]
@@ -93,33 +96,46 @@ public class WarehouseController : InventoryControllerBase
                 capacity = w.Capacity,
                 capacityMeaurmentId = w.CapacityMeaurmentId,
                 capacityMeaurmentName = w.CapacityMeaurment != null ? w.CapacityMeaurment.Name : null,
-                productsCount = w.Stocks.Count(s => s.IsDeleted != true && s.QuantityInBase > 0),
                 isActive = w.IsActive == true,
             })
             .ToListAsync(cancellationToken);
+
+        var fillByWarehouse = await ComputeFillLevelsAsync(
+            rows.Select(r => (
+                r.warehouseId,
+                r.capacity,
+                r.capacityMeaurmentId,
+                r.capacityMeaurmentName)),
+            cancellationToken);
 
         return Ok(new
         {
             draw = request.Draw,
             recordsTotal,
             recordsFiltered,
-            data = rows.Select((r, i) => new
+            data = rows.Select((r, i) =>
             {
-                rowNumber = start + i + 1,
-                r.warehouseId,
-                r.name,
-                warehouseType = (int)r.warehouseType,
-                warehouseTypeLabel = GetWarehouseTypeLabel(r.warehouseType),
-                r.location,
-                r.description,
-                r.capacity,
-                r.capacityMeaurmentId,
-                r.capacityMeaurmentName,
-                capacityText = r.capacity.HasValue
-                    ? $"{r.capacity:N2} {r.capacityMeaurmentName ?? ""}".Trim()
-                    : null,
-                r.productsCount,
-                r.isActive,
+                fillByWarehouse.TryGetValue(r.warehouseId, out var fill);
+                return new
+                {
+                    rowNumber = start + i + 1,
+                    r.warehouseId,
+                    r.name,
+                    warehouseType = (int)r.warehouseType,
+                    warehouseTypeLabel = GetWarehouseTypeLabel(r.warehouseType),
+                    r.location,
+                    r.description,
+                    r.capacity,
+                    r.capacityMeaurmentId,
+                    r.capacityMeaurmentName,
+                    capacityText = r.capacity.HasValue
+                        ? $"{r.capacity:N2} {r.capacityMeaurmentName ?? ""}".Trim()
+                        : null,
+                    usedQuantity = fill.UsedQuantity,
+                    fillPercent = fill.FillPercent,
+                    fillText = BuildFillText(fill.UsedQuantity, r.capacity, r.capacityMeaurmentName, fill.FillPercent),
+                    r.isActive,
+                };
             }),
         });
     }
@@ -162,6 +178,141 @@ public class WarehouseController : InventoryControllerBase
 
         return Ok(items);
     }
+
+    // سطح پرشدن انبارها برای داشبورد — فقط احراز هویت (مشابه list)
+    [HttpGet("fill-levels")]
+    public async Task<IActionResult> FillLevels(CancellationToken cancellationToken)
+    {
+        var warehouses = await Db.Warehouses
+            .AsNoTracking()
+            .Where(w => w.IsDeleted != true && w.IsActive == true)
+            .OrderBy(w => w.Name)
+            .Select(w => new
+            {
+                w.WarehouseID,
+                w.Name,
+                w.WarehouseType,
+                w.Location,
+                w.Capacity,
+                w.CapacityMeaurmentId,
+                capacityMeaurmentName = w.CapacityMeaurment != null ? w.CapacityMeaurment.Name : null,
+            })
+            .ToListAsync(cancellationToken);
+
+        var fillByWarehouse = await ComputeFillLevelsAsync(
+            warehouses.Select(w => (
+                w.WarehouseID,
+                w.Capacity,
+                w.CapacityMeaurmentId,
+                w.capacityMeaurmentName)),
+            cancellationToken);
+
+        var result = warehouses.Select(warehouse =>
+        {
+            fillByWarehouse.TryGetValue(warehouse.WarehouseID, out var fill);
+            return new
+            {
+                warehouseId = warehouse.WarehouseID,
+                name = warehouse.Name,
+                warehouseType = (int)warehouse.WarehouseType,
+                warehouseTypeLabel = GetWarehouseTypeLabel(warehouse.WarehouseType),
+                location = warehouse.Location,
+                capacity = warehouse.Capacity,
+                capacityUnit = warehouse.capacityMeaurmentName,
+                usedQuantity = fill.UsedQuantity,
+                fillPercent = fill.FillPercent,
+            };
+        });
+
+        return Ok(result);
+    }
+
+    private async Task<Dictionary<int, WarehouseFillLevel>> ComputeFillLevelsAsync(
+        IEnumerable<(int WarehouseId, decimal? Capacity, int? CapacityMeaurmentId, string? CapacityUnit)> warehouses,
+        CancellationToken cancellationToken)
+    {
+        var list = warehouses.ToList();
+        var warehouseIds = list.Select(w => w.WarehouseId).Distinct().ToList();
+        var result = warehouseIds.ToDictionary(
+            id => id,
+            _ => new WarehouseFillLevel(null, null));
+
+        if (warehouseIds.Count == 0)
+        {
+            return result;
+        }
+
+        var stocks = await Db.InventoryStocks
+            .AsNoTracking()
+            .Where(s =>
+                warehouseIds.Contains(s.WarehouseId) &&
+                s.IsDeleted != true &&
+                s.QuantityInBase > 0)
+            .Select(s => new
+            {
+                s.WarehouseId,
+                s.QuantityInBase,
+                s.Product.BaseMeaurmentId,
+            })
+            .ToListAsync(cancellationToken);
+
+        var stocksByWarehouse = stocks.GroupBy(s => s.WarehouseId).ToDictionary(g => g.Key, g => g.ToList());
+
+        foreach (var warehouse in list)
+        {
+            if (warehouse.Capacity is not > 0 || warehouse.CapacityMeaurmentId is not int capacityUnitId)
+            {
+                continue;
+            }
+
+            try
+            {
+                var capacityUnitEntity = await _conversion.GetMeaurmentAsync(capacityUnitId, cancellationToken);
+                var capacityRootBaseId = _conversion.GetRootBaseMeaurmentId(capacityUnitEntity);
+                var capacityInBase = _conversion.ToBaseQuantity(warehouse.Capacity.Value, capacityUnitEntity);
+
+                var usedInBase = 0m;
+                if (stocksByWarehouse.TryGetValue(warehouse.WarehouseId, out var warehouseStocks))
+                {
+                    usedInBase = warehouseStocks
+                        .Where(s => s.BaseMeaurmentId == capacityRootBaseId)
+                        .Sum(s => s.QuantityInBase);
+                }
+
+                var usedQuantity = _conversion.FromBaseQuantity(usedInBase, capacityUnitEntity);
+                var fillPercent = capacityInBase > 0
+                    ? Math.Round(Math.Min(100m, usedInBase / capacityInBase * 100m), 1)
+                    : 0m;
+
+                result[warehouse.WarehouseId] = new WarehouseFillLevel(usedQuantity, fillPercent);
+            }
+            catch (InvalidOperationException)
+            {
+                // واحد ظرفیت نامعتبر — درصد قابل محاسبه نیست
+            }
+        }
+
+        return result;
+    }
+
+    private static string? BuildFillText(
+        decimal? usedQuantity,
+        decimal? capacity,
+        string? capacityUnit,
+        decimal? fillPercent)
+    {
+        if (fillPercent is null || capacity is not > 0)
+        {
+            return null;
+        }
+
+        var usedText = (usedQuantity ?? 0m).ToString("N2");
+        var capacityText = capacity.Value.ToString("N2");
+        var unit = string.IsNullOrWhiteSpace(capacityUnit) ? "" : $" {capacityUnit.Trim()}";
+        return $"{usedText} / {capacityText}{unit} ({fillPercent:0.#}٪)";
+    }
+
+    private readonly record struct WarehouseFillLevel(decimal? UsedQuantity, decimal? FillPercent);
 
     [HttpPost]
     [HasPermission("inventory.warehouses.create")]
@@ -265,6 +416,15 @@ public class WarehouseController : InventoryControllerBase
         if (hasStocktaking)
         {
             return Conflict(new { message = "این انبار دارای سابقه انبارگردانی است و قابل حذف نیست." });
+        }
+
+        var hasTransfer = await Db.WarehouseTransfers
+            .AnyAsync(t =>
+                t.IsDeleted != true &&
+                (t.FromWarehouseId == id || t.ToWarehouseId == id), cancellationToken);
+        if (hasTransfer)
+        {
+            return Conflict(new { message = "این انبار در اسناد انتقال استفاده شده و قابل حذف نیست." });
         }
 
         entity.IsDeleted = true;

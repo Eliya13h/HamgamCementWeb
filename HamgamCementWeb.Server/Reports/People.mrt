@@ -2,43 +2,23 @@
 <StiSerializer version="1.02" type="Net" application="StiReport">
   <Dictionary Ref="1" type="Dictionary" isKey="true">
     <BusinessObjects isList="true" count="3">
-      <Info Ref="2" type="Stimulsoft.Report.Dictionary.StiBusinessObject" isKey="true">
-        <Alias>Info</Alias>
-        <BusinessObjects isList="true" count="0" />
-        <Category />
-        <Columns isList="true" count="10">
-          <value>CompanyLogo,System.String</value>
-          <value>EnglishCompanyName,System.String</value>
-          <value>PersianCompanyName,System.String</value>
-          <value>ZmLogo,System.String</value>
-          <value>PrintDate,System.String</value>
-          <value>ReportTitle,System.String</value>
-          <value>ReportRangeDate,System.String</value>
-          <value>CompanyAddress,,System.String</value>
-          <value>CompanyPhones,System.String</value>
-          <value>CompanyEmail,System.String</value>
-        </Columns>
-        <Dictionary isRef="1" />
-        <Guid>7163322895064661866268f391670d7b</Guid>
-        <Name>Info</Name>
-      </Info>
-      <Bilances Ref="3" type="Stimulsoft.Report.Dictionary.StiBusinessObject" isKey="true">
+      <Bilances Ref="2" type="Stimulsoft.Report.Dictionary.StiBusinessObject" isKey="true">
         <Alias>Bilances</Alias>
         <BusinessObjects isList="true" count="0" />
         <Category />
         <Columns isList="true" count="6">
-          <value>Status,System.String</value>
-          <value>Description,System.String</value>
-          <value>ShamsiDate,System.String</value>
-          <value>RowNumber,System.Int32</value>
-          <value>SubTotal,System.String</value>
           <value>Comment,System.String</value>
+          <value>Description,System.String</value>
+          <value>RowNumber,System.Int32</value>
+          <value>ShamsiDate,System.String</value>
+          <value>Status,System.String</value>
+          <value>SubTotal,System.String</value>
         </Columns>
         <Dictionary isRef="1" />
         <Guid>fd529baa3c934f8cb49e54ddf87e5484</Guid>
         <Name>Bilances</Name>
       </Bilances>
-      <FinancialRow Ref="4" type="Stimulsoft.Report.Dictionary.StiBusinessObject" isKey="true">
+      <FinancialRow Ref="3" type="Stimulsoft.Report.Dictionary.StiBusinessObject" isKey="true">
         <Alias>FinancialRow</Alias>
         <BusinessObjects isList="true" count="0" />
         <Category />
@@ -49,6 +29,26 @@
         <Guid>90006168f8a14954bcfa4d44204802c0</Guid>
         <Name>FinancialRow</Name>
       </FinancialRow>
+      <Info Ref="4" type="Stimulsoft.Report.Dictionary.StiBusinessObject" isKey="true">
+        <Alias>Info</Alias>
+        <BusinessObjects isList="true" count="0" />
+        <Category />
+        <Columns isList="true" count="10">
+          <value>CompanyAddress,,System.String</value>
+          <value>CompanyEmail,System.String</value>
+          <value>CompanyLogo,System.String</value>
+          <value>CompanyPhones,System.String</value>
+          <value>EnglishCompanyName,System.String</value>
+          <value>PersianCompanyName,System.String</value>
+          <value>PrintDate,System.String</value>
+          <value>ReportRangeDate,System.String</value>
+          <value>ReportTitle,System.String</value>
+          <value>ZmLogo,System.String</value>
+        </Columns>
+        <Dictionary isRef="1" />
+        <Guid>7163322895064661866268f391670d7b</Guid>
+        <Name>Info</Name>
+      </Info>
     </BusinessObjects>
     <Databases isList="true" count="0" />
     <DataSources isList="true" count="0" />
@@ -698,7 +698,7 @@ AAAAEAWJggAAEAQBAAAAAACIggAA4G8O6XEsOh1Q6AsAAAAASUVORK5CYII=</ImageBytes>
   <ReportCreated>7/4/2026 10:45:03 PM</ReportCreated>
   <ReportDescription>گزارش افراد</ReportDescription>
   <ReportFile>D:\Mehraban Sources\HamgamCementWeb\HamgamCementWeb.Server\Reports\People.mrt</ReportFile>
-  <ReportGuid>40dba9ed0cb94548b51159107eb5f37c</ReportGuid>
+  <ReportGuid>f250cd8ecbc9475b91b3908cf6b458b1</ReportGuid>
   <ReportImage isNull="true" />
   <ReportName>People</ReportName>
   <ReportUnit>Millimeters</ReportUnit>

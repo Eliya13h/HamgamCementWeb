@@ -20,10 +20,26 @@ const columns = [
     render: (data) => data ?? '—',
   },
   {
-    data: 'productsCount',
-    title: 'اقلام موجود',
+    data: 'fillText',
+    title: 'ظرفیت فعلی',
     orderable: false,
-    className: 'text-center',
+    className: 'text-end',
+    render: (data, _type, row) => {
+      if (!data || row.fillPercent == null) {
+        return '<span class="text-muted">ظرفیت تعریف نشده</span>'
+      }
+      const percent = Math.max(0, Math.min(100, Number(row.fillPercent)))
+      const tone =
+        percent >= 90 ? 'is-critical' : percent >= 70 ? 'is-warning' : 'is-ok'
+      return `
+        <div class="warehouse-fill-cell ${tone}" title="${data}">
+          <div class="warehouse-fill-bar" aria-hidden="true">
+            <span style="width:${percent}%"></span>
+          </div>
+          <span class="warehouse-fill-text">${data}</span>
+        </div>
+      `
+    },
   },
   {
     data: 'isActive',

@@ -19,8 +19,9 @@ public class ProductionBatchController : ControllerBase
     private static readonly Dictionary<int, string> OrderColumns = new()
     {
         [1] = nameof(ProductionBatch.BatchNumber),
-        [2] = nameof(ProductionBatch.ProductionDate),
-        [3] = nameof(ProductionBatch.Status),
+        [3] = nameof(ProductionBatch.ProductionDate),
+        [5] = nameof(ProductionBatch.Status),
+        [6] = nameof(ProductionBatch.TotalCostInBase),
     };
 
     private readonly AppDbContext _db;
@@ -71,6 +72,7 @@ public class ProductionBatchController : ControllerBase
             query = query.Where(b =>
                 b.BatchNumber.Contains(searchValue) ||
                 b.OutputWarehouse.Name.Contains(searchValue) ||
+                (b.Formula != null && b.Formula.Name.Contains(searchValue)) ||
                 (b.Description != null && b.Description.Contains(searchValue)));
         }
 
@@ -85,14 +87,19 @@ public class ProductionBatchController : ControllerBase
                 productionBatchId = b.ProductionBatchID,
                 batchNumber = b.BatchNumber,
                 productionDate = b.ProductionDate,
+                productionFormulaId = b.ProductionFormulaId,
+                formulaName = b.Formula != null ? b.Formula.Name : null,
+                productionPlanId = b.ProductionPlanId,
+                planLabel = b.Plan != null
+                    ? b.Plan.Product.Name + " / " + b.Plan.PlanDate.ToString("yyyy-MM-dd")
+                    : null,
                 outputWarehouseId = b.OutputWarehouseId,
                 outputWarehouseName = b.OutputWarehouse.Name,
                 status = (int)b.Status,
                 isPosted = b.IsPosted,
-                isTransferredToSales = b.IsTransferredToSales,
-                fixedCost = b.FixedCost,
-                variableCost = b.VariableCost,
                 totalMaterialCostInBase = b.TotalMaterialCostInBase,
+                totalConversionCostInBase = b.TotalConversionCostInBase,
+                totalCostInBase = b.TotalCostInBase,
                 inputLinesCount = b.InputLines.Count(x => x.IsDeleted != true),
                 outputLinesCount = b.OutputLines.Count(x => x.IsDeleted != true),
                 description = b.Description,
@@ -110,15 +117,18 @@ public class ProductionBatchController : ControllerBase
                 r.productionBatchId,
                 r.batchNumber,
                 productionDate = r.productionDate.ToString("yyyy-MM-dd"),
+                r.productionFormulaId,
+                r.formulaName,
+                r.productionPlanId,
+                r.planLabel,
                 r.outputWarehouseId,
                 r.outputWarehouseName,
                 r.status,
                 statusLabel = GetStatusLabel((ProductionBatchStatus)r.status),
                 r.isPosted,
-                r.isTransferredToSales,
-                r.fixedCost,
-                r.variableCost,
                 r.totalMaterialCostInBase,
+                r.totalConversionCostInBase,
+                r.totalCostInBase,
                 r.inputLinesCount,
                 r.outputLinesCount,
                 r.description,
@@ -126,22 +136,13 @@ public class ProductionBatchController : ControllerBase
         });
     }
 
-    // چرا بدون HasPermission: دراپ‌داون سند تولید در فاکتور خرید (ورود از تولید) استفاده می‌شود.
     [HttpGet("list")]
-    public async Task<IActionResult> List(
-        [FromQuery] bool? availableForSales,
-        CancellationToken cancellationToken)
+    [HasPermission("production.daily.view")]
+    public async Task<IActionResult> List(CancellationToken cancellationToken)
     {
-        var query = _db.ProductionBatches
+        var items = await _db.ProductionBatches
             .AsNoTracking()
-            .Where(b => b.IsDeleted != true && b.IsPosted);
-
-        if (availableForSales == true)
-        {
-            query = query.Where(b => !b.IsTransferredToSales);
-        }
-
-        var items = await query
+            .Where(b => b.IsDeleted != true && b.IsPosted)
             .OrderByDescending(b => b.ProductionDate)
             .Select(b => new
             {
@@ -167,14 +168,21 @@ public class ProductionBatchController : ControllerBase
                 productionBatchId = b.ProductionBatchID,
                 batchNumber = b.BatchNumber,
                 productionDate = b.ProductionDate,
+                productionFormulaId = b.ProductionFormulaId,
+                formulaName = b.Formula != null ? b.Formula.Name : null,
+                formulaMode = b.Formula != null ? (int?)b.Formula.Mode : null,
+                productionPlanId = b.ProductionPlanId,
+                planLabel = b.Plan != null
+                    ? b.Plan.Product.Name + " / " + b.Plan.PlanDate.ToString("yyyy-MM-dd")
+                    : null,
                 outputWarehouseId = b.OutputWarehouseId,
                 outputWarehouseName = b.OutputWarehouse.Name,
                 status = (int)b.Status,
                 isPosted = b.IsPosted,
-                isTransferredToSales = b.IsTransferredToSales,
-                fixedCost = b.FixedCost,
-                variableCost = b.VariableCost,
                 totalMaterialCostInBase = b.TotalMaterialCostInBase,
+                totalConversionCostInBase = b.TotalConversionCostInBase,
+                totalCostInBase = b.TotalCostInBase,
+                journalEntryId = b.JournalEntryId,
                 description = b.Description,
                 inputLines = b.InputLines
                     .Where(x => x.IsDeleted != true)
@@ -205,6 +213,17 @@ public class ProductionBatchController : ControllerBase
                         quantityInBase = x.QuantityInBase,
                         unitCostInBase = x.UnitCostInBase,
                         inventoryLotId = x.InventoryLotId,
+                    })
+                    .ToList(),
+                costLines = b.CostLines
+                    .Where(x => x.IsDeleted != true)
+                    .Select(x => new
+                    {
+                        productionBatchCostLineId = x.ProductionBatchCostLineID,
+                        costType = (int)x.CostType,
+                        description = x.Description,
+                        amount = x.Amount,
+                        accountId = x.AccountId,
                     })
                     .ToList(),
             })
@@ -244,22 +263,26 @@ public class ProductionBatchController : ControllerBase
             return ValidationProblem(ModelState);
         }
 
-        var validationError = await ValidateBatchRequestAsync(request, cancellationToken);
-        if (validationError is not null)
+        var prepared = await PrepareBatchFromRequestAsync(request, cancellationToken);
+        if (prepared.Error is not null)
         {
-            return BadRequest(new { message = validationError });
+            return BadRequest(new { message = prepared.Error });
         }
 
         var userId = ResolveCurrentUserId();
         var now = DateTime.Now;
+        var p = prepared.Payload!;
 
         var batch = new ProductionBatch
         {
             BatchNumber = $"TMP{DateTime.UtcNow.Ticks}",
             ProductionDate = request.ProductionDate,
+            ProductionFormulaId = p.FormulaId,
+            ProductionPlanId = p.ProductionPlanId,
             OutputWarehouseId = request.OutputWarehouseId,
-            FixedCost = request.FixedCost,
-            VariableCost = request.VariableCost,
+            // Fixed/Variable فقط مشتق از CostLines برای گزارش‌های قدیمی
+            FixedCost = p.FixedCost,
+            VariableCost = p.VariableCost,
             Description = request.Description?.Trim(),
             Status = ProductionBatchStatus.Draft,
             IsDeleted = false,
@@ -268,7 +291,7 @@ public class ProductionBatchController : ControllerBase
             CreatedBy = userId,
         };
 
-        await AddLinesAsync(batch, request, userId, now, cancellationToken);
+        await AddLinesAsync(batch, p, userId, now, cancellationToken);
 
         _db.ProductionBatches.Add(batch);
         await _db.SaveChangesAsync(cancellationToken);
@@ -294,6 +317,7 @@ public class ProductionBatchController : ControllerBase
         var batch = await _db.ProductionBatches
             .Include(b => b.InputLines.Where(x => x.IsDeleted != true))
             .Include(b => b.OutputLines.Where(x => x.IsDeleted != true))
+            .Include(b => b.CostLines.Where(x => x.IsDeleted != true))
             .FirstOrDefaultAsync(b => b.ProductionBatchID == id && b.IsDeleted != true, cancellationToken);
 
         if (batch is null)
@@ -306,19 +330,23 @@ public class ProductionBatchController : ControllerBase
             return BadRequest(new { message = "سند ثبت‌شده قابل ویرایش نیست." });
         }
 
-        var validationError = await ValidateBatchRequestAsync(request, cancellationToken);
-        if (validationError is not null)
+        var prepared = await PrepareBatchFromRequestAsync(request, cancellationToken);
+        if (prepared.Error is not null)
         {
-            return BadRequest(new { message = validationError });
+            return BadRequest(new { message = prepared.Error });
         }
 
         var userId = ResolveCurrentUserId();
         var now = DateTime.Now;
+        var p = prepared.Payload!;
 
         batch.ProductionDate = request.ProductionDate;
+        batch.ProductionFormulaId = p.FormulaId;
+        batch.ProductionPlanId = p.ProductionPlanId;
         batch.OutputWarehouseId = request.OutputWarehouseId;
-        batch.FixedCost = request.FixedCost;
-        batch.VariableCost = request.VariableCost;
+        // Fixed/Variable فقط مشتق از CostLines برای گزارش‌های قدیمی
+        batch.FixedCost = p.FixedCost;
+        batch.VariableCost = p.VariableCost;
         batch.Description = request.Description?.Trim();
         batch.IsUpdated = true;
         batch.UpdatedAt = now;
@@ -338,21 +366,27 @@ public class ProductionBatchController : ControllerBase
             line.DeletedBy = userId;
         }
 
-        await AddLinesAsync(batch, request, userId, now, cancellationToken);
+        foreach (var line in batch.CostLines.ToList())
+        {
+            line.IsDeleted = true;
+            line.DeletedAt = now;
+            line.DeletedBy = userId;
+        }
+
+        await AddLinesAsync(batch, p, userId, now, cancellationToken);
         await _db.SaveChangesAsync(cancellationToken);
 
         return Ok(new { message = "سند تولید ویرایش شد." });
     }
 
-    // چرا edit: ثبت نهایی (Post) تغییر وضعیت سند تولید است و به .edit نگاشت می‌شود.
-    [HttpPost("{id:int}/post")]
-    [HasPermission("production.daily.edit")]
-    public async Task<IActionResult> Post(int id, CancellationToken cancellationToken)
+    [HttpGet("{id:int}/preview-post")]
+    [HasPermission("production.daily.view")]
+    public async Task<IActionResult> PreviewPost(int id, CancellationToken cancellationToken)
     {
         try
         {
-            await _posting.PostBatchAsync(id, ResolveCurrentUserId(), cancellationToken);
-            return Ok(new { message = "سند تولید ثبت نهایی شد. موجودی به‌روز شد." });
+            var preview = await _posting.PreviewPostAsync(id, cancellationToken);
+            return Ok(preview);
         }
         catch (InvalidOperationException ex)
         {
@@ -360,7 +394,21 @@ public class ProductionBatchController : ControllerBase
         }
     }
 
-    // چرا edit: برگشت ثبت (Unpost) تغییر وضعیت سند تولید است و به .edit نگاشت می‌شود.
+    [HttpPost("{id:int}/post")]
+    [HasPermission("production.daily.edit")]
+    public async Task<IActionResult> Post(int id, CancellationToken cancellationToken)
+    {
+        try
+        {
+            await _posting.PostBatchAsync(id, ResolveCurrentUserId(), cancellationToken);
+            return Ok(new { message = "سند تولید ثبت نهایی شد. موجودی و بهای تمام‌شده به‌روز شد." });
+        }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(new { message = ex.Message });
+        }
+    }
+
     [HttpPost("{id:int}/unpost")]
     [HasPermission("production.daily.edit")]
     public async Task<IActionResult> Unpost(int id, CancellationToken cancellationToken)
@@ -368,7 +416,7 @@ public class ProductionBatchController : ControllerBase
         try
         {
             await _posting.UnpostBatchAsync(id, ResolveCurrentUserId(), cancellationToken);
-            return Ok(new { message = "ثبت سند تولید برگشت خورد. موجودی و مواد مصرفی بازگردانده شد." });
+            return Ok(new { message = "ثبت سند تولید برگشت خورد. موجودی، مواد و سند حسابداری بازگردانده شد." });
         }
         catch (InvalidOperationException ex)
         {
@@ -383,6 +431,7 @@ public class ProductionBatchController : ControllerBase
         var batch = await _db.ProductionBatches
             .Include(b => b.InputLines)
             .Include(b => b.OutputLines)
+            .Include(b => b.CostLines)
             .FirstOrDefaultAsync(b => b.ProductionBatchID == id && b.IsDeleted != true, cancellationToken);
 
         if (batch is null)
@@ -417,22 +466,75 @@ public class ProductionBatchController : ControllerBase
             line.DeletedBy = userId;
         }
 
+        foreach (var line in batch.CostLines)
+        {
+            line.IsDeleted = true;
+            line.DeletedAt = now;
+            line.DeletedBy = userId;
+        }
+
         await _db.SaveChangesAsync(cancellationToken);
         return Ok(new { message = "سند تولید حذف شد." });
     }
 
-    private async Task<string?> ValidateBatchRequestAsync(
+    private sealed class PreparedBatch
+    {
+        public int FormulaId { get; init; }
+        public int? ProductionPlanId { get; init; }
+        // مشتق از CostLines — برای سازگاری گزارش
+        public decimal FixedCost { get; init; }
+        public decimal VariableCost { get; init; }
+        public List<SaveProductionInputLineRequest> InputLines { get; init; } = [];
+        public List<SaveProductionOutputLineRequest> OutputLines { get; init; } = [];
+        public List<SaveProductionCostLineRequest> CostLines { get; init; } = [];
+    }
+
+    private async Task<(string? Error, PreparedBatch? Payload)> PrepareBatchFromRequestAsync(
         SaveProductionBatchRequest request,
         CancellationToken cancellationToken)
     {
-        if (request.InputLines is null || request.InputLines.Count == 0)
+        if (request.ProductionFormulaId <= 0)
         {
-            return "حداقل یک ردیف مصرف وارد کنید.";
+            return ("انتخاب فرمول ساخت الزامی است.", null);
         }
 
-        if (request.OutputLines is null || request.OutputLines.Count == 0)
+        var formula = await _db.ProductionFormulas
+            .AsNoTracking()
+            .Include(f => f.MaterialLines.Where(x => x.IsDeleted != true))
+            .Include(f => f.CostLines.Where(x => x.IsDeleted != true))
+            .FirstOrDefaultAsync(
+                f => f.ProductionFormulaID == request.ProductionFormulaId && f.IsDeleted != true,
+                cancellationToken);
+
+        if (formula is null)
         {
-            return "حداقل یک ردیف تولید وارد کنید.";
+            return ("فرمول ساخت یافت نشد.", null);
+        }
+
+        if (request.ProducedQuantity <= 0)
+        {
+            return ("مقدار تولید باید بزرگ‌تر از صفر باشد.", null);
+        }
+
+        int? productionPlanId = null;
+        if (request.ProductionPlanId is > 0)
+        {
+            var plan = await _db.ProductionPlans
+                .AsNoTracking()
+                .FirstOrDefaultAsync(
+                    p => p.ProductionPlanID == request.ProductionPlanId && p.IsDeleted != true,
+                    cancellationToken);
+            if (plan is null)
+            {
+                return ("برنامه تولید یافت نشد.", null);
+            }
+
+            if (plan.ProductId != formula.ProductId)
+            {
+                return ("محصول برنامه تولید با محصول فرمول ساخت یکسان نیست.", null);
+            }
+
+            productionPlanId = plan.ProductionPlanID;
         }
 
         var outputWarehouse = await _db.Warehouses
@@ -441,15 +543,72 @@ public class ProductionBatchController : ControllerBase
 
         if (outputWarehouse is null)
         {
-            return "انبار مقصد یافت نشد.";
+            return ("انبار مقصد یافت نشد.", null);
         }
 
         if (outputWarehouse.WarehouseType != WarehouseType.Processed)
         {
-            return "انبار مقصد باید از نوع مواد پردازش‌شده باشد.";
+            return ("انبار مقصد باید از نوع مواد پردازش‌شده باشد.", null);
         }
 
-        foreach (var line in request.InputLines)
+        var scale = request.ProducedQuantity / formula.BaseQuantity;
+        List<SaveProductionInputLineRequest> inputs;
+        List<SaveProductionCostLineRequest> costs;
+
+        if (formula.Mode == ProductionFormulaMode.Fixed)
+        {
+            // فرمول ثابت: مواد و هزینه از فرمول مقیاس می‌شوند؛ انبار از درخواست یا پیش‌فرض فرمول
+            var requestInputsByProduct = (request.InputLines ?? [])
+                .GroupBy(l => l.ProductId)
+                .ToDictionary(g => g.Key, g => g.First());
+
+            inputs = [];
+            foreach (var mat in formula.MaterialLines)
+            {
+                requestInputsByProduct.TryGetValue(mat.ProductId, out var fromReq);
+                var warehouseId = fromReq?.WarehouseId > 0
+                    ? fromReq.WarehouseId
+                    : mat.DefaultWarehouseId ?? 0;
+
+                if (warehouseId <= 0)
+                {
+                    return ($"انبار مصرف برای ماده «محصول #{mat.ProductId}» مشخص نشده است.", null);
+                }
+
+                inputs.Add(new SaveProductionInputLineRequest
+                {
+                    WarehouseId = warehouseId,
+                    ProductId = mat.ProductId,
+                    MeaurmentId = mat.MeaurmentId,
+                    Quantity = mat.Quantity * scale,
+                });
+            }
+
+            costs = formula.CostLines.Select(c => new SaveProductionCostLineRequest
+            {
+                CostType = c.CostType,
+                Description = c.Description,
+                Amount = c.AmountMode == ProductionCostAmountMode.Flat ? c.Amount : c.Amount * scale,
+                AccountId = c.AccountId,
+            }).ToList();
+        }
+        else
+        {
+            if (request.InputLines is null || request.InputLines.Count == 0)
+            {
+                return ("حداقل یک ردیف مصرف وارد کنید.", null);
+            }
+
+            inputs = request.InputLines;
+            costs = request.CostLines ?? [];
+        }
+
+        if (inputs.Count == 0)
+        {
+            return ("فرمول ماده ندارد؛ ابتدا مواد فرمول را تعریف کنید.", null);
+        }
+
+        foreach (var line in inputs)
         {
             var warehouse = await _db.Warehouses
                 .AsNoTracking()
@@ -457,61 +616,66 @@ public class ProductionBatchController : ControllerBase
 
             if (warehouse is null)
             {
-                return "یکی از انبارهای مصرف یافت نشد.";
+                return ("یکی از انبارهای مصرف یافت نشد.", null);
             }
 
             if (warehouse.WarehouseType is not (WarehouseType.RawMaterials or WarehouseType.SemiFinished))
             {
-                return $"انبار «{warehouse.Name}» برای مصرف تولید مجاز نیست.";
+                return ($"انبار «{warehouse.Name}» برای مصرف تولید مجاز نیست.", null);
             }
-        }
 
-        // اعتبارسنجی محصول و واحد هر ردیف (مصرف و تولید): محصول باید موجود و فعال باشد و واحد انتخابی
-        // باید جزو واحدهای مجاز همان محصول (ProductMeaurment) باشد تا تبدیل به پایه معنادار باشد.
-        var lineChecks = request.InputLines
-            .Select(l => (l.ProductId, l.MeaurmentId))
-            .Concat(request.OutputLines.Select(l => (l.ProductId, l.MeaurmentId)));
-
-        foreach (var (productId, meaurmentId) in lineChecks)
-        {
             var product = await _db.Products
                 .AsNoTracking()
-                .FirstOrDefaultAsync(p => p.ProductID == productId && p.IsDeleted != true, cancellationToken);
-
+                .FirstOrDefaultAsync(p => p.ProductID == line.ProductId && p.IsDeleted != true, cancellationToken);
             if (product is null)
             {
-                return "یکی از محصولات انتخاب‌شده یافت نشد.";
+                return ("یکی از محصولات مصرفی یافت نشد.", null);
             }
 
-            if (product.IsActive != true)
-            {
-                return $"محصول «{product.Name}» غیرفعال است و قابل استفاده در تولید نیست.";
-            }
-
-            var meaurmentAllowed = await _db.ProductMeaurments
-                .AnyAsync(
-                    pm => pm.ProductId == productId &&
-                          pm.MeaurmentId == meaurmentId &&
-                          pm.IsDeleted != true,
-                    cancellationToken);
-
+            var meaurmentAllowed = await _db.ProductMeaurments.AnyAsync(
+                pm => pm.ProductId == line.ProductId &&
+                      pm.MeaurmentId == line.MeaurmentId &&
+                      pm.IsDeleted != true,
+                cancellationToken);
             if (!meaurmentAllowed)
             {
-                return $"واحد انتخاب‌شده برای محصول «{product.Name}» مجاز نیست.";
+                return ($"واحد انتخاب‌شده برای محصول «{product.Name}» مجاز نیست.", null);
             }
         }
 
-        return null;
+        var outputs = new List<SaveProductionOutputLineRequest>
+        {
+            new()
+            {
+                ProductId = formula.ProductId,
+                MeaurmentId = formula.MeaurmentId,
+                Quantity = request.ProducedQuantity,
+            },
+        };
+
+        var fixedCost = costs.Where(c => c.CostType == ProductionCostType.Fixed).Sum(c => c.Amount);
+        var variableCost = costs.Where(c => c.CostType != ProductionCostType.Fixed).Sum(c => c.Amount);
+
+        return (null, new PreparedBatch
+        {
+            FormulaId = formula.ProductionFormulaID,
+            ProductionPlanId = productionPlanId,
+            FixedCost = fixedCost,
+            VariableCost = variableCost,
+            InputLines = inputs,
+            OutputLines = outputs,
+            CostLines = costs,
+        });
     }
 
     private async Task AddLinesAsync(
         ProductionBatch batch,
-        SaveProductionBatchRequest request,
+        PreparedBatch prepared,
         int? userId,
         DateTime now,
         CancellationToken cancellationToken)
     {
-        foreach (var line in request.InputLines)
+        foreach (var line in prepared.InputLines)
         {
             var quantityInBase = await _conversion.ToBaseAsync(line.Quantity, line.MeaurmentId, cancellationToken);
             batch.InputLines.Add(new ProductionInputLine
@@ -527,7 +691,7 @@ public class ProductionBatchController : ControllerBase
             });
         }
 
-        foreach (var line in request.OutputLines)
+        foreach (var line in prepared.OutputLines)
         {
             var quantityInBase = await _conversion.ToBaseAsync(line.Quantity, line.MeaurmentId, cancellationToken);
             batch.OutputLines.Add(new ProductionOutputLine
@@ -541,6 +705,20 @@ public class ProductionBatchController : ControllerBase
                 CreatedBy = userId,
             });
         }
+
+        foreach (var line in prepared.CostLines)
+        {
+            batch.CostLines.Add(new ProductionBatchCostLine
+            {
+                CostType = line.CostType,
+                Description = line.Description?.Trim(),
+                Amount = line.Amount,
+                AccountId = line.AccountId is > 0 ? line.AccountId : null,
+                IsDeleted = false,
+                CreatedAt = now,
+                CreatedBy = userId,
+            });
+        }
     }
 
     public class SaveProductionBatchRequest
@@ -549,20 +727,25 @@ public class ProductionBatchController : ControllerBase
         public DateTime ProductionDate { get; set; }
 
         [Range(1, int.MaxValue)]
+        public int ProductionFormulaId { get; set; }
+
+        // لینک اختیاری به برنامه تولید
+        public int? ProductionPlanId { get; set; }
+
+        [Range(1, int.MaxValue)]
         public int OutputWarehouseId { get; set; }
 
-        [Range(0, double.MaxValue)]
-        public decimal FixedCost { get; set; }
-
-        [Range(0, double.MaxValue)]
-        public decimal VariableCost { get; set; }
+        // مقدار تولید محصول خروجی فرمول
+        [Range(0.000001, double.MaxValue)]
+        public decimal ProducedQuantity { get; set; }
 
         [MaxLength(2000)]
         public string? Description { get; set; }
 
-        public List<SaveProductionInputLineRequest> InputLines { get; set; } = [];
+        // در فرمول متغیر الزامی؛ در ثابت فقط برای تعیین انبار مصرف استفاده می‌شود
+        public List<SaveProductionInputLineRequest>? InputLines { get; set; }
 
-        public List<SaveProductionOutputLineRequest> OutputLines { get; set; } = [];
+        public List<SaveProductionCostLineRequest>? CostLines { get; set; }
     }
 
     public class SaveProductionInputLineRequest
@@ -590,5 +773,18 @@ public class ProductionBatchController : ControllerBase
 
         [Range(0.000001, double.MaxValue)]
         public decimal Quantity { get; set; }
+    }
+
+    public class SaveProductionCostLineRequest
+    {
+        public ProductionCostType CostType { get; set; }
+
+        [MaxLength(200)]
+        public string? Description { get; set; }
+
+        [Range(0, double.MaxValue)]
+        public decimal Amount { get; set; }
+
+        public int? AccountId { get; set; }
     }
 }

@@ -1,5 +1,6 @@
 ﻿using System.ComponentModel.DataAnnotations;
 using System.ComponentModel.DataAnnotations.Schema;
+using HamgamCementWeb.Server.Data.Models.Finance;
 
 namespace HamgamCementWeb.Server.Data.Models.People
 {
@@ -20,5 +21,11 @@ namespace HamgamCementWeb.Server.Data.Models.People
         // سهم ضرر جداگانه
         [Column(TypeName = "decimal(18,2)")]
         public decimal LossShare { get; set; } = 0;
+
+        // حساب تفصیلی سرمایه زیر معین ۳۱۱
+        public int? AccountId { get; set; }
+
+        [ForeignKey(nameof(AccountId))]
+        public virtual Account? Account { get; set; }
     }
 }

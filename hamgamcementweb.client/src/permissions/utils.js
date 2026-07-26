@@ -19,19 +19,29 @@ export function canViewPage(permissions, hasFullAccess, path) {
   return canAccess(permissions, hasFullAccess, pathPermission(path, 'view'))
 }
 
+/** مسیرهایی که برای نمایش آیتم سایدبار بررسی می‌شوند */
+export function getNavAccessPaths(item) {
+  if (item.permissionPages?.length) {
+    return item.permissionPages.map((page) => page.path)
+  }
+  return item.path ? [item.path] : []
+}
+
 /** فیلتر آیتم‌های سایدبار بر اساس دسترسی مشاهده */
 export function filterNavByPermission(items, can) {
   return items
     .map((item) => {
       if (item.children?.length) {
         const children = item.children.filter((child) =>
-          can(pathPermission(child.path, 'view')),
+          getNavAccessPaths(child).some((path) => can(pathPermission(path, 'view'))),
         )
         if (children.length === 0) return null
         return { ...item, children }
       }
 
-      return can(pathPermission(item.path, 'view')) ? item : null
+      return getNavAccessPaths(item).some((path) => can(pathPermission(path, 'view')))
+        ? item
+        : null
     })
     .filter(Boolean)
 }

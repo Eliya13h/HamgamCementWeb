@@ -58,10 +58,10 @@ public class GeneralSettingsController : ControllerBase
             ? string.Empty
             : request.CompanyLogoPath.Trim();
         settings.CompanyAddress = request.CompanyAddress?.Trim() ?? string.Empty;
-        settings.CompanyPhoneNumber1 = request.CompanyPhoneNumber1?.Trim() ?? string.Empty;
+        settings.CompanyPhoneNumber1 = request.CompanyPhoneNumber1.Trim();
         settings.CompanyPhoneNumber2 = request.CompanyPhoneNumber2?.Trim() ?? string.Empty;
         settings.CompanyPhoneNumber3 = request.CompanyPhoneNumber3?.Trim() ?? string.Empty;
-        settings.CompanyEmail = request.CompanyEmail?.Trim() ?? string.Empty;
+        settings.CompanyEmail = request.CompanyEmail.Trim();
         settings.CompanySite = request.CompanySite?.Trim() ?? string.Empty;
 
         await _db.SaveChangesAsync(cancellationToken);
@@ -194,8 +194,9 @@ public class GeneralSettingsController : ControllerBase
         [MaxLength(500)]
         public string? CompanyAddress { get; set; }
 
+        [Required(ErrorMessage = "تلفن ۱ الزامی است.")]
         [MaxLength(50)]
-        public string? CompanyPhoneNumber1 { get; set; }
+        public string CompanyPhoneNumber1 { get; set; } = string.Empty;
 
         [MaxLength(50)]
         public string? CompanyPhoneNumber2 { get; set; }
@@ -203,9 +204,10 @@ public class GeneralSettingsController : ControllerBase
         [MaxLength(50)]
         public string? CompanyPhoneNumber3 { get; set; }
 
+        [Required(ErrorMessage = "ایمیل الزامی است.")]
         [MaxLength(200)]
         [EmailAddress(ErrorMessage = "ایمیل نامعتبر است.")]
-        public string? CompanyEmail { get; set; }
+        public string CompanyEmail { get; set; } = string.Empty;
 
         [MaxLength(300)]
         public string? CompanySite { get; set; }

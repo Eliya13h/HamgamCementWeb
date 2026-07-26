@@ -31,6 +31,10 @@ namespace HamgamCementWeb.Server.Data.Models.Inventory
         [Column(TypeName = "decimal(18,6)")]
         public decimal DifferenceInBase { get; set; }
 
+        // بهای تعدیل در ارز پایه (|تفاوت| × بهای FIFO/میانگین) — پس از تأیید پر می‌شود
+        [Column(TypeName = "decimal(18,4)")]
+        public decimal AdjustmentCostInBase { get; set; }
+
         [MaxLength(500)]
         public string? Notes { get; set; }
 

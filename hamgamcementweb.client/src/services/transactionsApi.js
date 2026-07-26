@@ -96,11 +96,6 @@ export const PURCHASE_ENTRY_SOURCE = {
   Production: 2,
 }
 
-export const PURCHASE_ENTRY_SOURCE_OPTIONS = [
-  { value: 1, label: 'خرید از بازار' },
-  { value: 2, label: 'ورود از تولید' },
-]
-
 export function getInvoiceDocumentTypeLabel(documentType, kind = 'purchase') {
   if (documentType === INVOICE_DOCUMENT_TYPE.PurchaseReturn) return 'برگشت از خرید'
   if (documentType === INVOICE_DOCUMENT_TYPE.SaleReturn) return 'برگشت از فروش'
@@ -129,7 +124,6 @@ export const purchaseInvoicesApi = {
   ...makeResource('/api/transactions/purchase-invoices'),
   getById: (id) => request(`/api/transactions/purchase-invoices/${id}`),
   fetchNextCodePreview: () => request('/api/transactions/purchase-invoices/next-code-preview'),
-  fetchProductionTrace: (id) => request(`/api/transactions/purchase-invoices/${id}/production-trace`),
 }
 
 export const saleInvoicesApi = {
@@ -236,15 +230,15 @@ export function buildPurchasePayload(header, lines, exchangeRate) {
     invoiceDate: header.invoiceDate,
     status: Number(header.status) || 4,
     currencyId: Number(header.currencyId),
-    entrySource: Number(header.entrySource) || PURCHASE_ENTRY_SOURCE.Market,
-    productionBatchId:
-      Number(header.entrySource) === PURCHASE_ENTRY_SOURCE.Production && header.productionBatchId
-        ? Number(header.productionBatchId)
-        : null,
-    fixedCost: Number(header.fixedCost) || 0,
-    variableCost: Number(header.variableCost) || 0,
+    entrySource: PURCHASE_ENTRY_SOURCE.Market,
+    productionBatchId: null,
     description: header.description || null,
     paidAmount: Number(header.paidAmount) || 0,
+    freightMode: Number(header.freightMode) || 0,
+    freightRatePerTon: Number(header.freightRatePerTon) || 0,
+    freightWeightTon: Number(header.freightWeightTon) || 0,
+    freightVehicleId: header.freightVehicleId ? Number(header.freightVehicleId) : null,
+    freightCarrierName: header.freightCarrierName || null,
     items: lines.map((line) => ({
       purchaseItemId: line.purchaseItemId ?? null,
       productId: Number(line.productId),
@@ -271,6 +265,11 @@ export function buildSalePayload(header, lines, exchangeRate) {
     currencyId: Number(header.currencyId),
     description: header.description || null,
     paidAmount: Number(header.paidAmount) || 0,
+    freightMode: Number(header.freightMode) || 0,
+    freightRatePerTon: Number(header.freightRatePerTon) || 0,
+    freightWeightTon: Number(header.freightWeightTon) || 0,
+    freightVehicleId: header.freightVehicleId ? Number(header.freightVehicleId) : null,
+    freightCarrierName: header.freightCarrierName || null,
     items: lines.map((line) => ({
       salesItemId: line.salesItemId ?? null,
       productId: Number(line.productId),

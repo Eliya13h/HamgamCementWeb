@@ -17,8 +17,7 @@ public class ProductionPlanController : ControllerBase
 {
     private static readonly Dictionary<int, string> OrderColumns = new()
     {
-        [1] = nameof(ProductionPlan.PlanDate),
-        [2] = nameof(ProductionPlan.ProductId),
+        [2] = nameof(ProductionPlan.PlanDate),
         [3] = nameof(ProductionPlan.PlannedQuantity),
     };
 
@@ -75,6 +74,10 @@ public class ProductionPlanController : ControllerBase
                 meaurmentName = p.Meaurment.Name,
                 plannedQuantity = p.PlannedQuantity,
                 notes = p.Notes,
+                linkedBatchesCount = _db.ProductionBatches.Count(b =>
+                    b.IsDeleted != true && b.ProductionPlanId == p.ProductionPlanID),
+                postedBatchesCount = _db.ProductionBatches.Count(b =>
+                    b.IsDeleted != true && b.ProductionPlanId == p.ProductionPlanID && b.IsPosted),
             })
             .ToListAsync(cancellationToken);
 
@@ -95,8 +98,92 @@ public class ProductionPlanController : ControllerBase
                 r.meaurmentName,
                 r.plannedQuantity,
                 r.notes,
+                r.linkedBatchesCount,
+                r.postedBatchesCount,
+                statusLabel = r.postedBatchesCount > 0
+                    ? "تولید شده"
+                    : r.linkedBatchesCount > 0
+                        ? "در حال تولید"
+                        : "برنامه‌ریزی",
             }),
         });
+    }
+
+    [HttpGet("list")]
+    [HasPermission("production.plan.view")]
+    public async Task<IActionResult> List(
+        [FromQuery] int? productId,
+        CancellationToken cancellationToken)
+    {
+        var query = _db.ProductionPlans
+            .AsNoTracking()
+            .Where(p => p.IsDeleted != true);
+
+        if (productId is > 0)
+        {
+            query = query.Where(p => p.ProductId == productId);
+        }
+
+        var items = await query
+            .OrderByDescending(p => p.PlanDate)
+            .Take(100)
+            .Select(p => new
+            {
+                value = p.ProductionPlanID,
+                label =
+                    p.Product.Name + " — " +
+                    p.PlanDate.ToString("yyyy-MM-dd") + " — " +
+                    p.PlannedQuantity.ToString("0.####") + " " + p.Meaurment.Name,
+                productId = p.ProductId,
+                meaurmentId = p.MeaurmentId,
+                plannedQuantity = p.PlannedQuantity,
+                planDate = p.PlanDate.ToString("yyyy-MM-dd"),
+                defaultFormulaId = _db.ProductionFormulas
+                    .Where(f =>
+                        f.IsDeleted != true &&
+                        f.ProductId == p.ProductId &&
+                        f.IsDefault)
+                    .Select(f => (int?)f.ProductionFormulaID)
+                    .FirstOrDefault(),
+            })
+            .ToListAsync(cancellationToken);
+
+        return Ok(items);
+    }
+
+    [HttpGet("{id:int}")]
+    [HasPermission("production.plan.view")]
+    public async Task<IActionResult> GetById(int id, CancellationToken cancellationToken)
+    {
+        var plan = await _db.ProductionPlans
+            .AsNoTracking()
+            .Where(p => p.ProductionPlanID == id && p.IsDeleted != true)
+            .Select(p => new
+            {
+                productionPlanId = p.ProductionPlanID,
+                planDate = p.PlanDate.ToString("yyyy-MM-dd"),
+                productId = p.ProductId,
+                productName = p.Product.Name,
+                meaurmentId = p.MeaurmentId,
+                meaurmentName = p.Meaurment.Name,
+                plannedQuantity = p.PlannedQuantity,
+                notes = p.Notes,
+                defaultFormulaId = _db.ProductionFormulas
+                    .Where(f =>
+                        f.IsDeleted != true &&
+                        f.ProductId == p.ProductId &&
+                        f.IsDefault)
+                    .Select(f => (int?)f.ProductionFormulaID)
+                    .FirstOrDefault(),
+            })
+            .FirstOrDefaultAsync(cancellationToken);
+
+        if (plan is null)
+        {
+            return NotFound(new { message = "برنامه تولید یافت نشد." });
+        }
+
+        return Ok(plan);
     }
 
     [HttpPost]

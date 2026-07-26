@@ -280,6 +280,11 @@ function CustomersPage() {
                 ? `<span class="dt-cell-deleted">${data ?? ''}</span>`
                 : (data ?? ''),
           },
+          {
+            data: 'accountCode',
+            name: 'accountCode',
+            render: (data) => data || '—',
+          },
           { data: 'phoneNumber', name: 'phoneNumber' },
           { data: 'initialBalance', name: 'initialBalance', render: amountCurrencyRender },
           { data: 'totalPurchase', name: 'totalPurchase', render: amountCurrencyRender },
@@ -301,9 +306,9 @@ function CustomersPage() {
             width: '56px',
             className: 'text-center',
           },
-          { targets: [3, 4, 5, 6, 7], className: 'text-center' },
+          { targets: [2, 4, 5, 6, 7, 8], className: 'text-center' },
           {
-            targets: 8,
+            targets: 9,
             orderable: false,
             searchable: false,
             className: 'text-center all dt-actions-col',
@@ -316,7 +321,7 @@ function CustomersPage() {
 
   const actionSlots = useMemo(
     () => ({
-      8: (_data, _type, row) => {
+      9: (_data, _type, row) => {
         const canDeleteRow = row.accountStatusCode === 'settled'
         return (
         <div className="dt-actions">
@@ -394,6 +399,7 @@ function CustomersPage() {
                 <tr>
                   <th>#</th>
                   <th>نام</th>
+                  <th>کد حساب</th>
                   <th>تلفن</th>
                   <th>موجودی اولیه</th>
                   <th>کل خرید</th>

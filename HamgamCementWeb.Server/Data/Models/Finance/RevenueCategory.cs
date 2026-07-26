@@ -1,4 +1,5 @@
 using System.ComponentModel.DataAnnotations;
+using System.ComponentModel.DataAnnotations.Schema;
 
 namespace HamgamCementWeb.Server.Data.Models.Finance;
 
@@ -20,6 +21,12 @@ public class RevenueCategory : BaseEntity
 
     // دسته‌های سیستمی قابل حذف نیستند
     public bool IsSystem { get; set; }
+
+    // نگاشت به حساب معین درآمد در دفترکل
+    public int? AccountId { get; set; }
+
+    [ForeignKey(nameof(AccountId))]
+    public virtual Account? Account { get; set; }
 
     public virtual ICollection<Revenue> Revenues { get; set; } = [];
 }

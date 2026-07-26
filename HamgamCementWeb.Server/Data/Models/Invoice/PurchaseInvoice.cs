@@ -5,6 +5,7 @@ using HamgamCementWeb.Server.Data.Models.Finance;
 using HamgamCementWeb.Server.Data.Models.Inventory;
 using HamgamCementWeb.Server.Data.Models.People;
 using HamgamCementWeb.Server.Data.Models.Production;
+using HamgamCementWeb.Server.Data.Models.Transport;
 
 namespace HamgamCementWeb.Server.Data.Models.Invoice;
 
@@ -30,21 +31,8 @@ public class PurchaseInvoice : BaseEntity
     // منبع ورود کالا — خرید از بازار یا انتقال از بخش تولید
     public PurchaseEntrySource EntrySource { get; set; } = PurchaseEntrySource.Market;
 
-    // سند تولید مرتبط — برای ردیابی اقلام واردشده از تولید
+    // سند تولید مرتبط — برای ردیابی اقلام واردشده از تولید (legacy؛ ورود جدید از تولید پشتیبانی نمی‌شود)
     public int? ProductionBatchId { get; set; }
-
-    // هزینه ثابت و متغیر فاکتور — در جمع فاکتور و بهای واحد لحاظ می‌شود
-    [Column(TypeName = "decimal(18,4)")]
-    public decimal FixedCost { get; set; }
-
-    [Column(TypeName = "decimal(18,4)")]
-    public decimal VariableCost { get; set; }
-
-    [Column(TypeName = "decimal(18,4)")]
-    public decimal FixedCostInBaseCurrency { get; set; }
-
-    [Column(TypeName = "decimal(18,4)")]
-    public decimal VariableCostInBaseCurrency { get; set; }
 
     // فاکتور مبدأ — برای اسناد برگشت از خرید
     public int? ReferencePurchaseInvoiceId { get; set; }
@@ -77,6 +65,44 @@ public class PurchaseInvoice : BaseEntity
 
     public int? ExpenseId { get; set; }
 
+    // سند دفترروزنامه پس از ثبت نهایی
+    public int? JournalEntryId { get; set; }
+
+    // نوع حمل — بدون / خودی / کرایه‌ای
+    public FreightMode FreightMode { get; set; } = FreightMode.None;
+
+    // نرخ کرایه به‌ازای هر تن (ارز فاکتور)
+    [Column(TypeName = "decimal(18,4)")]
+    public decimal FreightRatePerTon { get; set; }
+
+    // وزن حمل به تن — معمولاً از جمع مقدار پایه خطوط ÷ ۱۰۰۰
+    [Column(TypeName = "decimal(18,4)")]
+    public decimal FreightWeightTon { get; set; }
+
+    // مبلغ کرایه = نرخ × تن (ارز فاکتور) — هزینه دوره، وارد FIFO نمی‌شود
+    [Column(TypeName = "decimal(18,4)")]
+    public decimal FreightAmount { get; set; }
+
+    // مبلغ کرایه به ارز پایه
+    [Column(TypeName = "decimal(18,4)")]
+    public decimal FreightAmountInBaseCurrency { get; set; }
+
+    // وسیله ناوگان خودی
+    public int? FreightVehicleId { get; set; }
+
+    // نام باربری / مالک خارجی
+    [MaxLength(200)]
+    public string? FreightCarrierName { get; set; }
+
+    // سفر ساخته‌شده هنگام ثبت نهایی
+    public int? TransportTripId { get; set; }
+
+    // مصرف حسابداری مربوط به کرایه حمل
+    public int? FreightExpenseId { get; set; }
+
+    // سند دفترروزنامه کرایه حمل
+    public int? FreightJournalEntryId { get; set; }
+
     [ForeignKey(nameof(SupplierId))]
     public virtual Supplier Supplier { get; set; } = null!;
 
@@ -94,11 +120,26 @@ public class PurchaseInvoice : BaseEntity
 
     public virtual Expense? Expense { get; set; }
 
+    [ForeignKey(nameof(JournalEntryId))]
+    public virtual JournalEntry? JournalEntry { get; set; }
+
     [ForeignKey(nameof(ReferencePurchaseInvoiceId))]
     public virtual PurchaseInvoice? ReferencePurchaseInvoice { get; set; }
 
     [ForeignKey(nameof(ProductionBatchId))]
     public virtual Production.ProductionBatch? ProductionBatch { get; set; }
+
+    [ForeignKey(nameof(FreightVehicleId))]
+    public virtual Vehicle? FreightVehicle { get; set; }
+
+    [ForeignKey(nameof(TransportTripId))]
+    public virtual TransportTrip? TransportTrip { get; set; }
+
+    [ForeignKey(nameof(FreightExpenseId))]
+    public virtual Expense? FreightExpense { get; set; }
+
+    [ForeignKey(nameof(FreightJournalEntryId))]
+    public virtual JournalEntry? FreightJournalEntry { get; set; }
 
     public virtual ICollection<PurchaseInvoice> ReturnDocuments { get; set; } = [];
 

@@ -14,6 +14,10 @@ const movementTypeBadge = {
   SaleOut: '<span class="badge bg-primary">خروج فروش</span>',
   SaleReturnIn: '<span class="badge bg-info text-dark">برگشت فروش</span>',
   StocktakingAdjust: '<span class="badge bg-secondary">تعدیل انبارگردانی</span>',
+  ProductionIn: '<span class="badge badge-active">ورود از تولید</span>',
+  ProductionOut: '<span class="badge badge-warning">مصرف تولید</span>',
+  TransferIn: '<span class="badge bg-info text-dark">ورود انتقال</span>',
+  TransferOut: '<span class="badge bg-primary">خروج انتقال</span>',
 }
 
 function WarehouseTurnoverPage() {
@@ -190,7 +194,7 @@ function WarehouseTurnoverPage() {
         <div className="card-header bg-transparent border-0 pt-4 px-4 pb-0">
           <h2 className="card-title mb-1">گردش کالا (دفتر انبار)</h2>
           <p className="text-muted small mb-0">
-            گزارش ورود و خروج اقلام هر انبار بر اساس خرید، فروش، برگشت و انبارگردانی
+            گزارش ورود و خروج اقلام هر انبار بر اساس خرید، فروش، تولید، انتقال و انبارگردانی
           </p>
         </div>
 

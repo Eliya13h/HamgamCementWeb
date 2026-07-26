@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import Icon from '../../components/common/Icon'
 import AmountField from '../../components/common/AmountField'
 import JalaliDateField from '../../components/common/JalaliDateField'
@@ -6,22 +7,51 @@ import SearchableSelect from '../../components/common/SearchableSelect'
 import DataTable from '../../lib/dataTableSetup'
 import { usePageCrud } from '../../permissions/usePageCrud'
 import { todayGregorianIso } from '../../lib/afghanSolarCalendar'
-import {
-  fetchProcessedWarehouseOptions,
-  fetchProductionMaterialWarehouses,
-} from '../../services/inventoryApi'
+import { fetchProcessedWarehouseOptions, fetchProductionMaterialWarehouses } from '../../services/inventoryApi'
 import { fetchMeaurmentOptions, fetchProductOptions } from '../../services/productsApi'
 import {
   buildProductionBatchPayload,
+  PRODUCTION_COST_TYPE_OPTIONS,
+  PRODUCTION_FORMULA_MODE,
   productionBatchesApi,
+  productionFormulasApi,
+  productionPlansApi,
+  scaleFormulaForProduction,
 } from '../../services/productionApi'
 import { dataTableLanguage, formatAmount, formatJalaliDate } from '../Transport/CrudTablePage'
 
 const emptyInputLine = { warehouseId: '', productId: '', meaurmentId: '', quantity: '' }
-const emptyOutputLine = { productId: '', meaurmentId: '', quantity: '' }
+const emptyCostLine = { costType: '', description: '', amount: '' }
+const emptyForm = () => ({
+  productionDate: todayGregorianIso(),
+  productionFormulaId: '',
+  productionPlanId: '',
+  producedQuantity: '',
+  outputWarehouseId: '',
+  outputProductName: '',
+  outputMeaurmentName: '',
+  formulaMode: null,
+  description: '',
+  inputLines: [],
+  costLines: [],
+})
+
+const batchColumns = [
+  { data: 'batchNumber', title: 'شماره سند' },
+  { data: 'formulaName', title: 'فرمول' },
+  { data: 'productionDate', title: 'تاریخ' },
+  { data: 'outputWarehouseName', title: 'انبار مقصد' },
+  { data: 'statusLabel', title: 'وضعیت' },
+  { data: 'totalCostInBase', title: 'بهای تمام‌شده' },
+]
+
+function costTypeLabel(value) {
+  return PRODUCTION_COST_TYPE_OPTIONS.find((item) => item.value === Number(value))?.label ?? value
+}
 
 function DailyProductionPage() {
   const tableRef = useRef(null)
+  const [searchParams, setSearchParams] = useSearchParams()
   const { canCreate, canEdit, canDelete } = usePageCrud('/production/daily')
   const [loadError, setLoadError] = useState('')
   const [showForm, setShowForm] = useState(false)
@@ -29,43 +59,42 @@ function DailyProductionPage() {
   const [viewPosted, setViewPosted] = useState(false)
   const [deleteRow, setDeleteRow] = useState(null)
   const [traceData, setTraceData] = useState(null)
+  const [postPreview, setPostPreview] = useState(null)
+  const [postTargetId, setPostTargetId] = useState(null)
   const [formError, setFormError] = useState('')
   const [submitting, setSubmitting] = useState(false)
+  const [formulaOptions, setFormulaOptions] = useState([])
+  const [planOptions, setPlanOptions] = useState([])
   const [materialWarehouses, setMaterialWarehouses] = useState([])
   const [processedWarehouses, setProcessedWarehouses] = useState([])
   const [products, setProducts] = useState([])
   const [meaurments, setMeaurments] = useState([])
-  const [form, setForm] = useState({
-    productionDate: '',
-    outputWarehouseId: '',
-    fixedCost: '',
-    variableCost: '',
-    description: '',
-    inputLines: [{ ...emptyInputLine }],
-    outputLines: [{ ...emptyOutputLine }],
-  })
+  const [formula, setFormula] = useState(null)
+  const [form, setForm] = useState(emptyForm)
+  const planBootstrapDone = useRef(false)
 
   useEffect(() => {
+    productionFormulasApi.fetchOptions().then(setFormulaOptions).catch(() => setFormulaOptions([]))
+    productionPlansApi.fetchOptions().then(setPlanOptions).catch(() => setPlanOptions([]))
     fetchProductionMaterialWarehouses().then(setMaterialWarehouses).catch(() => setMaterialWarehouses([]))
     fetchProcessedWarehouseOptions().then(setProcessedWarehouses).catch(() => setProcessedWarehouses([]))
     fetchProductOptions().then(setProducts).catch(() => setProducts([]))
     fetchMeaurmentOptions().then(setMeaurments).catch(() => setMeaurments([]))
   }, [])
 
-  const meaurmentsForProduct = useCallback(
-    (productId) => {
-      const product = products.find((p) => String(p.value) === String(productId))
-      if (!product?.baseMeaurmentId) return meaurments
-      return meaurments.filter(
-        (m) => m.baseMeaurmentId === product.baseMeaurmentId || m.value === product.baseMeaurmentId,
-      )
-    },
-    [products, meaurments],
-  )
+  const meaurmentsForProduct = useCallback((productId) => {
+    const product = products.find((item) => String(item.value) === String(productId))
+    if (!product?.baseMeaurmentId) return meaurments
+    return meaurments.filter((item) => item.baseMeaurmentId === product.baseMeaurmentId || item.value === product.baseMeaurmentId)
+  }, [meaurments, products])
 
-  const reloadTable = useCallback(() => {
-    tableRef.current?.dt()?.ajax.reload(null, false)
-  }, [])
+  const reloadTable = useCallback(() => tableRef.current?.dt()?.ajax.reload(null, false), [])
+  const isFixedFormula = Number(form.formulaMode) === PRODUCTION_FORMULA_MODE.Fixed
+
+  const conversionCostPreview = useMemo(
+    () => (form.costLines || []).reduce((sum, line) => sum + (Number(line.amount) || 0), 0),
+    [form.costLines],
+  )
 
   const closeModals = useCallback(() => {
     setShowForm(false)
@@ -73,21 +102,84 @@ function DailyProductionPage() {
     setViewPosted(false)
     setDeleteRow(null)
     setTraceData(null)
+    setPostPreview(null)
+    setPostTargetId(null)
     setFormError('')
     setSubmitting(false)
+    setFormula(null)
   }, [])
+
+  const applyFormulaScale = useCallback((nextFormula, quantity) => {
+    const scaled = scaleFormulaForProduction(nextFormula, quantity)
+    setForm((prev) => ({
+      ...prev,
+      inputLines: scaled.inputLines,
+      costLines: scaled.costLines,
+      outputProductName: scaled.outputProductName ?? '',
+      outputMeaurmentName: scaled.outputMeaurmentName ?? '',
+      formulaMode: scaled.mode,
+    }))
+  }, [])
+
+  const handleFormulaChange = async (productionFormulaId) => {
+    setFormError('')
+    setFormula(null)
+    setForm((prev) => ({
+      ...prev,
+      productionFormulaId,
+      inputLines: [],
+      costLines: [],
+      outputProductName: '',
+      outputMeaurmentName: '',
+      formulaMode: null,
+    }))
+    if (!productionFormulaId) return
+    try {
+      const selected = await productionFormulasApi.getForProduction(productionFormulaId)
+      setFormula(selected)
+      const matchingPlans = await productionPlansApi.fetchOptions(selected.productId).catch(() => [])
+      setPlanOptions((prev) => {
+        const others = prev.filter((item) => String(item.productId) !== String(selected.productId))
+        return [...matchingPlans, ...others]
+      })
+      applyFormulaScale(selected, form.producedQuantity)
+    } catch (error) {
+      setFormError(error.message)
+    }
+  }
+
+  const handleProducedQuantityChange = (producedQuantity) => {
+    setForm((prev) => ({ ...prev, producedQuantity }))
+    if (formula) applyFormulaScale(formula, producedQuantity)
+  }
+
+  const handlePlanChange = async (productionPlanId) => {
+    setForm((prev) => ({ ...prev, productionPlanId }))
+    if (!productionPlanId) return
+    try {
+      const plan = await productionPlansApi.getById(productionPlanId)
+      setForm((prev) => ({
+        ...prev,
+        productionPlanId,
+        producedQuantity: plan.plannedQuantity ?? prev.producedQuantity,
+        productionDate: plan.planDate || prev.productionDate,
+      }))
+      const formulaId = plan.defaultFormulaId || form.productionFormulaId
+      if (formulaId) {
+        const selected = await productionFormulasApi.getForProduction(formulaId)
+        setFormula(selected)
+        setForm((prev) => ({ ...prev, productionFormulaId: formulaId }))
+        applyFormulaScale(selected, plan.plannedQuantity)
+      }
+    } catch (error) {
+      setFormError(error.message)
+    }
+  }
 
   const openCreate = useCallback(() => {
     setFormError('')
-    setForm({
-      productionDate: todayGregorianIso(),
-      outputWarehouseId: '',
-      fixedCost: '',
-      variableCost: '',
-      description: '',
-      inputLines: [{ ...emptyInputLine }],
-      outputLines: [{ ...emptyOutputLine }],
-    })
+    setForm(emptyForm())
+    setFormula(null)
     setEditId(null)
     setViewPosted(false)
     setShowForm(true)
@@ -96,23 +188,35 @@ function DailyProductionPage() {
   const openEdit = useCallback(async (row, readOnly = false) => {
     setFormError('')
     try {
-      const batch = await productionBatchesApi.getById(row.productionBatchId)
+      const [batch, selected] = await Promise.all([
+        productionBatchesApi.getById(row.productionBatchId),
+        productionFormulasApi.getForProduction(row.productionFormulaId),
+      ])
+      const output = batch.outputLines?.[0]
+      setFormula(selected)
       setForm({
         productionDate: String(batch.productionDate).slice(0, 10),
+        productionFormulaId: batch.productionFormulaId,
+        productionPlanId: batch.productionPlanId ?? '',
+        producedQuantity: output?.quantity ?? '',
         outputWarehouseId: batch.outputWarehouseId,
-        fixedCost: batch.fixedCost ?? '',
-        variableCost: batch.variableCost ?? '',
+        outputProductName: output?.productName ?? selected.productName ?? '',
+        outputMeaurmentName: output?.meaurmentName ?? selected.meaurmentName ?? '',
+        formulaMode: batch.formulaMode ?? selected.mode,
         description: batch.description ?? '',
         inputLines: (batch.inputLines ?? []).map((line) => ({
           warehouseId: line.warehouseId,
           productId: line.productId,
           meaurmentId: line.meaurmentId,
           quantity: line.quantity,
+          productName: line.productName,
+          meaurmentName: line.meaurmentName,
         })),
-        outputLines: (batch.outputLines ?? []).map((line) => ({
-          productId: line.productId,
-          meaurmentId: line.meaurmentId,
-          quantity: line.quantity,
+        costLines: (batch.costLines ?? []).map((line) => ({
+          costType: line.costType,
+          description: line.description ?? '',
+          amount: line.amount,
+          accountId: line.accountId ?? '',
         })),
       })
       setEditId(batch.productionBatchId)
@@ -123,15 +227,95 @@ function DailyProductionPage() {
     }
   }, [])
 
-  const openTrace = useCallback(async (row) => {
+  useEffect(() => {
+    const planId = searchParams.get('planId')
+    if (!planId || planBootstrapDone.current || !canCreate) return
+    planBootstrapDone.current = true
+
+    const bootstrapFromPlan = async () => {
+      setFormError('')
+      setForm(emptyForm())
+      setFormula(null)
+      setEditId(null)
+      setViewPosted(false)
+      setShowForm(true)
+      try {
+        const plan = await productionPlansApi.getById(planId)
+        setForm((prev) => ({
+          ...prev,
+          productionPlanId: planId,
+          producedQuantity: plan.plannedQuantity ?? '',
+          productionDate: plan.planDate || prev.productionDate,
+        }))
+        if (plan.defaultFormulaId) {
+          const selected = await productionFormulasApi.getForProduction(plan.defaultFormulaId)
+          setFormula(selected)
+          setForm((prev) => ({
+            ...prev,
+            productionFormulaId: plan.defaultFormulaId,
+            productionPlanId: planId,
+            producedQuantity: plan.plannedQuantity ?? '',
+            productionDate: plan.planDate || prev.productionDate,
+          }))
+          applyFormulaScale(selected, plan.plannedQuantity)
+        }
+      } catch (error) {
+        setFormError(error.message)
+      } finally {
+        setSearchParams({}, { replace: true })
+      }
+    }
+
+    bootstrapFromPlan()
+  }, [searchParams, canCreate, applyFormulaScale, setSearchParams])
+
+  const updateLine = (section, index, name, value) => {
+    setForm((prev) => ({
+      ...prev,
+      [section]: prev[section].map((line, lineIndex) => (lineIndex === index ? { ...line, [name]: value } : line)),
+    }))
+  }
+
+  const openPostPreview = useCallback(async (id) => {
+    if (!id) return
+    setSubmitting(true)
+    setFormError('')
+    setLoadError('')
+    try {
+      const preview = await productionBatchesApi.previewPost(id)
+      setPostTargetId(id)
+      setPostPreview(preview)
+    } catch (error) {
+      setLoadError(error.message)
+      setFormError(error.message)
+    } finally {
+      setSubmitting(false)
+    }
+  }, [])
+
+  const confirmPost = useCallback(async () => {
+    if (!postTargetId) return
+    setSubmitting(true)
     setFormError('')
     try {
-      const trace = await productionBatchesApi.trace(row.productionBatchId)
-      setTraceData(trace)
+      await productionBatchesApi.post(postTargetId)
+      closeModals()
+      reloadTable()
+    } catch (error) {
+      setFormError(error.message)
+      setSubmitting(false)
+    }
+  }, [closeModals, postTargetId, reloadTable])
+
+  const handleUnpost = useCallback(async (row) => {
+    setLoadError('')
+    try {
+      await productionBatchesApi.unpost(row.productionBatchId)
+      reloadTable()
     } catch (error) {
       setLoadError(error.message)
     }
-  }, [])
+  }, [reloadTable])
 
   const handleSubmit = async (event) => {
     event.preventDefault()
@@ -140,11 +324,8 @@ function DailyProductionPage() {
     setFormError('')
     try {
       const payload = buildProductionBatchPayload(form)
-      if (editId) {
-        await productionBatchesApi.update(editId, payload)
-      } else {
-        await productionBatchesApi.create(payload)
-      }
+      if (editId) await productionBatchesApi.update(editId, payload)
+      else await productionBatchesApi.create(payload)
       closeModals()
       reloadTable()
     } catch (error) {
@@ -153,19 +334,13 @@ function DailyProductionPage() {
     }
   }
 
-  const handlePost = async () => {
-    if (!editId) return
-    setSubmitting(true)
-    setFormError('')
+  const openTrace = useCallback(async (row) => {
     try {
-      await productionBatchesApi.post(editId)
-      closeModals()
-      reloadTable()
+      setTraceData(await productionBatchesApi.trace(row.productionBatchId))
     } catch (error) {
-      setFormError(error.message)
-      setSubmitting(false)
+      setLoadError(error.message)
     }
-  }
+  }, [])
 
   const handleDeleteConfirm = async () => {
     if (!deleteRow) return
@@ -181,138 +356,102 @@ function DailyProductionPage() {
     }
   }
 
-  const updateLine = (section, index, name, value) => {
-    setForm((prev) => ({
-      ...prev,
-      [section]: prev[section].map((line, i) => (i === index ? { ...line, [name]: value } : line)),
-    }))
-  }
-
-  const addLine = (section, emptyLine) => {
-    setForm((prev) => ({ ...prev, [section]: [...prev[section], { ...emptyLine }] }))
-  }
-
-  const removeLine = (section, index) => {
-    setForm((prev) => ({
-      ...prev,
-      [section]: prev[section].length > 1 ? prev[section].filter((_, i) => i !== index) : prev[section],
-    }))
-  }
-
-  const tableOptions = useMemo(
-    () => ({
-      processing: true,
-      serverSide: true,
-      ajax: productionBatchesApi.createDataTableAjax(setLoadError),
-      paging: true,
-      searching: true,
-      ordering: true,
-      info: true,
-      scrollX: true,
-      autoWidth: false,
-      responsive: true,
-      stripeClasses: ['odd', 'even'],
-      order: [[3, 'desc']],
-      pageLength: 15,
-      lengthMenu: [10, 15, 25, 50, 100],
-      language: dataTableLanguage,
-      layout: {
-        topStart: {
-          search: { placeholder: 'جستجو...' },
-          pageLength: { menu: [10, 15, 25, 50, 100] },
-        },
-        topEnd: null,
-        bottomStart: 'info',
-        bottomEnd: { paging: { firstLast: true, previousNext: true, numbers: 5 } },
+  const tableOptions = useMemo(() => ({
+    processing: true,
+    serverSide: true,
+    ajax: productionBatchesApi.createDataTableAjax(setLoadError),
+    paging: true,
+    searching: true,
+    ordering: true,
+    info: true,
+    scrollX: true,
+    autoWidth: false,
+    responsive: true,
+    stripeClasses: ['odd', 'even'],
+    order: [[3, 'desc']],
+    pageLength: 15,
+    lengthMenu: [10, 15, 25, 50, 100],
+    language: dataTableLanguage,
+    layout: {
+      topStart: { search: { placeholder: 'جستجو...' }, pageLength: { menu: [10, 15, 25, 50, 100] } },
+      topEnd: null,
+      bottomStart: 'info',
+      bottomEnd: { paging: { firstLast: true, previousNext: true, numbers: 5 } },
+    },
+    columns: [
+      { data: 'rowNumber', name: 'rowNumber' },
+      { data: 'batchNumber', name: 'batchNumber', title: 'شماره سند' },
+      { data: 'formulaName', name: 'formulaName', title: 'فرمول' },
+      {
+        data: 'productionDate',
+        name: 'productionDate',
+        title: 'تاریخ',
+        render: (data) => formatJalaliDate(data),
       },
-      columns: [
-        { data: 'rowNumber', name: 'rowNumber' },
-        { data: 'batchNumber', name: 'batchNumber' },
-        { data: 'outputWarehouseName', name: 'outputWarehouseName' },
-        {
-          data: 'productionDate',
-          name: 'productionDate',
-          render: (data) => formatJalaliDate(data),
-        },
-        {
-          data: 'statusLabel',
-          name: 'statusLabel',
-          render: (data, _type, row) => {
-            const badge = row.isPosted
-              ? '<span class="badge badge-active">ثبت‌شده</span>'
-              : '<span class="badge badge-inactive">پیش‌نویس</span>'
-            if (row.isTransferredToSales) {
-              return `${badge}<div class="small text-muted mt-1">منتقل به فروش</div>`
-            }
-            return badge
-          },
-        },
-        { data: 'inputLinesCount', name: 'inputLinesCount', className: 'text-center' },
-        { data: 'outputLinesCount', name: 'outputLinesCount', className: 'text-center' },
-        { data: null, name: 'actions', defaultContent: '' },
-      ],
-      columnDefs: [
-        { targets: 0, orderable: false, searchable: false, width: '56px', className: 'text-center' },
-        { targets: [2, 4, 5, 6], orderable: false },
-        {
-          targets: 7,
-          orderable: false,
-          searchable: false,
-          className: 'text-center all dt-actions-col',
-          width: '160px',
-        },
-      ],
-    }),
-    [],
-  )
+      { data: 'outputWarehouseName', name: 'outputWarehouseName', title: 'انبار مقصد' },
+      {
+        data: 'statusLabel',
+        name: 'status',
+        title: 'وضعیت',
+        render: (_data, _type, row) =>
+          row.isPosted
+            ? '<span class="badge badge-active">ثبت‌شده</span>'
+            : '<span class="badge badge-inactive">پیش‌نویس</span>',
+      },
+      {
+        data: 'totalCostInBase',
+        name: 'totalCostInBase',
+        title: 'بهای تمام‌شده',
+        render: (data) => formatAmount(data),
+      },
+      { data: null, name: 'actions', defaultContent: '', title: 'عملیات' },
+    ],
+    columnDefs: [
+      { targets: 0, orderable: false, searchable: false, width: '56px', className: 'text-center' },
+      { targets: [4, 5, 6], orderable: false },
+      { targets: 7, orderable: false, searchable: false, className: 'text-center all dt-actions-col', width: '180px' },
+    ],
+  }), [])
 
-  const actionSlots = useMemo(
-    () => ({
-      7: (_data, _type, row) => (
-        <div className="dt-actions">
-          {(canEdit || row.isPosted) && (
-            <button
-              type="button"
-              className="dt-action-btn"
-              title={row.isPosted ? 'مشاهده' : 'ویرایش'}
-              onClick={() => openEdit(row, row.isPosted)}
-            >
-              <Icon name={row.isPosted ? 'eye' : 'edit'} />
-            </button>
-          )}
-          {row.isPosted && (
-            <button
-              type="button"
-              className="dt-action-btn"
-              title="ردیابی"
-              onClick={() => openTrace(row)}
-            >
-              <Icon name="route" />
-            </button>
-          )}
-          {canDelete && !row.isPosted && (
-            <button
-              type="button"
-              className="dt-action-btn btn-delete"
-              title="حذف"
-              onClick={() => setDeleteRow(row)}
-            >
-              <Icon name="trash" />
-            </button>
-          )}
-        </div>
-      ),
-    }),
-    [canDelete, canEdit, openEdit, openTrace],
-  )
+  const actionSlots = useMemo(() => ({
+    7: (_data, _type, row) => (
+      <div className="dt-actions">
+        {canEdit && !row.isPosted && (
+          <button type="button" className="dt-action-btn" title="ویرایش" onClick={() => openEdit(row)}>
+            <Icon name="edit" />
+          </button>
+        )}
+        {canEdit && !row.isPosted && (
+          <button type="button" className="dt-action-btn" title="ثبت نهایی" onClick={() => openPostPreview(row.productionBatchId)}>
+            <Icon name="check" />
+          </button>
+        )}
+        {canEdit && row.isPosted && (
+          <button type="button" className="dt-action-btn" title="برگشت از ثبت نهایی" onClick={() => handleUnpost(row)}>
+            <Icon name="rotate-left" />
+          </button>
+        )}
+        {row.isPosted && (
+          <button type="button" className="dt-action-btn" title="ردیابی" onClick={() => openTrace(row)}>
+            <Icon name="route" />
+          </button>
+        )}
+        {canDelete && !row.isPosted && (
+          <button type="button" className="dt-action-btn btn-delete" title="حذف" onClick={() => setDeleteRow(row)}>
+            <Icon name="trash" />
+          </button>
+        )}
+      </div>
+    ),
+  }), [canDelete, canEdit, handleUnpost, openEdit, openPostPreview, openTrace])
 
   return (
-    <div className="content-card card border-0">
+    <div className="content-card card border-0 production-page">
       <div className="card-body p-4">
         <div className="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3">
           <div>
-            <h2 className="card-title mb-1">گزارش روزانه تولید</h2>
-            <p className="text-muted mb-0 small">مصرف از انبار مواد خام/نیمه‌خام و ثبت محصول تولیدی</p>
+            <h2 className="card-title mb-1">تولید روزانه</h2>
+            <p className="text-muted mb-0 small">پیش‌نویس → بررسی هزینه → ثبت نهایی (اثر روی موجودی و دفتر)</p>
           </div>
           {canCreate && (
             <button type="button" className="btn btn-primary d-inline-flex align-items-center gap-2" onClick={openCreate}>
@@ -321,13 +460,23 @@ function DailyProductionPage() {
             </button>
           )}
         </div>
-
         {loadError && <div className="alert alert-danger">{loadError}</div>}
-
-        <DataTable ref={tableRef} options={tableOptions} actionSlots={actionSlots} />
+        <div className="users-table-wrapper">
+          <DataTable ref={tableRef} className="table table-hover w-100 align-middle" options={tableOptions} slots={actionSlots}>
+            <thead>
+              <tr>
+                <th>#</th>
+                {batchColumns.map((col) => (
+                  <th key={col.data}>{col.title}</th>
+                ))}
+                <th>عملیات</th>
+              </tr>
+            </thead>
+          </DataTable>
+        </div>
 
         {showForm && (
-          <div className="modal show d-block" tabIndex={-1} style={{ backgroundColor: 'rgba(0,0,0,0.5)' }}>
+          <div className="modal show d-block production-modal" tabIndex={-1} style={{ backgroundColor: 'rgba(0,0,0,0.5)' }}>
             <div className="modal-dialog modal-xl modal-dialog-scrollable">
               <div className="modal-content">
                 <form onSubmit={handleSubmit}>
@@ -339,213 +488,293 @@ function DailyProductionPage() {
                   </div>
                   <div className="modal-body">
                     {formError && <div className="alert alert-danger">{formError}</div>}
-                    <div className="row g-3 mb-3">
+
+                    <h6 className="mb-3">اطلاعات سند</h6>
+                    <div className="row g-3 mb-4">
                       <div className="col-md-3">
                         <label className="form-label">تاریخ تولید</label>
                         <JalaliDateField
                           value={form.productionDate}
-                          onChange={(value) => setForm((prev) => ({ ...prev, productionDate: value }))}
                           required
                           disabled={viewPosted}
+                          onChange={(value) => setForm((prev) => ({ ...prev, productionDate: value }))}
+                        />
+                      </div>
+                      <div className="col-md-4">
+                        <label className="form-label">برنامه تولید (اختیاری)</label>
+                        <SearchableSelect
+                          options={planOptions}
+                          value={form.productionPlanId}
+                          disabled={viewPosted}
+                          onChange={handlePlanChange}
+                        />
+                      </div>
+                      <div className="col-md-5">
+                        <label className="form-label">فرمول ساخت</label>
+                        <SearchableSelect
+                          options={formulaOptions}
+                          value={form.productionFormulaId}
+                          required
+                          disabled={viewPosted}
+                          onChange={handleFormulaChange}
+                        />
+                      </div>
+                      <div className="col-md-2">
+                        <label className="form-label">مقدار تولید</label>
+                        <input
+                          type="number"
+                          min="0"
+                          step="any"
+                          className="form-control"
+                          value={form.producedQuantity}
+                          required
+                          disabled={viewPosted}
+                          onChange={(event) => handleProducedQuantityChange(event.target.value)}
+                        />
+                      </div>
+                      <div className="col-md-4">
+                        <label className="form-label">محصول خروجی</label>
+                        <input
+                          className="form-control"
+                          readOnly
+                          value={form.outputProductName ? `${form.outputProductName}${form.outputMeaurmentName ? ` (${form.outputMeaurmentName})` : ''}` : ''}
                         />
                       </div>
                       <div className="col-md-3">
-                        <label className="form-label">انبار مقصد (پردازش‌شده)</label>
+                        <label className="form-label">انبار مقصد (فرآوری‌شده)</label>
                         <SearchableSelect
                           options={processedWarehouses}
                           value={form.outputWarehouseId}
-                          onChange={(value) => setForm((prev) => ({ ...prev, outputWarehouseId: value }))}
                           required
                           disabled={viewPosted}
+                          onChange={(value) => setForm((prev) => ({ ...prev, outputWarehouseId: value }))}
                         />
                       </div>
                       <div className="col-md-3">
-                        <label className="form-label">هزینه ثابت</label>
-                        <AmountField
-                          value={form.fixedCost}
-                          onChange={(value) => setForm((prev) => ({ ...prev, fixedCost: value }))}
-                          disabled={viewPosted}
-                          min="0"
-                        />
-                      </div>
-                      <div className="col-md-3">
-                        <label className="form-label">هزینه متغیر</label>
-                        <AmountField
-                          value={form.variableCost}
-                          onChange={(value) => setForm((prev) => ({ ...prev, variableCost: value }))}
-                          disabled={viewPosted}
-                          min="0"
-                        />
-                      </div>
-                      <div className="col-12">
                         <label className="form-label">توضیحات</label>
                         <input
-                          type="text"
                           className="form-control"
                           value={form.description}
                           disabled={viewPosted}
-                          onChange={(e) => setForm((prev) => ({ ...prev, description: e.target.value }))}
+                          onChange={(event) => setForm((prev) => ({ ...prev, description: event.target.value }))}
                         />
                       </div>
                     </div>
 
-                    <h6 className="mb-2">مصرف مواد (انبار خام/نیمه‌خام)</h6>
+                    <div className="d-flex justify-content-between align-items-center mb-2">
+                      <h6 className="mb-0">مصرف مواد</h6>
+                      {!viewPosted && !isFixedFormula && (
+                        <button
+                          type="button"
+                          className="btn btn-sm btn-outline-secondary"
+                          onClick={() => setForm((prev) => ({ ...prev, inputLines: [...prev.inputLines, { ...emptyInputLine }] }))}
+                        >
+                          <Icon name="plus" /> ردیف مصرف
+                        </button>
+                      )}
+                    </div>
                     <div className="table-responsive mb-4">
-                      <table className="table table-sm align-middle">
+                      <table className="table table-sm align-middle production-lines-table">
                         <thead>
                           <tr>
                             <th>انبار</th>
                             <th>محصول</th>
                             <th>واحد</th>
                             <th>مقدار</th>
-                            {!viewPosted && <th />}
+                            {!viewPosted && !isFixedFormula && <th />}
                           </tr>
                         </thead>
                         <tbody>
                           {form.inputLines.map((line, index) => (
-                            <tr key={`in-${index}`}>
+                            <tr key={`input-${index}`}>
                               <td>
                                 <SearchableSelect
                                   options={materialWarehouses}
                                   value={line.warehouseId}
+                                  size="sm"
+                                  required
+                                  disabled={viewPosted}
                                   onChange={(value) => updateLine('inputLines', index, 'warehouseId', value)}
-                                  size="sm"
-                                  required
-                                  disabled={viewPosted}
                                 />
                               </td>
                               <td>
-                                <SearchableSelect
-                                  options={products}
-                                  value={line.productId}
-                                  onChange={(value) => updateLine('inputLines', index, 'productId', value)}
-                                  size="sm"
-                                  required
-                                  disabled={viewPosted}
-                                />
+                                {isFixedFormula ? (
+                                  <input
+                                    className="form-control form-control-sm"
+                                    readOnly
+                                    value={line.productName ?? products.find((item) => String(item.value) === String(line.productId))?.label ?? ''}
+                                  />
+                                ) : (
+                                  <SearchableSelect
+                                    options={products}
+                                    value={line.productId}
+                                    size="sm"
+                                    required
+                                    disabled={viewPosted}
+                                    onChange={(value) => updateLine('inputLines', index, 'productId', value)}
+                                  />
+                                )}
                               </td>
                               <td>
-                                <select
-                                  className="form-select form-select-sm"
-                                  value={line.meaurmentId}
-                                  required
-                                  disabled={viewPosted}
-                                  onChange={(e) => updateLine('inputLines', index, 'meaurmentId', e.target.value)}
-                                >
-                                  <option value="">—</option>
-                                  {meaurmentsForProduct(line.productId).map((m) => (
-                                    <option key={m.value} value={m.value}>{m.label}</option>
-                                  ))}
-                                </select>
+                                {isFixedFormula ? (
+                                  <input
+                                    className="form-control form-control-sm"
+                                    readOnly
+                                    value={line.meaurmentName ?? meaurments.find((item) => String(item.value) === String(line.meaurmentId))?.label ?? ''}
+                                  />
+                                ) : (
+                                  <select
+                                    className="form-select form-select-sm"
+                                    value={line.meaurmentId}
+                                    required
+                                    disabled={viewPosted}
+                                    onChange={(event) => updateLine('inputLines', index, 'meaurmentId', event.target.value)}
+                                  >
+                                    <option value="">—</option>
+                                    {meaurmentsForProduct(line.productId).map((item) => (
+                                      <option key={item.value} value={item.value}>{item.label}</option>
+                                    ))}
+                                  </select>
+                                )}
                               </td>
                               <td>
                                 <input
                                   type="number"
-                                  className="form-control form-control-sm"
-                                  value={line.quantity}
                                   min="0"
                                   step="any"
+                                  className="form-control form-control-sm"
+                                  value={line.quantity}
                                   required
+                                  readOnly={isFixedFormula}
                                   disabled={viewPosted}
-                                  onChange={(e) => updateLine('inputLines', index, 'quantity', e.target.value)}
+                                  onChange={(event) => updateLine('inputLines', index, 'quantity', event.target.value)}
                                 />
                               </td>
-                              {!viewPosted && (
+                              {!viewPosted && !isFixedFormula && (
                                 <td>
-                                  <button type="button" className="btn btn-sm btn-outline-danger" onClick={() => removeLine('inputLines', index)}>
+                                  <button
+                                    type="button"
+                                    className="btn btn-sm btn-outline-danger"
+                                    disabled={form.inputLines.length === 1}
+                                    onClick={() => setForm((prev) => ({
+                                      ...prev,
+                                      inputLines: prev.inputLines.filter((_, itemIndex) => itemIndex !== index),
+                                    }))}
+                                  >
                                     <Icon name="trash" />
                                   </button>
                                 </td>
                               )}
                             </tr>
                           ))}
+                          {form.inputLines.length === 0 && (
+                            <tr><td colSpan="5" className="text-center text-muted">فرمول و مقدار تولید را انتخاب کنید.</td></tr>
+                          )}
                         </tbody>
                       </table>
-                      {!viewPosted && (
-                        <button type="button" className="btn btn-sm btn-outline-secondary" onClick={() => addLine('inputLines', emptyInputLine)}>
-                          <Icon name="plus" /> ردیف مصرف
+                    </div>
+
+                    <div className="d-flex justify-content-between align-items-center mb-2">
+                      <h6 className="mb-0">هزینه‌های تبدیل</h6>
+                      {!viewPosted && !isFixedFormula && (
+                        <button
+                          type="button"
+                          className="btn btn-sm btn-outline-secondary"
+                          onClick={() => setForm((prev) => ({ ...prev, costLines: [...prev.costLines, { ...emptyCostLine }] }))}
+                        >
+                          <Icon name="plus" /> ردیف هزینه
                         </button>
                       )}
                     </div>
-
-                    <h6 className="mb-2">محصول تولیدی</h6>
-                    <div className="table-responsive">
-                      <table className="table table-sm align-middle">
+                    <div className="table-responsive mb-4">
+                      <table className="table table-sm align-middle production-lines-table">
                         <thead>
                           <tr>
-                            <th>محصول</th>
-                            <th>واحد</th>
-                            <th>مقدار</th>
-                            {!viewPosted && <th />}
+                            <th>نوع</th>
+                            <th>شرح</th>
+                            <th>مبلغ</th>
+                            {!viewPosted && !isFixedFormula && <th />}
                           </tr>
                         </thead>
                         <tbody>
-                          {form.outputLines.map((line, index) => (
-                            <tr key={`out-${index}`}>
+                          {form.costLines.map((line, index) => (
+                            <tr key={`cost-${index}`}>
                               <td>
-                                <SearchableSelect
-                                  options={products}
-                                  value={line.productId}
-                                  onChange={(value) => updateLine('outputLines', index, 'productId', value)}
-                                  size="sm"
-                                  required
-                                  disabled={viewPosted}
-                                />
+                                <input className="form-control form-control-sm" readOnly value={costTypeLabel(line.costType)} />
                               </td>
                               <td>
-                                <select
-                                  className="form-select form-select-sm"
-                                  value={line.meaurmentId}
-                                  required
-                                  disabled={viewPosted}
-                                  onChange={(e) => updateLine('outputLines', index, 'meaurmentId', e.target.value)}
-                                >
-                                  <option value="">—</option>
-                                  {meaurmentsForProduct(line.productId).map((m) => (
-                                    <option key={m.value} value={m.value}>{m.label}</option>
-                                  ))}
-                                </select>
+                                {isFixedFormula ? (
+                                  <input className="form-control form-control-sm" readOnly value={line.description} />
+                                ) : (
+                                  <input
+                                    className="form-control form-control-sm"
+                                    value={line.description}
+                                    disabled={viewPosted}
+                                    onChange={(event) => updateLine('costLines', index, 'description', event.target.value)}
+                                  />
+                                )}
                               </td>
                               <td>
-                                <input
-                                  type="number"
-                                  className="form-control form-control-sm"
-                                  value={line.quantity}
+                                <AmountField
+                                  value={line.amount}
                                   min="0"
-                                  step="any"
-                                  required
+                                  className="amount-field-sm"
+                                  readOnly={isFixedFormula}
                                   disabled={viewPosted}
-                                  onChange={(e) => updateLine('outputLines', index, 'quantity', e.target.value)}
+                                  onChange={(value) => updateLine('costLines', index, 'amount', value)}
                                 />
                               </td>
-                              {!viewPosted && (
+                              {!viewPosted && !isFixedFormula && (
                                 <td>
-                                  <button type="button" className="btn btn-sm btn-outline-danger" onClick={() => removeLine('outputLines', index)}>
+                                  <button
+                                    type="button"
+                                    className="btn btn-sm btn-outline-danger"
+                                    onClick={() => setForm((prev) => ({
+                                      ...prev,
+                                      costLines: prev.costLines.filter((_, itemIndex) => itemIndex !== index),
+                                    }))}
+                                  >
                                     <Icon name="trash" />
                                   </button>
                                 </td>
                               )}
                             </tr>
                           ))}
+                          {form.costLines.length === 0 && (
+                            <tr><td colSpan="4" className="text-center text-muted">هزینه‌ای تعریف نشده است.</td></tr>
+                          )}
                         </tbody>
                       </table>
-                      {!viewPosted && (
-                        <button type="button" className="btn btn-sm btn-outline-secondary" onClick={() => addLine('outputLines', emptyOutputLine)}>
-                          <Icon name="plus" /> ردیف تولید
-                        </button>
-                      )}
+                    </div>
+
+                    <div className="production-summary">
+                      <div className="production-summary-row">
+                        <span>هزینه تبدیل (از خطوط هزینه)</span>
+                        <span>{formatAmount(conversionCostPreview)}</span>
+                      </div>
+                      <div className="production-summary-row text-muted small">
+                        <span>بهای مواد</span>
+                        <span>پس از ثبت نهایی از FIFO محاسبه می‌شود</span>
+                      </div>
+                      <div className="production-summary-row total">
+                        <span>خروجی</span>
+                        <span>
+                          {formatAmount(form.producedQuantity)} {form.outputMeaurmentName || ''}
+                          {form.outputProductName ? ` — ${form.outputProductName}` : ''}
+                        </span>
+                      </div>
                     </div>
                   </div>
                   <div className="modal-footer">
                     <button type="button" className="btn btn-secondary" onClick={closeModals}>بستن</button>
                     {!viewPosted && editId && (
-                      <button type="button" className="btn btn-success" disabled={submitting} onClick={handlePost}>
+                      <button type="button" className="btn btn-success" disabled={submitting} onClick={() => openPostPreview(editId)}>
                         ثبت نهایی
                       </button>
                     )}
                     {!viewPosted && (
                       <button type="submit" className="btn btn-primary" disabled={submitting}>
-                        {editId ? 'ذخیره' : 'ایجاد'}
+                        {editId ? 'ذخیره پیش‌نویس' : 'ایجاد پیش‌نویس'}
                       </button>
                     )}
                   </div>
@@ -555,8 +784,100 @@ function DailyProductionPage() {
           </div>
         )}
 
+        {postPreview && (
+          <div className="modal show d-block production-modal" tabIndex={-1} style={{ backgroundColor: 'rgba(0,0,0,0.5)' }}>
+            <div className="modal-dialog modal-lg modal-dialog-scrollable">
+              <div className="modal-content">
+                <div className="modal-header">
+                  <h5 className="modal-title">تأیید ثبت نهایی — {postPreview.batchNumber}</h5>
+                  <button type="button" className="btn-close" onClick={() => { setPostPreview(null); setPostTargetId(null) }} />
+                </div>
+                <div className="modal-body">
+                  {formError && <div className="alert alert-danger">{formError}</div>}
+                  {(postPreview.warnings ?? []).length > 0 && (
+                    <div className="alert alert-warning">
+                      <ul className="mb-0 pe-3">
+                        {postPreview.warnings.map((warning, index) => (
+                          <li key={index}>{warning}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                  <p className="small text-muted">
+                    با تأیید، موجودی مواد خام/نیمه کم و محصول در انبار «{postPreview.outputWarehouseName}» زیاد می‌شود؛ سند دابل‌انتری نیز ثبت می‌گردد.
+                  </p>
+
+                  <h6>مصرف مواد (برآورد FIFO)</h6>
+                  <ul className="list-group mb-3">
+                    {(postPreview.inputLines ?? []).map((line, index) => (
+                      <li key={index} className={`list-group-item d-flex justify-content-between ${line.hasEnoughStock ? '' : 'list-group-item-danger'}`}>
+                        <span>
+                          {line.productName} ({line.warehouseName}) — {formatAmount(line.quantity)} {line.meaurmentName}
+                          <span className="d-block small text-muted">موجود: {formatAmount(line.availableQuantityInBase)}</span>
+                        </span>
+                        <span>{formatAmount(line.estimatedMaterialCostInBase)}</span>
+                      </li>
+                    ))}
+                  </ul>
+
+                  <h6>هزینه‌های تبدیل</h6>
+                  <ul className="list-group mb-3">
+                    {(postPreview.costLines ?? []).length === 0 && (
+                      <li className="list-group-item text-muted">بدون هزینه تبدیل</li>
+                    )}
+                    {(postPreview.costLines ?? []).map((line, index) => (
+                      <li key={index} className="list-group-item d-flex justify-content-between">
+                        <span>{costTypeLabel(line.costType)}{line.description ? ` — ${line.description}` : ''}</span>
+                        <span>{formatAmount(line.amount)}</span>
+                      </li>
+                    ))}
+                  </ul>
+
+                  <h6>خروجی</h6>
+                  <ul className="list-group mb-3">
+                    {(postPreview.outputLines ?? []).map((line, index) => (
+                      <li key={index} className="list-group-item">
+                        {line.productName} — {formatAmount(line.quantity)} {line.meaurmentName}
+                        → انبار {postPreview.outputWarehouseName}
+                      </li>
+                    ))}
+                  </ul>
+
+                  <div className="production-summary">
+                    <div className="production-summary-row">
+                      <span>بهای مواد (برآورد)</span>
+                      <span>{formatAmount(postPreview.estimatedMaterialCostInBase)}</span>
+                    </div>
+                    <div className="production-summary-row">
+                      <span>هزینه تبدیل</span>
+                      <span>{formatAmount(postPreview.conversionCostInBase)}</span>
+                    </div>
+                    <div className="production-summary-row total">
+                      <span>بهای تمام‌شده برآوردی</span>
+                      <span>{formatAmount(postPreview.estimatedTotalCostInBase)}</span>
+                    </div>
+                  </div>
+                </div>
+                <div className="modal-footer">
+                  <button type="button" className="btn btn-secondary" onClick={() => { setPostPreview(null); setPostTargetId(null) }}>
+                    انصراف
+                  </button>
+                  <button
+                    type="button"
+                    className="btn btn-success"
+                    disabled={submitting || !postPreview.canPost}
+                    onClick={confirmPost}
+                  >
+                    تأیید و ثبت نهایی
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
         {traceData && (
-          <div className="modal show d-block" tabIndex={-1} style={{ backgroundColor: 'rgba(0,0,0,0.5)' }}>
+          <div className="modal show d-block production-modal" tabIndex={-1} style={{ backgroundColor: 'rgba(0,0,0,0.5)' }}>
             <div className="modal-dialog modal-lg modal-dialog-scrollable">
               <div className="modal-content">
                 <div className="modal-header">
@@ -564,39 +885,55 @@ function DailyProductionPage() {
                   <button type="button" className="btn-close" onClick={() => setTraceData(null)} />
                 </div>
                 <div className="modal-body">
-                  <p className="small text-muted mb-3">
-                    تاریخ: {formatJalaliDate(traceData.productionDate)} — انبار: {traceData.outputWarehouseName}
+                  <p className="small text-muted">
+                    تاریخ: {formatJalaliDate(traceData.productionDate)} — انبار: {traceData.outputWarehouseName} — بهای تمام‌شده:{' '}
+                    {formatAmount(traceData.totalCostInBase)}
                   </p>
                   <h6>مصرف مواد</h6>
                   <ul className="list-group mb-3">
-                    {(traceData.inputLines ?? []).map((line, i) => (
-                      <li key={i} className="list-group-item d-flex justify-content-between">
+                    {(traceData.inputLines ?? []).map((line, index) => (
+                      <li key={index} className="list-group-item d-flex justify-content-between">
                         <span>{line.productName} ({line.warehouseName}) — {formatAmount(line.quantity)} {line.meaurmentName}</span>
-                        <span className="text-muted">{formatAmount(line.materialCostInBase)}</span>
+                        <span>{formatAmount(line.materialCostInBase)}</span>
                       </li>
                     ))}
                   </ul>
-                  <h6>محصول تولیدی</h6>
+                  <h6>هزینه‌ها</h6>
                   <ul className="list-group mb-3">
-                    {(traceData.outputLines ?? []).map((line, i) => (
-                      <li key={i} className="list-group-item d-flex justify-content-between">
-                        <span>{line.productName} — {formatAmount(line.quantity)} {line.meaurmentName}</span>
-                        <span className="text-muted">بها: {formatAmount(line.unitCostInBase)}</span>
+                    {(traceData.costLines ?? []).map((line, index) => (
+                      <li key={index} className="list-group-item d-flex justify-content-between">
+                        <span>{line.description || costTypeLabel(line.costType)}</span>
+                        <span>{formatAmount(line.amount)}</span>
                       </li>
                     ))}
                   </ul>
-                  {(traceData.purchaseInvoices ?? []).length > 0 && (
-                    <>
-                      <h6>فاکتورهای خرید (ورود به فروش)</h6>
-                      <ul className="list-group">
-                        {traceData.purchaseInvoices.map((inv) => (
-                          <li key={inv.purchaseInvoiceId} className="list-group-item">
-                            {inv.invoiceNumber} — {formatJalaliDate(inv.invoiceDate)} — {formatAmount(inv.totalAmount)}
-                          </li>
-                        ))}
-                      </ul>
-                    </>
-                  )}
+                  <h6>محصول و Lotهای خروجی</h6>
+                  <ul className="list-group mb-3">
+                    {(traceData.inventoryLots ?? []).map((lot) => (
+                      <li key={lot.inventoryLotId} className="list-group-item">
+                        <strong>{lot.lotCode}</strong> — {lot.productName} — تولید: {formatAmount(lot.receivedQuantityInBase)}، باقی‌مانده:{' '}
+                        {formatAmount(lot.remainingQuantityInBase)}
+                      </li>
+                    ))}
+                  </ul>
+                  <h6>فروش‌های مرتبط</h6>
+                  <ul className="list-group mb-3">
+                    {(traceData.sales ?? []).map((sale, index) => (
+                      <li key={`${sale.saleInvoiceId}-${index}`} className="list-group-item">
+                        {sale.invoiceNumber} — {formatJalaliDate(sale.invoiceDate)} — Lot: {sale.lotCode} — {formatAmount(sale.quantityInBase)}
+                      </li>
+                    ))}
+                    {!(traceData.sales ?? []).length && <li className="list-group-item text-muted">فروشی ثبت نشده است.</li>}
+                  </ul>
+                  <h6>Lotهای مصرف‌شده</h6>
+                  <ul className="list-group">
+                    {(traceData.consumedLots ?? []).map((lot, index) => (
+                      <li key={`${lot.inventoryLotId}-${index}`} className="list-group-item">
+                        {lot.productName} — {lot.lotCode} — مقدار: {formatAmount(lot.quantityInBase)} — بها: {formatAmount(lot.lineCostInBase)}
+                      </li>
+                    ))}
+                    {!(traceData.consumedLots ?? []).length && <li className="list-group-item text-muted">Lot مصرفی موجود نیست.</li>}
+                  </ul>
                 </div>
               </div>
             </div>
@@ -613,7 +950,7 @@ function DailyProductionPage() {
                 </div>
                 <div className="modal-body">
                   {formError && <div className="alert alert-danger">{formError}</div>}
-                  <p>آیا از حذف سند «{deleteRow.batchNumber}» مطمئن هستید؟</p>
+                  <p>سند «{deleteRow.batchNumber}» حذف شود؟</p>
                 </div>
                 <div className="modal-footer">
                   <button type="button" className="btn btn-secondary" onClick={closeModals}>انصراف</button>

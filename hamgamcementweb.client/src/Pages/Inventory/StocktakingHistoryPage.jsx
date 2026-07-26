@@ -513,6 +513,10 @@ function StocktakingHistoryPage() {
                       <strong>وضعیت:</strong> {detail.status}
                     </div>
                     <div className="col-md-3">
+                      <strong>سند دفتر:</strong>{' '}
+                      {detail.journalEntryId ? `#${detail.journalEntryId}` : '—'}
+                    </div>
+                    <div className="col-md-12">
                       <strong>یادداشت:</strong> {detail.notes || '—'}
                     </div>
                   </div>
@@ -526,6 +530,7 @@ function StocktakingHistoryPage() {
                           <th>شمارش</th>
                           <th>معادل (kg)</th>
                           <th>اختلاف (kg)</th>
+                          <th>بهای تعدیل</th>
                         </tr>
                       </thead>
                       <tbody>
@@ -551,6 +556,7 @@ function StocktakingHistoryPage() {
                             >
                               {formatAmount(line.differenceInBase)}
                             </td>
+                            <td>{formatAmount(line.adjustmentCostInBase ?? 0)}</td>
                           </tr>
                         ))}
                       </tbody>
@@ -572,7 +578,9 @@ function StocktakingHistoryPage() {
                       disabled={submitting}
                       onClick={() => handleConfirm(detail.stocktakingId)}
                     >
-                      {submitting ? 'در حال تأیید...' : 'تأیید و به‌روزرسانی موجودی'}
+                      {submitting
+                        ? 'در حال تأیید...'
+                        : 'تأیید موجودی و ثبت سند حسابداری'}
                     </button>
                   )}
                 </div>

@@ -108,4 +108,47 @@ public class InventoryStockController : InventoryControllerBase
             data,
         });
     }
+
+    // لات‌های موجود یک کالا در انبار — شامل رهگیری بچ تولید
+    [HttpGet("lots")]
+    [HasPermission("inventory.stock.view")]
+    public async Task<IActionResult> Lots(
+        [FromQuery] int warehouseId,
+        [FromQuery] int productId,
+        CancellationToken cancellationToken)
+    {
+        if (warehouseId <= 0 || productId <= 0)
+        {
+            return BadRequest(new { message = "انبار و کالا الزامی است." });
+        }
+
+        var lots = await Db.InventoryLots
+            .AsNoTracking()
+            .Where(l =>
+                l.WarehouseId == warehouseId &&
+                l.ProductId == productId &&
+                l.IsDeleted != true &&
+                l.RemainingQuantityInBase > 0)
+            .OrderBy(l => l.ReceiptSequence)
+            .Select(l => new
+            {
+                inventoryLotId = l.InventoryLotID,
+                lotCode = l.LotCode,
+                remainingQuantityInBase = l.RemainingQuantityInBase,
+                receivedQuantityInBase = l.ReceivedQuantityInBase,
+                unitCost = l.UnitCost,
+                receivedAt = l.ReceivedAt,
+                productionBatchId = l.ProductionBatchId,
+                productionBatchNumber = l.ProductionBatchId != null
+                    ? Db.ProductionBatches
+                        .Where(b => b.ProductionBatchID == l.ProductionBatchId)
+                        .Select(b => b.BatchNumber)
+                        .FirstOrDefault()
+                    : null,
+                purchaseInvoiceId = l.PurchaseInvoiceId,
+            })
+            .ToListAsync(cancellationToken);
+
+        return Ok(lots);
+    }
 }

@@ -15,27 +15,22 @@ namespace HamgamCementWeb.Server.Controllers.Invoice;
 [Authorize]
 public class PurchaseInvoiceController : InvoiceControllerBase
 {
-    private static readonly Dictionary<int, string> OrderColumns = new()
-    {
-        [1] = nameof(PurchaseInvoice.InvoiceNumber),
-        [2] = nameof(PurchaseInvoice.SupplierId),
-        [3] = nameof(PurchaseInvoice.WarehouseId),
-        [4] = nameof(PurchaseInvoice.InvoiceDate),
-        [5] = nameof(PurchaseInvoice.TotalAmount),
-        [6] = nameof(PurchaseInvoice.TotalAmountInBaseCurrency),
-        [7] = nameof(PurchaseInvoice.IsPosted),
-    };
-
     private readonly IInvoicePostingService _posting;
     private readonly IInvoiceReturnService _returns;
+    private readonly IFreightTripService _freight;
+    private readonly IPurchaseInvoiceReadService _reads;
 
     public PurchaseInvoiceController(
         AppDbContext db,
         IInvoicePostingService posting,
-        IInvoiceReturnService returns) : base(db)
+        IInvoiceReturnService returns,
+        IFreightTripService freight,
+        IPurchaseInvoiceReadService reads) : base(db)
     {
         _posting = posting;
         _returns = returns;
+        _freight = freight;
+        _reads = reads;
     }
 
     [HttpPost("datatable")]
@@ -44,93 +39,39 @@ public class PurchaseInvoiceController : InvoiceControllerBase
         [FromBody] DataTableRequest request,
         CancellationToken cancellationToken)
     {
-        var start = Math.Max(request.Start, 0);
-        var length = request.Length <= 0 ? 10 : Math.Min(request.Length, 100);
-
-        var query = Db.PurchaseInvoices
-            .AsNoTracking()
-            .Where(i => i.IsDeleted != true);
-
-        var recordsTotal = await query.CountAsync(cancellationToken);
-
-        var searchValue = request.Search?.Value?.Trim();
-        if (!string.IsNullOrWhiteSpace(searchValue))
-        {
-            query = query.Where(i =>
-                i.InvoiceNumber.Contains(searchValue) ||
-                (i.Description != null && i.Description.Contains(searchValue)) ||
-                (i.Supplier != null && i.Supplier.Name.Contains(searchValue)));
-        }
-
-        var recordsFiltered = await query.CountAsync(cancellationToken);
-
-        var rows = await query
-            .ApplyDataTableOrder(request.Order, OrderColumns, nameof(PurchaseInvoice.CreatedAt))
-            .Skip(start)
-            .Take(length)
-            .Select(i => new
-            {
-                purchaseInvoiceId = i.PurchaseInvoiceID,
-                invoiceNumber = i.InvoiceNumber,
-                supplierId = i.SupplierId,
-                supplierName = i.Supplier != null ? i.Supplier.Name : string.Empty,
-                warehouseId = i.WarehouseId,
-                warehouseName = i.Warehouse != null ? i.Warehouse.Name : string.Empty,
-                invoiceDate = i.InvoiceDate,
-                status = (int)i.Status,
-                currencyId = i.CurrencyId,
-                currencyName = i.Currency != null ? i.Currency.Name : string.Empty,
-                currencySymbol = i.Currency != null ? i.Currency.Symbol : string.Empty,
-                baseCurrencySymbol = i.BaseCurrency != null ? i.BaseCurrency.Symbol : string.Empty,
-                totalAmount = i.TotalAmount,
-                totalAmountInBaseCurrency = i.TotalAmountInBaseCurrency,
-                documentType = (int)i.DocumentType,
-                entrySource = i.EntrySource == 0 ? (int)PurchaseEntrySource.Market : (int)i.EntrySource,
-                productionBatchId = i.ProductionBatchId,
-                productionBatchNumber = i.ProductionBatch != null ? i.ProductionBatch.BatchNumber : null,
-                fixedCost = i.FixedCost,
-                variableCost = i.VariableCost,
-                referencePurchaseInvoiceId = i.ReferencePurchaseInvoiceId,
-                referenceInvoiceNumber = i.ReferencePurchaseInvoice != null ? i.ReferencePurchaseInvoice.InvoiceNumber : null,
-                isPosted = i.IsPosted,
-                itemsCount = i.Items.Count(x => x.IsDeleted != true),
-                description = i.Description,
-            })
-            .ToListAsync(cancellationToken);
+        var result = await _reads.QueryDataTableAsync(request, cancellationToken);
 
         return Ok(new
         {
             draw = request.Draw,
-            recordsTotal,
-            recordsFiltered,
-            data = rows.Select((r, i) => new
+            recordsTotal = result.RecordsTotal,
+            recordsFiltered = result.RecordsFiltered,
+            data = result.Rows.Select((r, i) => new
             {
-                rowNumber = start + i + 1,
-                r.purchaseInvoiceId,
-                invoiceNumber = r.invoiceNumber,
-                supplierId = r.supplierId,
-                supplierName = r.supplierName,
-                warehouseId = r.warehouseId,
-                warehouseName = r.warehouseName,
-                invoiceDate = r.invoiceDate,
-                status = r.status,
-                currencyId = r.currencyId,
-                currencyName = r.currencyName,
-                currencySymbol = r.currencySymbol,
-                baseCurrencySymbol = r.baseCurrencySymbol,
-                totalAmount = r.totalAmount,
-                totalAmountInBaseCurrency = r.totalAmountInBaseCurrency,
-                documentType = r.documentType,
-                entrySource = r.entrySource,
-                productionBatchId = r.productionBatchId,
-                productionBatchNumber = r.productionBatchNumber,
-                fixedCost = r.fixedCost,
-                variableCost = r.variableCost,
-                referencePurchaseInvoiceId = r.referencePurchaseInvoiceId,
-                referenceInvoiceNumber = r.referenceInvoiceNumber,
-                isPosted = r.isPosted,
-                itemsCount = r.itemsCount,
-                description = r.description,
+                rowNumber = result.Start + i + 1,
+                purchaseInvoiceId = r.PurchaseInvoiceId,
+                invoiceNumber = r.InvoiceNumber,
+                supplierId = r.SupplierId,
+                supplierName = r.SupplierName,
+                warehouseId = r.WarehouseId,
+                warehouseName = r.WarehouseName,
+                invoiceDate = r.InvoiceDate,
+                status = r.Status,
+                currencyId = r.CurrencyId,
+                currencyName = r.CurrencyName,
+                currencySymbol = r.CurrencySymbol,
+                baseCurrencySymbol = r.BaseCurrencySymbol,
+                totalAmount = r.TotalAmount,
+                totalAmountInBaseCurrency = r.TotalAmountInBaseCurrency,
+                documentType = r.DocumentType,
+                entrySource = r.EntrySource,
+                productionBatchId = r.ProductionBatchId,
+                productionBatchNumber = r.ProductionBatchNumber,
+                referencePurchaseInvoiceId = r.ReferencePurchaseInvoiceId,
+                referenceInvoiceNumber = r.ReferenceInvoiceNumber,
+                isPosted = r.IsPosted,
+                itemsCount = r.ItemsCount,
+                description = r.Description,
             }),
         });
     }
@@ -139,79 +80,70 @@ public class PurchaseInvoiceController : InvoiceControllerBase
     [HasPermission("transactions.purchase.view")]
     public async Task<IActionResult> NextCodePreview(CancellationToken cancellationToken)
     {
-        var nextId = (await Db.PurchaseInvoices.MaxAsync(i => (int?)i.PurchaseInvoiceID, cancellationToken) ?? 0) + 1;
-        return Ok(new { code = InvoiceCodeHelper.ForPurchase(nextId) });
+        var code = await _reads.GetNextCodePreviewAsync(cancellationToken);
+        return Ok(new { code });
     }
 
     [HttpGet("{id:int}")]
     [HasPermission("transactions.purchase.view")]
     public async Task<IActionResult> Get(int id, CancellationToken cancellationToken)
     {
-        var invoice = await Db.PurchaseInvoices
-            .AsNoTracking()
-            .Where(i => i.PurchaseInvoiceID == id && i.IsDeleted != true)
-            .Select(i => new
-            {
-                purchaseInvoiceId = i.PurchaseInvoiceID,
-                invoiceNumber = i.InvoiceNumber,
-                supplierId = i.SupplierId,
-                warehouseId = i.WarehouseId,
-                invoiceDate = i.InvoiceDate,
-                status = (int)i.Status,
-                currencyId = i.CurrencyId,
-                baseCurrencyId = i.BaseCurrencyId,
-                exchangeHistoryId = i.ExchangeHistoryId,
-                baseUnitsPerUnitAtTransaction = i.BaseUnitsPerUnitAtTransaction,
-                totalAmount = i.TotalAmount,
-                totalAmountInBaseCurrency = i.TotalAmountInBaseCurrency,
-                paidAmount = i.PaidAmount,
-                isCash = i.IsCash,
-                documentType = (int)i.DocumentType,
-                entrySource = i.EntrySource == 0 ? (int)PurchaseEntrySource.Market : (int)i.EntrySource,
-                productionBatchId = i.ProductionBatchId,
-                productionBatchNumber = i.ProductionBatch != null
-                    ? i.ProductionBatch.BatchNumber
-                    : null,
-                fixedCost = i.FixedCost,
-                variableCost = i.VariableCost,
-                referencePurchaseInvoiceId = i.ReferencePurchaseInvoiceId,
-                referenceInvoiceNumber = i.ReferencePurchaseInvoice != null
-                    ? i.ReferencePurchaseInvoice.InvoiceNumber
-                    : null,
-                isPosted = i.IsPosted,
-                postedAt = i.PostedAt,
-                description = i.Description,
-                items = i.Items
-                    .Where(x => x.IsDeleted != true)
-                    .OrderBy(x => x.PurchaseItemID)
-                    .Select(x => new
-                    {
-                        purchaseItemId = x.PurchaseItemID,
-                        productId = x.ProductId,
-                        productName = x.Product != null ? x.Product.Name : string.Empty,
-                        productCode = x.Product != null ? x.Product.Code : string.Empty,
-                        meaurmentId = x.MeaurmentId,
-                        meaurmentName = x.Meaurment != null ? x.Meaurment.Name : string.Empty,
-                        quantity = x.Quantity,
-                        quantityInBase = x.QuantityInBase,
-                        unitPrice = x.UnitPrice,
-                        lineTotal = x.LineTotal,
-                        lineTotalInBaseCurrency = x.LineTotalInBaseCurrency,
-                        returnedQuantity = x.QuantityInBase > 0
-                            ? x.Quantity * x.ReturnedQuantityInBase / x.QuantityInBase
-                            : 0,
-                        inventoryLotId = x.InventoryLotId,
-                    })
-                    .ToList(),
-            })
-            .FirstOrDefaultAsync(cancellationToken);
-
+        var invoice = await _reads.GetByIdAsync(id, cancellationToken);
         if (invoice is null)
         {
             return NotFound(new { message = "فاکتور خرید یافت نشد." });
         }
 
-        return Ok(invoice);
+        return Ok(new
+        {
+            purchaseInvoiceId = invoice.PurchaseInvoiceId,
+            invoiceNumber = invoice.InvoiceNumber,
+            supplierId = invoice.SupplierId,
+            warehouseId = invoice.WarehouseId,
+            invoiceDate = invoice.InvoiceDate,
+            status = invoice.Status,
+            currencyId = invoice.CurrencyId,
+            baseCurrencyId = invoice.BaseCurrencyId,
+            exchangeHistoryId = invoice.ExchangeHistoryId,
+            baseUnitsPerUnitAtTransaction = invoice.BaseUnitsPerUnitAtTransaction,
+            totalAmount = invoice.TotalAmount,
+            totalAmountInBaseCurrency = invoice.TotalAmountInBaseCurrency,
+            paidAmount = invoice.PaidAmount,
+            isCash = invoice.IsCash,
+            documentType = invoice.DocumentType,
+            entrySource = invoice.EntrySource,
+            productionBatchId = invoice.ProductionBatchId,
+            productionBatchNumber = invoice.ProductionBatchNumber,
+            referencePurchaseInvoiceId = invoice.ReferencePurchaseInvoiceId,
+            referenceInvoiceNumber = invoice.ReferenceInvoiceNumber,
+            isPosted = invoice.IsPosted,
+            postedAt = invoice.PostedAt,
+            description = invoice.Description,
+            freightMode = invoice.FreightMode,
+            freightRatePerTon = invoice.FreightRatePerTon,
+            freightWeightTon = invoice.FreightWeightTon,
+            freightAmount = invoice.FreightAmount,
+            freightAmountInBaseCurrency = invoice.FreightAmountInBaseCurrency,
+            freightVehicleId = invoice.FreightVehicleId,
+            freightCarrierName = invoice.FreightCarrierName,
+            transportTripId = invoice.TransportTripId,
+            items = invoice.Items.Select(x => new
+            {
+                purchaseItemId = x.PurchaseItemId,
+                productId = x.ProductId,
+                productName = x.ProductName,
+                productCode = x.ProductCode,
+                meaurmentId = x.MeaurmentId,
+                meaurmentName = x.MeaurmentName,
+                quantity = x.Quantity,
+                quantityInBase = x.QuantityInBase,
+                unitPrice = x.UnitPrice,
+                lineTotal = x.LineTotal,
+                lineTotalInBaseCurrency = x.LineTotalInBaseCurrency,
+                returnedQuantity = x.ReturnedQuantity,
+                inventoryLotId = x.InventoryLotId,
+            }),
+        });
     }
 
     [HttpGet("{id:int}/production-trace")]
@@ -332,9 +264,12 @@ public class PurchaseInvoiceController : InvoiceControllerBase
             CurrencyId = request.CurrencyId,
             EntrySource = request.EntrySource,
             ProductionBatchId = request.ProductionBatchId,
-            FixedCost = request.FixedCost,
-            VariableCost = request.VariableCost,
             Description = request.Description?.Trim(),
+            FreightMode = request.FreightMode,
+            FreightRatePerTon = request.FreightRatePerTon,
+            FreightWeightTon = request.FreightWeightTon,
+            FreightVehicleId = request.FreightVehicleId,
+            FreightCarrierName = request.FreightCarrierName?.Trim(),
             IsDeleted = false,
             IsActive = true,
             CreatedAt = now,
@@ -356,6 +291,14 @@ public class PurchaseInvoiceController : InvoiceControllerBase
         }
 
         await _posting.ApplyPurchaseCurrencyAsync(invoice, cancellationToken, request.BaseUnitsPerUnit);
+        try
+        {
+            _freight.NormalizeAndValidatePurchaseFreight(invoice);
+        }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(new { message = ex.Message });
+        }
         var paidError = TrySetPaidAmount(invoice, request.PaidAmount);
         if (paidError is not null)
         {
@@ -370,7 +313,15 @@ public class PurchaseInvoiceController : InvoiceControllerBase
 
         if (request.Status == Data.InvoiceStatus.Invoice)
         {
-            await _posting.PostPurchaseAsync(invoice.PurchaseInvoiceID, userId, cancellationToken);
+            try
+            {
+                await _posting.PostPurchaseAsync(invoice.PurchaseInvoiceID, userId, cancellationToken);
+            }
+            catch (InvalidOperationException ex)
+            {
+                return BadRequest(new { message = ex.Message, purchaseInvoiceId = invoice.PurchaseInvoiceID });
+            }
+
             return Ok(new { message = "فاکتور خرید ثبت شد. موجودی و مصارف به‌روز شد.", purchaseInvoiceId = invoice.PurchaseInvoiceID });
         }
 
@@ -429,9 +380,12 @@ public class PurchaseInvoiceController : InvoiceControllerBase
         invoice.CurrencyId = request.CurrencyId;
         invoice.EntrySource = request.EntrySource;
         invoice.ProductionBatchId = request.ProductionBatchId;
-        invoice.FixedCost = request.FixedCost;
-        invoice.VariableCost = request.VariableCost;
         invoice.Description = request.Description?.Trim();
+        invoice.FreightMode = request.FreightMode;
+        invoice.FreightRatePerTon = request.FreightRatePerTon;
+        invoice.FreightWeightTon = request.FreightWeightTon;
+        invoice.FreightVehicleId = request.FreightVehicleId;
+        invoice.FreightCarrierName = request.FreightCarrierName?.Trim();
         invoice.IsUpdated = true;
         invoice.UpdatedAt = now;
         invoice.UpdatedBy = userId;
@@ -480,6 +434,14 @@ public class PurchaseInvoiceController : InvoiceControllerBase
         }
 
         await _posting.ApplyPurchaseCurrencyAsync(invoice, cancellationToken, request.BaseUnitsPerUnit);
+        try
+        {
+            _freight.NormalizeAndValidatePurchaseFreight(invoice);
+        }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(new { message = ex.Message });
+        }
         var paidError = TrySetPaidAmount(invoice, request.PaidAmount);
         if (paidError is not null)
         {
@@ -490,7 +452,15 @@ public class PurchaseInvoiceController : InvoiceControllerBase
 
         if (request.Status == Data.InvoiceStatus.Invoice)
         {
-            await _posting.PostPurchaseAsync(invoice.PurchaseInvoiceID, userId, cancellationToken);
+            try
+            {
+                await _posting.PostPurchaseAsync(invoice.PurchaseInvoiceID, userId, cancellationToken);
+            }
+            catch (InvalidOperationException ex)
+            {
+                return BadRequest(new { message = ex.Message });
+            }
+
             return Ok(new { message = "فاکتور خرید ثبت شد. موجودی و مصارف به‌روز شد." });
         }
 
@@ -596,45 +566,22 @@ public class PurchaseInvoiceController : InvoiceControllerBase
         return null;
     }
 
-    private async Task<string?> ValidateEntrySourceAsync(
+    private Task<string?> ValidateEntrySourceAsync(
         SavePurchaseInvoiceRequest request,
         CancellationToken cancellationToken)
     {
         if (request.EntrySource == PurchaseEntrySource.Production)
         {
-            if (request.ProductionBatchId is null or <= 0)
-            {
-                return "برای ورود از تولید، انتخاب سند تولید الزامی است.";
-            }
-
-            var batch = await Db.ProductionBatches
-                .AsNoTracking()
-                .FirstOrDefaultAsync(
-                    b => b.ProductionBatchID == request.ProductionBatchId &&
-                         b.IsDeleted != true,
-                    cancellationToken);
-
-            if (batch is null)
-            {
-                return "سند تولید انتخاب‌شده یافت نشد.";
-            }
-
-            if (!batch.IsPosted)
-            {
-                return "سند تولید باید ثبت نهایی شده باشد.";
-            }
-
-            if (batch.IsTransferredToSales)
-            {
-                return "خروجی این سند تولید قبلاً به چرخه فروش منتقل شده است.";
-            }
+            return Task.FromResult<string?>(
+                "ورود از تولید دیگر پشتیبانی نمی‌شود. محصول را در انبار پردازش‌شده تولید کنید و مستقیم بفروشید.");
         }
-        else if (request.ProductionBatchId is > 0)
+
+        if (request.ProductionBatchId is > 0)
         {
-            return "سند تولید فقط برای ورود از بخش تولید قابل انتخاب است.";
+            return Task.FromResult<string?>("سند تولید به فاکتور خرید متصل نمی‌شود.");
         }
 
-        return null;
+        return Task.FromResult<string?>(null);
     }
 
     public class SavePurchaseInvoiceRequest
@@ -657,12 +604,6 @@ public class PurchaseInvoiceController : InvoiceControllerBase
 
         public int? ProductionBatchId { get; set; }
 
-        [Range(0, double.MaxValue)]
-        public decimal FixedCost { get; set; }
-
-        [Range(0, double.MaxValue)]
-        public decimal VariableCost { get; set; }
-
         [MaxLength(2000)]
         public string? Description { get; set; }
 
@@ -670,6 +611,19 @@ public class PurchaseInvoiceController : InvoiceControllerBase
         public decimal PaidAmount { get; set; }
 
         public decimal? BaseUnitsPerUnit { get; set; }
+
+        public FreightMode FreightMode { get; set; } = FreightMode.None;
+
+        [Range(0, double.MaxValue)]
+        public decimal FreightRatePerTon { get; set; }
+
+        [Range(0, double.MaxValue)]
+        public decimal FreightWeightTon { get; set; }
+
+        public int? FreightVehicleId { get; set; }
+
+        [MaxLength(200)]
+        public string? FreightCarrierName { get; set; }
 
         public List<SavePurchaseItemRequest> Items { get; set; } = [];
     }

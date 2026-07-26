@@ -84,6 +84,20 @@ export const expenseCategoriesApi = makeResource('/api/finance/expense-categorie
 export const revenueCategoriesApi = makeResource('/api/finance/revenue-categories')
 export const expensesApi = makeResource('/api/finance/expenses')
 export const revenuesApi = makeResource('/api/finance/revenues')
+export const fixedAssetsApi = {
+  ...makeResource('/api/finance/fixed-assets'),
+  depreciatePeriod: (payload) =>
+    request('/api/finance/fixed-assets/depreciate-period', {
+      method: 'POST',
+      body: JSON.stringify(payload ?? {}),
+    }),
+  dispose: (id, payload) =>
+    request(`/api/finance/fixed-assets/${id}/dispose`, {
+      method: 'POST',
+      body: JSON.stringify(payload ?? {}),
+    }),
+}
+export const fixedAssetCategoriesApi = makeResource('/api/finance/fixed-asset-categories')
 
 export const fetchAccountingExpenseCategoryOptions = () =>
   request('/api/finance/expense-categories/list?forEntry=true')
@@ -96,3 +110,6 @@ export const fetchAccountingExpenseCategoryList = () =>
 
 export const fetchAccountingRevenueCategoryList = () =>
   request('/api/finance/revenue-categories/list')
+
+export const fetchFixedAssetCategoryOptions = () =>
+  request('/api/finance/fixed-asset-categories/list')

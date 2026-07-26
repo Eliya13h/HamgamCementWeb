@@ -22,9 +22,9 @@ public enum JournalReportType
 
 public interface IJournalReportService
 {
-    Task<StiReport> BuildPurchaseJournalReportAsync(DateTime dateFrom, DateTime dateTo, CancellationToken cancellationToken = default);
+    Task<StiReport> BuildPurchaseJournalReportAsync(DateTime? dateFrom, DateTime? dateTo, CancellationToken cancellationToken = default);
 
-    Task<StiReport> BuildSaleJournalReportAsync(DateTime dateFrom, DateTime dateTo, CancellationToken cancellationToken = default);
+    Task<StiReport> BuildSaleJournalReportAsync(DateTime? dateFrom, DateTime? dateTo, CancellationToken cancellationToken = default);
 }
 
 public class JournalReportService : IJournalReportService
@@ -42,8 +42,8 @@ public class JournalReportService : IJournalReportService
     }
 
     public Task<StiReport> BuildPurchaseJournalReportAsync(
-        DateTime dateFrom,
-        DateTime dateTo,
+        DateTime? dateFrom,
+        DateTime? dateTo,
         CancellationToken cancellationToken = default)
     {
         return BuildInvoiceJournalReportAsync(
@@ -56,8 +56,8 @@ public class JournalReportService : IJournalReportService
     }
 
     public Task<StiReport> BuildSaleJournalReportAsync(
-        DateTime dateFrom,
-        DateTime dateTo,
+        DateTime? dateFrom,
+        DateTime? dateTo,
         CancellationToken cancellationToken = default)
     {
         return BuildInvoiceJournalReportAsync(
@@ -71,9 +71,9 @@ public class JournalReportService : IJournalReportService
 
     private async Task<StiReport> BuildInvoiceJournalReportAsync(
         string reportTitle,
-        DateTime dateFrom,
-        DateTime dateTo,
-        Func<DateTime, DateTime, CancellationToken, Task<List<JournalInvoiceItemRow>>> loadRowsAsync,
+        DateTime? dateFrom,
+        DateTime? dateTo,
+        Func<DateTime?, DateTime?, CancellationToken, Task<List<JournalInvoiceItemRow>>> loadRowsAsync,
         Func<JournalInvoiceItemRow, string?> getReturnDescription,
         CancellationToken cancellationToken)
     {
@@ -92,24 +92,33 @@ public class JournalReportService : IJournalReportService
     }
 
     private async Task<List<JournalInvoiceItemRow>> LoadPurchaseRowsAsync(
-        DateTime dateFrom,
-        DateTime dateTo,
+        DateTime? dateFrom,
+        DateTime? dateTo,
         CancellationToken cancellationToken)
     {
-        var end = dateTo.Date.AddDays(1).AddTicks(-1);
-
-        return await _db.PurchaseItems
+        var query = _db.PurchaseItems
             .AsNoTracking()
             .Where(i =>
                 i.IsDeleted != true &&
                 i.Invoice.IsDeleted != true &&
                 i.Invoice.IsPosted &&
-                i.Invoice.InvoiceDate >= dateFrom.Date &&
-                i.Invoice.InvoiceDate <= end &&
                 (
                     i.Invoice.DocumentType == InvoiceDocumentType.PurchaseReturn ||
                     (i.Invoice.DocumentType == InvoiceDocumentType.Invoice &&
-                     i.Invoice.Status == InvoiceStatus.Invoice)))
+                     i.Invoice.Status == InvoiceStatus.Invoice)));
+
+        if (dateFrom.HasValue)
+        {
+            query = query.Where(i => i.Invoice.InvoiceDate >= dateFrom.Value.Date);
+        }
+
+        if (dateTo.HasValue)
+        {
+            var end = dateTo.Value.Date.AddDays(1).AddTicks(-1);
+            query = query.Where(i => i.Invoice.InvoiceDate <= end);
+        }
+
+        return await query
             .OrderBy(i => i.Invoice.InvoiceDate)
             .ThenBy(i => i.Invoice.InvoiceNumber)
             .ThenBy(i => i.PurchaseItemID)
@@ -136,24 +145,33 @@ public class JournalReportService : IJournalReportService
     }
 
     private async Task<List<JournalInvoiceItemRow>> LoadSaleRowsAsync(
-        DateTime dateFrom,
-        DateTime dateTo,
+        DateTime? dateFrom,
+        DateTime? dateTo,
         CancellationToken cancellationToken)
     {
-        var end = dateTo.Date.AddDays(1).AddTicks(-1);
-
-        return await _db.SalesItems
+        var query = _db.SalesItems
             .AsNoTracking()
             .Where(i =>
                 i.IsDeleted != true &&
                 i.Invoice.IsDeleted != true &&
                 i.Invoice.IsPosted &&
-                i.Invoice.InvoiceDate >= dateFrom.Date &&
-                i.Invoice.InvoiceDate <= end &&
                 (
                     i.Invoice.DocumentType == InvoiceDocumentType.SaleReturn ||
                     (i.Invoice.DocumentType == InvoiceDocumentType.Invoice &&
-                     (i.Invoice.Status == InvoiceStatus.Order || i.Invoice.Status == InvoiceStatus.Invoice))))
+                     (i.Invoice.Status == InvoiceStatus.Order || i.Invoice.Status == InvoiceStatus.Invoice))));
+
+        if (dateFrom.HasValue)
+        {
+            query = query.Where(i => i.Invoice.InvoiceDate >= dateFrom.Value.Date);
+        }
+
+        if (dateTo.HasValue)
+        {
+            var end = dateTo.Value.Date.AddDays(1).AddTicks(-1);
+            query = query.Where(i => i.Invoice.InvoiceDate <= end);
+        }
+
+        return await query
             .OrderBy(i => i.Invoice.InvoiceDate)
             .ThenBy(i => i.Invoice.InvoiceNumber)
             .ThenBy(i => i.SalesItemID)
@@ -196,9 +214,16 @@ public class JournalReportService : IJournalReportService
         return row.DocumentType == InvoiceDocumentType.SaleReturn ? "برگشت از فروش" : null;
     }
 
-    private JournalReportInfo BuildInfo(GeneralSettings settings, string reportTitle, DateTime dateFrom, DateTime dateTo)
+    private JournalReportInfo BuildInfo(GeneralSettings settings, string reportTitle, DateTime? dateFrom, DateTime? dateTo)
     {
         var zmLogoWebPath = string.IsNullOrWhiteSpace(settings.ZmLogoPath) ? DefaultZmLogoWebPath : settings.ZmLogoPath;
+        var reportRangeDate = (dateFrom, dateTo) switch
+        {
+            ({ } from, { } to) => $"از {JalaliDateHelper.FormatDate(from)} تا {JalaliDateHelper.FormatDate(to)}",
+            ({ } from, null) => $"از {JalaliDateHelper.FormatDate(from)} تا انتها",
+            (null, { } to) => $"از ابتدا تا {JalaliDateHelper.FormatDate(to)}",
+            _ => "همه دوره",
+        };
 
         return new JournalReportInfo
         {
@@ -208,7 +233,7 @@ public class JournalReportService : IJournalReportService
             CompanyLogo = ResolveLogoPath(settings.CompanyLogoPath),
             PrintDate = JalaliDateHelper.FormatDate(DateTime.Now),
             ReportTitle = reportTitle,
-            ReportRangeDate = $"از {JalaliDateHelper.FormatDate(dateFrom)} تا {JalaliDateHelper.FormatDate(dateTo)}",
+            ReportRangeDate = reportRangeDate,
         };
     }
 

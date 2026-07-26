@@ -24,12 +24,19 @@ function buildPageNode(path, label) {
   }
 }
 
+function buildNavPageNodes(child) {
+  if (child.permissionPages?.length) {
+    return child.permissionPages.map((page) => buildPageNode(page.path, page.label))
+  }
+  return [buildPageNode(child.path, child.label)]
+}
+
 function buildModuleNode(item) {
   return {
     key: item.id,
     label: item.label,
     type: 'module',
-    children: item.children.map((child) => buildPageNode(child.path, child.label)),
+    children: item.children.flatMap(buildNavPageNodes),
   }
 }
 

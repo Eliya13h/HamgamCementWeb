@@ -11,13 +11,15 @@ import DataTable from '../../lib/dataTableSetup'
 import { fetchBaseCurrency, fetchCurrencyRates } from '../../services/currenciesApi'
 import { usePageCrud } from '../../permissions/usePageCrud'
 import { fetchWarehouseOptions } from '../../services/inventoryApi'
-import { fetchMeaurmentOptions, fetchProductOptions } from '../../services/productsApi'
-import { fetchCurrencyOptions } from '../../services/transportApi'
+import {
+    fetchMeaurmentOptions,
+    fetchProductOptions,
+    fetchSuggestedPurchasePrice,
+} from '../../services/productsApi'
+import { fetchCurrencyOptions, fetchVehicleOptions } from '../../services/transportApi'
 import {
     INVOICE_STATUSES,
     INVOICE_DOCUMENT_TYPE,
-    PURCHASE_ENTRY_SOURCE,
-    PURCHASE_ENTRY_SOURCE_OPTIONS,
     buildPurchasePayload,
     calcLineTotals,
     convertAmountFromBase,
@@ -31,9 +33,14 @@ import {
     sumTotals,
 } from '../../services/transactionsApi'
 import InvoiceReturnModal from '../../components/transactions/InvoiceReturnModal'
-import { productionBatchesApi } from '../../services/productionApi'
+import InvoiceFreightFields, {
+    emptyFreight,
+    freightWeightTonFromLines,
+    FREIGHT_MODE,
+} from '../../components/transactions/InvoiceFreightFields'
 import { amountWithSymbolHtml } from '../../lib/currencyFormat'
-import { dataTableLanguage, formatAmount, formatJalaliDate } from '../Transport/CrudTablePage'
+import { createServerSideTableOptions, formatAmount } from '../../lib/dataTableOptions'
+import { formatJalaliDate } from '../Transport/CrudTablePage'
 import '../../styles/purchase-invoice-lines.css'
 
 const emptyHeader = {
@@ -42,12 +49,9 @@ const emptyHeader = {
     invoiceDate: '',
     status: '4',
     currencyId: '',
-    entrySource: String(PURCHASE_ENTRY_SOURCE.Market),
-    productionBatchId: '',
-    fixedCost: '',
-    variableCost: '',
     description: '',
     paidAmount: '',
+    ...emptyFreight,
 }
 
 const emptyLine = {
@@ -57,6 +61,7 @@ const emptyLine = {
     quantity: '',
     unitPrice: '',
     unitPriceInBase: '',
+    purchasePriceSourceLabel: '',
 }
 
 function PurchasePage() {
@@ -90,8 +95,10 @@ function PurchasePage() {
     const [referenceInvoiceNumber, setReferenceInvoiceNumber] = useState('')
     const [pastReturns, setPastReturns] = useState([])
     const [returnSource, setReturnSource] = useState(null)
-    const [productionBatches, setProductionBatches] = useState([])
-    const [productionTrace, setProductionTrace] = useState(null)
+    const [vehicles, setVehicles] = useState([])
+    const [freightWeightTouched, setFreightWeightTouched] = useState(false)
+    const [lookupsReady, setLookupsReady] = useState(false)
+    const lookupsPromiseRef = useRef(null)
 
     const currencySymbolById = useMemo(
         () => Object.fromEntries(currencies.map((c) => [String(c.value), c.symbol ?? ''])),
@@ -133,36 +140,65 @@ function PurchasePage() {
         [meaurments],
     )
 
+    // فقط سمبل ارز پایه برای جدول لیست — بقیهٔ لوکاپ‌ها هنگام باز شدن فرم لود می‌شوند
     useEffect(() => {
-        fetchSupplierOptions().then(setSuppliers).catch(() => setSuppliers([]))
-        fetchWarehouseOptions().then(setWarehouses).catch(() => setWarehouses([]))
-        fetchProductOptions().then(setProducts).catch(() => setProducts([]))
-        fetchMeaurmentOptions().then(setMeaurments).catch(() => setMeaurments([]))
-        fetchCurrencyOptions().then(setCurrencies).catch(() => setCurrencies([]))
-        fetchCurrencyRates()
-            .then((data) => {
-                setBaseCurrencyId(String(data?.baseCurrencyId ?? ''))
-                const map = {}
-                for (const row of data?.rates ?? []) {
-                    map[String(row.currencyId)] = row.baseUnitsPerUnit
-                }
-                setCurrencyRates(map)
-            })
-            .catch(() => {
-                setBaseCurrencyId('')
-                setCurrencyRates({})
-            })
+        let cancelled = false
         fetchBaseCurrency()
             .then((base) => {
+                if (cancelled) return
                 const symbol = base?.symbol ?? ''
                 setBaseCurrencySymbol(symbol)
                 baseCurrencySymbolRef.current = symbol
+                if (base?.currencyID) {
+                    setBaseCurrencyId(String(base.currencyID))
+                }
             })
             .catch(() => {
+                if (cancelled) return
                 setBaseCurrencySymbol('')
                 baseCurrencySymbolRef.current = ''
             })
+        return () => {
+            cancelled = true
+        }
     }, [])
+
+    const ensureLookups = useCallback(() => {
+        if (lookupsReady) return Promise.resolve()
+        if (lookupsPromiseRef.current) return lookupsPromiseRef.current
+
+        lookupsPromiseRef.current = Promise.all([
+            fetchSupplierOptions().catch(() => []),
+            fetchWarehouseOptions().catch(() => []),
+            fetchProductOptions().catch(() => []),
+            fetchMeaurmentOptions().catch(() => []),
+            fetchCurrencyOptions().catch(() => []),
+            fetchVehicleOptions().catch(() => []),
+            fetchCurrencyRates().catch(() => null),
+        ])
+            .then(([supplierRows, warehouseRows, productRows, meaurmentRows, currencyRows, vehicleRows, ratesData]) => {
+                setSuppliers(supplierRows)
+                setWarehouses(warehouseRows)
+                setProducts(productRows)
+                setMeaurments(meaurmentRows)
+                setCurrencies(currencyRows)
+                setVehicles(vehicleRows)
+                if (ratesData) {
+                    setBaseCurrencyId(String(ratesData.baseCurrencyId ?? ''))
+                    const map = {}
+                    for (const row of ratesData.rates ?? []) {
+                        map[String(row.currencyId)] = row.baseUnitsPerUnit
+                    }
+                    setCurrencyRates(map)
+                }
+                setLookupsReady(true)
+            })
+            .finally(() => {
+                lookupsPromiseRef.current = null
+            })
+
+        return lookupsPromiseRef.current
+    }, [lookupsReady])
 
     useEffect(() => {
         baseCurrencySymbolRef.current = baseCurrencySymbol
@@ -226,75 +262,46 @@ function PurchasePage() {
             ),
         [lines, rateSnapshot, exchangeRate, meaurments, baseCurrencyId, header.currencyId],
     )
-    const totals = useMemo(() => {
-        const lineTotals = sumTotals(computedLines)
-        const fixed = Number(header.fixedCost) || 0
-        const variable = Number(header.variableCost) || 0
-        const rate = getCurrencyRateToBase(
-            header.currencyId,
-            baseCurrencyId,
-            currencyRates,
-            exchangeRate,
-        )
-        const fixedBase = convertAmountToBase(fixed, header.currencyId, baseCurrencyId, rate)
-        const variableBase = convertAmountToBase(variable, header.currencyId, baseCurrencyId, rate)
-        return {
-            total: lineTotals.total + fixed + variable,
-            totalBase: lineTotals.totalBase + fixedBase + variableBase,
-            itemsTotal: lineTotals.total,
-        }
-    }, [computedLines, header.fixedCost, header.variableCost, header.currencyId, baseCurrencyId, currencyRates, exchangeRate])
+    const totals = useMemo(() => sumTotals(computedLines), [computedLines])
 
-    const handleHeaderChange = useCallback((name, value) => {
+    const autoFreightWeightTon = useMemo(
+        () => freightWeightTonFromLines(computedLines),
+        [computedLines],
+    )
+
+    useEffect(() => {
+        if (viewPosted || freightWeightTouched) return
+        if (Number(header.freightMode) === FREIGHT_MODE.None) return
+        const next = autoFreightWeightTon > 0 ? String(autoFreightWeightTon) : ''
+        if (String(header.freightWeightTon ?? '') !== next) {
+            setHeader((prev) => ({ ...prev, freightWeightTon: next }))
+        }
+    }, [autoFreightWeightTon, freightWeightTouched, viewPosted, header.freightMode, header.freightWeightTon])
+
+    const handleFreightChange = useCallback((name, value) => {
+        if (name === 'freightWeightTon') {
+            setFreightWeightTouched(true)
+        }
+        if (name === 'freightMode') {
+            const mode = Number(value) || 0
+            setHeader((prev) => ({
+                ...prev,
+                freightMode: value,
+                freightVehicleId: mode === FREIGHT_MODE.OwnFleet ? prev.freightVehicleId : '',
+                freightCarrierName: mode === FREIGHT_MODE.Hired ? prev.freightCarrierName : '',
+                freightRatePerTon: mode === FREIGHT_MODE.None ? '' : prev.freightRatePerTon,
+                freightWeightTon: mode === FREIGHT_MODE.None ? '' : prev.freightWeightTon,
+            }))
+            if (mode === FREIGHT_MODE.None) {
+                setFreightWeightTouched(false)
+            }
+            return
+        }
         setHeader((prev) => ({ ...prev, [name]: value }))
     }, [])
 
-    useEffect(() => {
-        if (String(header.entrySource) !== String(PURCHASE_ENTRY_SOURCE.Production)) {
-            return
-        }
-        productionBatchesApi.fetchOptions(true).then(setProductionBatches).catch(() => setProductionBatches([]))
-    }, [header.entrySource])
-
-    const handleProductionBatchChange = useCallback(async (batchId) => {
-        handleHeaderChange('productionBatchId', batchId)
-        if (!batchId || viewPosted) return
-        try {
-            const batch = await productionBatchesApi.getById(batchId)
-            const rate = getCurrencyRateToBase(
-                header.currencyId,
-                baseCurrencyId,
-                currencyRates,
-                exchangeRate,
-            )
-            setLines(
-                (batch.outputLines ?? []).map((line) => ({
-                    purchaseItemId: null,
-                    productId: line.productId,
-                    meaurmentId: line.meaurmentId,
-                    quantity: line.quantity,
-                    unitPriceInBase: line.unitCostInBase ?? '',
-                    unitPrice:
-                        line.unitCostInBase != null && line.unitCostInBase !== ''
-                            ? convertAmountFromBase(line.unitCostInBase, header.currencyId, baseCurrencyId, rate)
-                            : '',
-                })),
-            )
-            if (batch.outputWarehouseId) {
-                setHeader((prev) => ({ ...prev, warehouseId: batch.outputWarehouseId }))
-            }
-        } catch {
-            // ignore
-        }
-    }, [header.currencyId, baseCurrencyId, currencyRates, exchangeRate, viewPosted, handleHeaderChange])
-
-    const openProductionTrace = useCallback(async (purchaseInvoiceId) => {
-        try {
-            const trace = await purchaseInvoicesApi.fetchProductionTrace(purchaseInvoiceId)
-            setProductionTrace(trace)
-        } catch (error) {
-            setLoadError(error.message)
-        }
+    const handleHeaderChange = useCallback((name, value) => {
+        setHeader((prev) => ({ ...prev, [name]: value }))
     }, [])
 
     const effectivePaidAmount = useMemo(() => {
@@ -330,42 +337,38 @@ function PurchasePage() {
         setRateSnapshot(null)
         setExchangeRateTouched(false)
         setPaidAmountTouched(false)
+        setFreightWeightTouched(false)
         setInvoiceCodePreview('')
         setDocumentType(INVOICE_DOCUMENT_TYPE.Invoice)
         setReferenceInvoiceNumber('')
         setPastReturns([])
         setReturnSource(null)
-        setProductionTrace(null)
     }, [])
 
     const openCreate = useCallback(async () => {
         setFormError('')
         setPaidAmountTouched(false)
+        setFreightWeightTouched(false)
         setExchangeRateTouched(false)
         setExchangeRate('')
 
-        let defaultCurrencyId = ''
+        let defaultCurrencyId = baseCurrencyId
         try {
-            const [base, ratesData, codePreview] = await Promise.all([
-                fetchBaseCurrency(),
-                fetchCurrencyRates().catch(() => null),
+            const [, codePreview, base] = await Promise.all([
+                ensureLookups(),
                 purchaseInvoicesApi.fetchNextCodePreview().catch(() => ({ code: '' })),
+                baseCurrencyId
+                    ? Promise.resolve(null)
+                    : fetchBaseCurrency().catch(() => null),
             ])
             if (base?.currencyID) {
                 defaultCurrencyId = String(base.currencyID)
                 setBaseCurrencyId(defaultCurrencyId)
                 setBaseCurrencySymbol(base.symbol ?? '')
             }
-            if (ratesData) {
-                const map = {}
-                for (const row of ratesData.rates ?? []) {
-                    map[String(row.currencyId)] = row.baseUnitsPerUnit
-                }
-                setCurrencyRates(map)
-            }
             setInvoiceCodePreview(codePreview?.code ?? '')
         } catch {
-            defaultCurrencyId = ''
+            defaultCurrencyId = baseCurrencyId
         }
 
         setHeader({
@@ -377,13 +380,24 @@ function PurchasePage() {
         setEditId(null)
         setViewPosted(false)
         setShowForm(true)
-    }, [])
+    }, [baseCurrencyId, ensureLookups])
 
     const openEdit = useCallback(async (row, readOnly = false) => {
         setFormError('')
         setPaidAmountTouched(true)
         try {
-            const invoice = await purchaseInvoicesApi.getById(row.purchaseInvoiceId)
+            const needsReturns =
+                (readOnly || row.isPosted) &&
+                (row.documentType ?? INVOICE_DOCUMENT_TYPE.Invoice) === INVOICE_DOCUMENT_TYPE.Invoice
+
+            const [invoice, , history] = await Promise.all([
+                purchaseInvoicesApi.getById(row.purchaseInvoiceId),
+                ensureLookups(),
+                needsReturns
+                    ? purchaseInvoicesApi.fetchReturns(row.purchaseInvoiceId).catch(() => [])
+                    : Promise.resolve([]),
+            ])
+
             setInvoiceCodePreview(invoice.invoiceNumber ?? '')
             const invoiceRate = invoice.baseUnitsPerUnitAtTransaction || 1
             setHeader({
@@ -392,13 +406,15 @@ function PurchasePage() {
                 invoiceDate: String(invoice.invoiceDate).slice(0, 10),
                 status: String(invoice.status),
                 currencyId: invoice.currencyId,
-                entrySource: String(invoice.entrySource ?? PURCHASE_ENTRY_SOURCE.Market),
-                productionBatchId: invoice.productionBatchId ?? '',
-                fixedCost: invoice.fixedCost ?? '',
-                variableCost: invoice.variableCost ?? '',
                 description: invoice.description ?? '',
                 paidAmount: invoice.paidAmount ?? invoice.totalAmount ?? '',
+                freightMode: String(invoice.freightMode ?? 0),
+                freightRatePerTon: invoice.freightRatePerTon || '',
+                freightWeightTon: invoice.freightWeightTon || '',
+                freightVehicleId: invoice.freightVehicleId ?? '',
+                freightCarrierName: invoice.freightCarrierName ?? '',
             })
+            setFreightWeightTouched(true)
             setExchangeRate(
                 invoice.baseUnitsPerUnitAtTransaction != null
                     ? String(invoice.baseUnitsPerUnitAtTransaction)
@@ -431,24 +447,12 @@ function PurchasePage() {
             setDocumentType(invoice.documentType ?? INVOICE_DOCUMENT_TYPE.Invoice)
             setReferenceInvoiceNumber(invoice.referenceInvoiceNumber ?? '')
             setViewPosted(readOnly || invoice.isPosted)
-            if (
-                (readOnly || invoice.isPosted) &&
-                (invoice.documentType ?? INVOICE_DOCUMENT_TYPE.Invoice) === INVOICE_DOCUMENT_TYPE.Invoice
-            ) {
-                try {
-                    const history = await purchaseInvoicesApi.fetchReturns(invoice.purchaseInvoiceId)
-                    setPastReturns(history ?? [])
-                } catch {
-                    setPastReturns([])
-                }
-            } else {
-                setPastReturns([])
-            }
+            setPastReturns(history ?? [])
             setShowForm(true)
         } catch (error) {
             setLoadError(error.message)
         }
-    }, [])
+    }, [ensureLookups])
 
     const handleCurrencyChange = (newCurrencyId) => {
         if (!newCurrencyId) {
@@ -535,6 +539,7 @@ function PurchasePage() {
                             value === ''
                                 ? ''
                                 : convertAmountToBase(value, header.currencyId, baseCurrencyId, rate),
+                        purchasePriceSourceLabel: '',
                     }
                 }),
             )
@@ -550,15 +555,56 @@ function PurchasePage() {
         handleLineChange(index, 'meaurmentId', newMeaurmentId)
     }
 
-    const handleProductChange = (index, productId) => {
-        const product = products.find((p) => String(p.value) === String(productId))
+    const applySuggestedPurchasePrice = async (index, productId) => {
+        if (!productId) return
         const rate = getCurrencyRateToBase(
             header.currencyId,
             baseCurrencyId,
             currencyRates,
             exchangeRate,
         )
-        const priceInBase = product?.defaultPurchasePrice ?? ''
+        try {
+            const hint = await fetchSuggestedPurchasePrice(productId, header.warehouseId || undefined)
+            const priceInBase =
+                hint?.unitCostInBase != null && hint.unitCostInBase !== ''
+                    ? Number(hint.unitCostInBase)
+                    : ''
+            setLines((prev) =>
+                prev.map((line, i) => {
+                    if (i !== index || String(line.productId) !== String(productId)) return line
+                    return {
+                        ...line,
+                        unitPriceInBase: priceInBase === '' ? '' : priceInBase,
+                        unitPrice:
+                            priceInBase === ''
+                                ? ''
+                                : convertAmountFromBase(
+                                      priceInBase,
+                                      header.currencyId,
+                                      baseCurrencyId,
+                                      rate,
+                                  ),
+                        purchasePriceSourceLabel: hint?.sourceLabel || '',
+                    }
+                }),
+            )
+        } catch {
+            setLines((prev) =>
+                prev.map((line, i) => {
+                    if (i !== index || String(line.productId) !== String(productId)) return line
+                    return {
+                        ...line,
+                        unitPriceInBase: '',
+                        unitPrice: '',
+                        purchasePriceSourceLabel: '',
+                    }
+                }),
+            )
+        }
+    }
+
+    const handleProductChange = (index, productId) => {
+        const product = products.find((p) => String(p.value) === String(productId))
         setLines((prev) =>
             prev.map((line, i) => {
                 if (i !== index) return line
@@ -566,14 +612,15 @@ function PurchasePage() {
                     ...line,
                     productId,
                     meaurmentId: product?.defaultMeaurmentId ?? '',
-                    unitPriceInBase: priceInBase,
-                    unitPrice:
-                        priceInBase === ''
-                            ? ''
-                            : convertAmountFromBase(priceInBase, header.currencyId, baseCurrencyId, rate),
+                    unitPriceInBase: '',
+                    unitPrice: '',
+                    purchasePriceSourceLabel: '',
                 }
             }),
         )
+        if (productId) {
+            void applySuggestedPurchasePrice(index, productId)
+        }
     }
 
     const meaurmentsForProduct = (productId) => {
@@ -626,20 +673,6 @@ function PurchasePage() {
         }
     }
 
-    const handlePost = async () => {
-        if (!editId) return
-        setSubmitting(true)
-        setFormError('')
-        try {
-            await purchaseInvoicesApi.post(editId)
-            closeModals()
-            reloadTable()
-        } catch (error) {
-            setFormError(error.message)
-            setSubmitting(false)
-        }
-    }
-
     const handleDeleteConfirm = async () => {
         if (!deleteRow) return
         setSubmitting(true)
@@ -679,102 +712,71 @@ function PurchasePage() {
     }, [reloadTable])
 
     const tableOptions = useMemo(
-        () => ({
-            processing: true,
-            serverSide: true,
-            ajax: purchaseInvoicesApi.createDataTableAjax(setLoadError),
-            paging: true,
-            searching: true,
-            ordering: true,
-            info: true,
-            scrollX: true,
-            autoWidth: false,
-            responsive: true,
-            stripeClasses: ['odd', 'even'],
-            order: [[6, 'desc']],
-            pageLength: 15,
-            lengthMenu: [10, 15, 25, 50, 100],
-            language: dataTableLanguage,
-            layout: {
-                topStart: {
-                    search: { placeholder: 'جستجو...' },
-                    pageLength: { menu: [10, 15, 25, 50, 100] },
-                },
-                topEnd: null,
-
-                bottomStart: 'info',
-                bottomEnd: { paging: { firstLast: true, previousNext: true, numbers: 5 } },
-            },
-            columns: [
-                { data: 'rowNumber', name: 'rowNumber' },
-                { data: 'invoiceNumber', name: 'invoiceNumber' },
-                {
-                    data: 'documentType',
-                    name: 'documentType',
-                    render: (data, _type, row) => {
-                        const badge = renderInvoiceDocumentTypeBadge(data)
-                        if (row.referenceInvoiceNumber) {
-                            return `${badge}<div class="small text-muted mt-1">مبدأ: ${row.referenceInvoiceNumber}</div>`
-                        }
-                        return badge
+        () =>
+            createServerSideTableOptions({
+                ajax: purchaseInvoicesApi.createDataTableAjax(setLoadError),
+                order: [[5, 'desc']],
+                columns: [
+                    { data: 'rowNumber', name: 'rowNumber' },
+                    { data: 'invoiceNumber', name: 'invoiceNumber' },
+                    {
+                        data: 'documentType',
+                        name: 'documentType',
+                        render: (data, _type, row) => {
+                            const badge = renderInvoiceDocumentTypeBadge(data)
+                            if (row.referenceInvoiceNumber) {
+                                return `${badge}<div class="small text-muted mt-1">مبدأ: ${row.referenceInvoiceNumber}</div>`
+                            }
+                            return badge
+                        },
                     },
-                    
-                },
-                { data: 'supplierName', name: 'supplierName' },
-                {
-                    data: 'entrySource',
-                    name: 'entrySource',
-                    render: (data) => {
-                        const option = PURCHASE_ENTRY_SOURCE_OPTIONS.find((o) => o.value === data)
-                        return option?.label ?? '—'
+                    { data: 'supplierName', name: 'supplierName' },
+                    { data: 'warehouseName', name: 'warehouseName' },
+                    {
+                        data: 'invoiceDate',
+                        name: 'invoiceDate',
+                        render: (data) => formatJalaliDate(data),
                     },
-                },
-                { data: 'warehouseName', name: 'warehouseName' },
-                {
-                    data: 'invoiceDate',
-                    name: 'invoiceDate',
-                    render: (data) => formatJalaliDate(data),
-                },
-                {
-                    data: 'totalAmount',
-                    name: 'totalAmount',
-                    render: invoiceTotalRender,
-                },
-                {
-                    data: 'totalAmountInBaseCurrency',
-                    name: 'totalAmountInBaseCurrency',
-                    render: baseTotalRender,
-                },
-                {
-                    data: 'isPosted',
-                    name: 'isPosted',
-                    render: (data) =>
-                        data
-                            ? '<span class="badge badge-active">ثبت‌شده</span>'
-                            : '<span class="badge badge-inactive">پیش‌نویس</span>',
-                },
-                { data: null, name: 'actions', defaultContent: '' },
-            ],
-            columnDefs: [
-                { targets: 0, orderable: true, searchable: false, width: '56px', className: 'text-center' },
-                { targets: [3, 4, 5, 9], orderable: true, className: 'text-center' },
-                { targets: [2, 6, 7, 8, 9], className: 'text-center', orderable: true, },
-                {
-                    targets: 10,
-                    orderable: false,
-                    searchable: false,
-                    fixed: true,
-                    className: 'text-center all dt-actions-col',
-                    width: '196px',
-                },
-            ],
-        }),
+                    {
+                        data: 'totalAmount',
+                        name: 'totalAmount',
+                        render: invoiceTotalRender,
+                    },
+                    {
+                        data: 'totalAmountInBaseCurrency',
+                        name: 'totalAmountInBaseCurrency',
+                        render: baseTotalRender,
+                    },
+                    {
+                        data: 'isPosted',
+                        name: 'isPosted',
+                        render: (data) =>
+                            data
+                                ? '<span class="badge badge-active">ثبت‌شده</span>'
+                                : '<span class="badge badge-inactive">پیش‌نویس</span>',
+                    },
+                    { data: null, name: 'actions', defaultContent: '' },
+                ],
+                columnDefs: [
+                    { targets: 0, orderable: true, searchable: false, width: '56px', className: 'text-center' },
+                    { targets: [3, 4, 8], orderable: true, className: 'text-center' },
+                    { targets: [2, 5, 6, 7, 8], className: 'text-center', orderable: true },
+                    {
+                        targets: 9,
+                        orderable: false,
+                        searchable: false,
+                        fixed: true,
+                        className: 'text-center all dt-actions-col',
+                        width: '196px',
+                    },
+                ],
+            }),
         [invoiceTotalRender, baseTotalRender],
     )
 
     const actionSlots = useMemo(
         () => ({
-            10: (_data, _type, row) => (
+            9: (_data, _type, row) => (
                 <div className="dt-actions">
                     {(canEdit || row.isPosted) && (
                         <button
@@ -784,16 +786,6 @@ function PurchasePage() {
                             onClick={() => openEdit(row, row.isPosted)}
                         >
                             <Icon name={row.isPosted ? 'eye' : 'edit'} />
-                        </button>
-                    )}
-                    {row.isPosted && row.entrySource === PURCHASE_ENTRY_SOURCE.Production && (
-                        <button
-                            type="button"
-                            className="dt-action-btn"
-                            title="ردیابی تولید"
-                            onClick={() => openProductionTrace(row.purchaseInvoiceId)}
-                        >
-                            <Icon name="route" />
                         </button>
                     )}
                     {canCreate &&
@@ -829,7 +821,7 @@ function PurchasePage() {
                 </div>
             ),
         }),
-        [openEdit, openPrint, openReturn, openProductionTrace, canEdit, canDelete, canCreate],
+        [openEdit, openPrint, openReturn, canEdit, canDelete, canCreate],
     )
 
     return (
@@ -864,7 +856,6 @@ function PurchasePage() {
                                     <th>شماره</th>
                                     <th>نوع</th>
                                     <th>تأمین‌کننده</th>
-                                    <th>منبع</th>
                                     <th>انبار</th>
                                     <th>تاریخ</th>
                                     <th>جمع (ارز فاکتور)</th>
@@ -933,41 +924,6 @@ function PurchasePage() {
                                         )}
 
                                     <div className="row g-3 mb-3">
-                                        <div className="col-md-3">
-                                            <label className="form-label">منبع ورود</label>
-                                            <select
-                                                className="form-select"
-                                                value={header.entrySource}
-                                                disabled={viewPosted}
-                                                onChange={(e) => {
-                                                    const next = e.target.value
-                                                    handleHeaderChange('entrySource', next)
-                                                    if (String(next) !== String(PURCHASE_ENTRY_SOURCE.Production)) {
-                                                        handleHeaderChange('productionBatchId', '')
-                                                    }
-                                                }}
-                                            >
-                                                {PURCHASE_ENTRY_SOURCE_OPTIONS.map((o) => (
-                                                    <option key={o.value} value={o.value}>{o.label}</option>
-                                                ))}
-                                            </select>
-                                        </div>
-                                        {String(header.entrySource) === String(PURCHASE_ENTRY_SOURCE.Production) && (
-                                            <div className="col-md-3">
-                                                <label className="form-label">سند تولید</label>
-                                                <SearchableSelect
-                                                    options={productionBatches.map((b) => ({
-                                                        value: b.value,
-                                                        label: `${b.label} — ${formatJalaliDate(b.productionDate)}`,
-                                                    }))}
-                                                    value={header.productionBatchId}
-                                                    onChange={handleProductionBatchChange}
-                                                    placeholder="انتخاب سند تولید..."
-                                                    required
-                                                    disabled={viewPosted}
-                                                />
-                                            </div>
-                                        )}
                                         <div className="col-md-3">
                                             <label className="form-label">تأمین‌کننده</label>
                                             <SearchableSelect
@@ -1069,26 +1025,6 @@ function PurchasePage() {
                                             )}
                                         </div>
                                         <div className="col-md-3">
-                                            <label className="form-label">هزینه ثابت</label>
-                                            <AmountField
-                                                value={header.fixedCost}
-                                                onChange={(next) => handleHeaderChange('fixedCost', next)}
-                                                symbol={invoiceCurrencySymbol}
-                                                disabled={viewPosted}
-                                                min="0"
-                                            />
-                                        </div>
-                                        <div className="col-md-3">
-                                            <label className="form-label">هزینه متغیر</label>
-                                            <AmountField
-                                                value={header.variableCost}
-                                                onChange={(next) => handleHeaderChange('variableCost', next)}
-                                                symbol={invoiceCurrencySymbol}
-                                                disabled={viewPosted}
-                                                min="0"
-                                            />
-                                        </div>
-                                        <div className="col-md-3">
                                             <label className="form-label">کل فاکتور</label>
                                             <AmountField
                                                 value={totals.total}
@@ -1134,6 +1070,20 @@ function PurchasePage() {
                                                 onChange={(e) => handleHeaderChange('description', e.target.value)}
                                             />
                                         </div>
+                                        <div className="col-12">
+                                            <InvoiceFreightFields
+                                                freight={header}
+                                                onChange={handleFreightChange}
+                                                vehicleOptions={vehicles}
+                                                currencySymbol={invoiceCurrencySymbol}
+                                                disabled={viewPosted}
+                                                weightAutoHint={
+                                                    !freightWeightTouched && Number(header.freightMode) !== FREIGHT_MODE.None
+                                                        ? 'وزن از جمع خطوط (کیلو÷۱۰۰۰) محاسبه می‌شود'
+                                                        : null
+                                                }
+                                            />
+                                        </div>
                                     </div>
 
                                     <div className="d-flex align-items-center justify-content-between mb-2">
@@ -1166,7 +1116,12 @@ function PurchasePage() {
                                                     <th className="col-product">محصول</th>
                                                     <th className="col-unit">واحد</th>
                                                     <th className="col-qty">مقدار</th>
-                                                    <th className="col-price">قیمت واحد ({invoiceCurrencySymbol || '—'})</th>
+                                                    <th className="col-price">
+                                                        قیمت واحد ({invoiceCurrencySymbol || '—'})
+                                                        <div className="small fw-normal text-muted">
+                                                            پیشنهاد از میانگین موجودی / آخرین خرید
+                                                        </div>
+                                                    </th>
                                                     <th className="col-total">جمع ({invoiceCurrencySymbol || '—'})</th>
                                                     <th className="col-total-base">جمع ({baseCurrencySymbol || '—'})</th>
                                                     {!viewPosted && <th className="col-actions" />}
@@ -1184,77 +1139,82 @@ function PurchasePage() {
 
                                                     const mainRow = (
                                                         <tr key={index}>
-                                                        <td className="col-product">
-                                                            <SearchableSelect
-                                                                options={products}
-                                                                value={line.productId}
-                                                                onChange={(next) => handleProductChange(index, next)}
-                                                                placeholder="انتخاب..."
-                                                                searchPlaceholder="جستجوی محصول..."
-                                                                size="sm"
-                                                                className="invoice-line-control-height"
-                                                                required
-                                                                disabled={viewPosted}
-                                                            />
-                                                        </td>
-                                                        <td className="col-unit">
-                                                            <select
-                                                                className="form-select form-select-sm invoice-line-control-height"
-                                                                value={line.meaurmentId}
-                                                                required
-                                                                disabled={viewPosted}
-                                                                onChange={(e) => handleMeaurmentChange(index, e.target.value)}
-                                                            >
-                                                                <option value="">—</option>
-                                                                {meaurmentsForProduct(line.productId).map((m) => (
-                                                                    <option key={m.value} value={m.value}>
-                                                                        {m.label}
-                                                                    </option>
-                                                                ))}
-                                                            </select>
-                                                        </td>
-                                                        <td className="col-qty">
-                                                            <PrefixNumberField
-                                                                prefix={meaurmentSymbol(line.meaurmentId)}
-                                                                value={line.quantity}
-                                                                onChange={(next) => handleLineChange(index, 'quantity', next)}
-                                                                min="0"
-                                                                step="any"
-                                                                className="amount-field-sm invoice-line-control-height"
-                                                                required
-                                                                disabled={viewPosted}
-                                                            />
-                                                        </td>
-                                                        <td className="col-price">
-                                                            <AmountField
-                                                                value={line.unitPrice}
-                                                                onChange={(next) => handleLineChange(index, 'unitPrice', next)}
-                                                                symbol={invoiceCurrencySymbol}
-                                                                className="amount-field-sm invoice-line-control-height"
-                                                                min="0"
-                                                                step="any"
-                                                                required
-                                                                disabled={viewPosted}
-                                                            />
-                                                        </td>
-                                                        <td className="col-total text-center">
-                                                            <AmountDisplay value={line.lineTotal} symbol={invoiceCurrencySymbol} />
-                                                        </td>
-                                                        <td className="col-total-base text-center">
-                                                            <AmountDisplay value={line.lineTotalBase} symbol={baseCurrencySymbol} />
-                                                        </td>
-                                                        {!viewPosted && (
-                                                            <td className="col-actions">
-                                                                <button
-                                                                    type="button"
-                                                                    className="btn btn-sm btn-outline-danger"
-                                                                    onClick={() => removeLine(index)}
-                                                                >
-                                                                    <Icon name="trash" />
-                                                                </button>
+                                                            <td className="col-product">
+                                                                <SearchableSelect
+                                                                    options={products}
+                                                                    value={line.productId}
+                                                                    onChange={(next) => handleProductChange(index, next)}
+                                                                    placeholder="انتخاب..."
+                                                                    searchPlaceholder="جستجوی محصول..."
+                                                                    size="sm"
+                                                                    className="invoice-line-control-height"
+                                                                    required
+                                                                    disabled={viewPosted}
+                                                                />
                                                             </td>
-                                                        )}
-                                                    </tr>
+                                                            <td className="col-unit">
+                                                                <select
+                                                                    className="form-select form-select-sm invoice-line-control-height"
+                                                                    value={line.meaurmentId}
+                                                                    required
+                                                                    disabled={viewPosted}
+                                                                    onChange={(e) => handleMeaurmentChange(index, e.target.value)}
+                                                                >
+                                                                    <option value="">—</option>
+                                                                    {meaurmentsForProduct(line.productId).map((m) => (
+                                                                        <option key={m.value} value={m.value}>
+                                                                            {m.label}
+                                                                        </option>
+                                                                    ))}
+                                                                </select>
+                                                            </td>
+                                                            <td className="col-qty">
+                                                                <PrefixNumberField
+                                                                    prefix={meaurmentSymbol(line.meaurmentId)}
+                                                                    value={line.quantity}
+                                                                    onChange={(next) => handleLineChange(index, 'quantity', next)}
+                                                                    min="0"
+                                                                    step="any"
+                                                                    className="amount-field-sm invoice-line-control-height"
+                                                                    required
+                                                                    disabled={viewPosted}
+                                                                />
+                                                            </td>
+                                                            <td className="col-price">
+                                                                <AmountField
+                                                                    value={line.unitPrice}
+                                                                    onChange={(next) => handleLineChange(index, 'unitPrice', next)}
+                                                                    symbol={invoiceCurrencySymbol}
+                                                                    className="amount-field-sm invoice-line-control-height"
+                                                                    min="0"
+                                                                    step="any"
+                                                                    required
+                                                                    disabled={viewPosted}
+                                                                />
+                                                                {!viewPosted && line.purchasePriceSourceLabel ? (
+                                                                    <div className="small text-muted mt-1">
+                                                                        {line.purchasePriceSourceLabel}
+                                                                    </div>
+                                                                ) : null}
+                                                            </td>
+                                                            <td className="col-total text-center">
+                                                                <AmountDisplay value={line.lineTotal} symbol={invoiceCurrencySymbol} />
+                                                            </td>
+                                                            <td className="col-total-base text-center">
+                                                                <AmountDisplay value={line.lineTotalBase} symbol={baseCurrencySymbol} />
+                                                            </td>
+                                                            {!viewPosted && (
+                                                                <td className="col-actions">
+                                                                    <button
+                                                                        type="button"
+                                                                        className="btn btn-sm btn-outline-danger"
+                                                                        onClick={() => removeLine(index)}
+                                                                    >
+                                                                        <Icon name="trash" />
+                                                                    </button>
+                                                                </td>
+                                                            )}
+                                                        </tr>
                                                     )
 
                                                     if (!showReturnedQty || returnedQty <= 0) {
@@ -1341,16 +1301,6 @@ function PurchasePage() {
                                                         : 'ایجاد فاکتور'}
                                         </button>
                                     )}
-                                    {!viewPosted && editId && canEdit && !isInvoiceStatus && (
-                                        <button
-                                            type="button"
-                                            className="btn btn-success"
-                                            disabled={submitting}
-                                            onClick={handlePost}
-                                        >
-                                            ثبت نهایی ({header.status === '4' ? 'موجودی + مصارف' : 'فقط مصارف'})
-                                        </button>
-                                    )}
                                     {viewPosted &&
                                         canCreate &&
                                         documentType === INVOICE_DOCUMENT_TYPE.Invoice &&
@@ -1402,57 +1352,6 @@ function PurchasePage() {
                                     >
                                         حذف
                                     </button>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                </>
-            )}
-
-            {productionTrace && (
-                <>
-                    <div className="modal-backdrop show users-modal-backdrop" onClick={() => setProductionTrace(null)} />
-                    <div className="modal show d-block users-modal" tabIndex="-1">
-                        <div className="modal-dialog modal-dialog-centered modal-dialog-scrollable modal-lg">
-                            <div className="modal-content">
-                                <div className="modal-header">
-                                    <h5 className="modal-title">ردیابی تولید — {productionTrace.batchNumber}</h5>
-                                    <button type="button" className="btn-close" onClick={() => setProductionTrace(null)} />
-                                </div>
-                                <div className="modal-body">
-                                    <p className="small text-muted">
-                                        تاریخ تولید: {formatJalaliDate(productionTrace.productionDate)} — انبار: {productionTrace.outputWarehouseName}
-                                    </p>
-                                    <h6 className="mt-3">مصرف مواد</h6>
-                                    <ul className="list-group mb-3">
-                                        {(productionTrace.inputLines ?? []).map((line, i) => (
-                                            <li key={i} className="list-group-item d-flex justify-content-between">
-                                                <span>{line.productName} ({line.warehouseName})</span>
-                                                <span className="text-muted">{formatAmount(line.materialCostInBase)}</span>
-                                            </li>
-                                        ))}
-                                    </ul>
-                                    <h6>محصول تولیدی</h6>
-                                    <ul className="list-group mb-3">
-                                        {(productionTrace.outputLines ?? []).map((line, i) => (
-                                            <li key={i} className="list-group-item d-flex justify-content-between">
-                                                <span>{line.productName}</span>
-                                                <span className="text-muted">بها: {formatAmount(line.unitCostInBase)}</span>
-                                            </li>
-                                        ))}
-                                    </ul>
-                                    {(productionTrace.inventoryLots ?? []).length > 0 && (
-                                        <>
-                                            <h6>Lotهای موجودی</h6>
-                                            <ul className="list-group">
-                                                {productionTrace.inventoryLots.map((lot) => (
-                                                    <li key={lot.inventoryLotId} className="list-group-item small">
-                                                        {lot.lotCode} — {lot.productName} — باقی‌مانده: {formatAmount(lot.quantityInBase)}
-                                                    </li>
-                                                ))}
-                                            </ul>
-                                        </>
-                                    )}
                                 </div>
                             </div>
                         </div>

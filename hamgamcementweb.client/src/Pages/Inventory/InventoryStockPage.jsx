@@ -1,7 +1,8 @@
-import { useMemo, useRef, useState } from 'react'
+import { useCallback, useMemo, useRef, useState } from 'react'
+import Icon from '../../components/common/Icon'
 import DataTable from '../../lib/dataTableSetup'
 import { inventoryStocksApi } from '../../services/inventoryApi'
-import { dataTableLanguage, formatAmount } from '../Transport/CrudTablePage'
+import { dataTableLanguage, formatAmount, formatJalaliDate } from '../Transport/CrudTablePage'
 
 const columns = [
   { data: 'warehouseName', title: 'انبار' },
@@ -29,6 +30,18 @@ const columns = [
 function InventoryStockPage() {
   const tableRef = useRef(null)
   const [loadError, setLoadError] = useState('')
+  const [lots, setLots] = useState(null)
+  const [lotsTitle, setLotsTitle] = useState('')
+
+  const openLots = useCallback(async (row) => {
+    try {
+      const data = await inventoryStocksApi.fetchLots(row.warehouseId, row.productId)
+      setLotsTitle(`${row.productName} — ${row.warehouseName}`)
+      setLots(data)
+    } catch (error) {
+      setLoadError(error.message)
+    }
+  }, [])
 
   const tableOptions = useMemo(
     () => ({
@@ -52,7 +65,6 @@ function InventoryStockPage() {
           pageLength: { menu: [10, 15, 25, 50, 100] },
         },
         topEnd: null,
-
         bottomStart: 'info',
         bottomEnd: { paging: { firstLast: true, previousNext: true, numbers: 5 } },
       },
@@ -63,6 +75,7 @@ function InventoryStockPage() {
           name: col.data,
           render: col.render,
         })),
+        { data: null, name: 'actions', defaultContent: '' },
       ],
       columnDefs: [
         {
@@ -72,9 +85,29 @@ function InventoryStockPage() {
           width: '56px',
           className: 'text-center',
         },
+        {
+          targets: columns.length + 1,
+          orderable: false,
+          searchable: false,
+          className: 'text-center all dt-actions-col',
+          width: '72px',
+        },
       ],
     }),
     [],
+  )
+
+  const actionSlots = useMemo(
+    () => ({
+      [columns.length + 1]: (_data, _type, row) => (
+        <div className="dt-actions">
+          <button type="button" className="dt-action-btn" title="لات‌ها / رهگیری تولید" onClick={() => openLots(row)}>
+            <Icon name="route" />
+          </button>
+        </div>
+      ),
+    }),
+    [openLots],
   )
 
   return (
@@ -94,6 +127,7 @@ function InventoryStockPage() {
               ref={tableRef}
               className="table table-hover w-100 align-middle"
               options={tableOptions}
+              actionSlots={actionSlots}
             >
               <thead>
                 <tr>
@@ -101,12 +135,56 @@ function InventoryStockPage() {
                   {columns.map((col) => (
                     <th key={col.data}>{col.title}</th>
                   ))}
+                  <th></th>
                 </tr>
               </thead>
             </DataTable>
           </div>
         </div>
       </div>
+
+      {lots && (
+        <div className="modal show d-block" tabIndex={-1} style={{ backgroundColor: 'rgba(0,0,0,0.5)' }}>
+          <div className="modal-dialog modal-lg modal-dialog-scrollable">
+            <div className="modal-content">
+              <div className="modal-header">
+                <h5 className="modal-title">لات‌های موجود — {lotsTitle}</h5>
+                <button type="button" className="btn-close" onClick={() => setLots(null)} />
+              </div>
+              <div className="modal-body">
+                {lots.length === 0 ? (
+                  <p className="text-muted mb-0">لات فعالی یافت نشد.</p>
+                ) : (
+                  <div className="table-responsive">
+                    <table className="table table-sm align-middle">
+                      <thead>
+                        <tr>
+                          <th>کد لات</th>
+                          <th>باقیمانده</th>
+                          <th>بهای واحد</th>
+                          <th>تاریخ</th>
+                          <th>بچ تولید</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {lots.map((lot) => (
+                          <tr key={lot.inventoryLotId}>
+                            <td>{lot.lotCode}</td>
+                            <td>{formatAmount(lot.remainingQuantityInBase)}</td>
+                            <td>{formatAmount(lot.unitCost)}</td>
+                            <td>{formatJalaliDate(lot.receivedAt)}</td>
+                            <td>{lot.productionBatchNumber || '—'}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

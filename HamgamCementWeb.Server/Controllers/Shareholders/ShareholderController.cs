@@ -2,7 +2,9 @@ using System.ComponentModel.DataAnnotations;
 using System.Security.Claims;
 using HamgamCementWeb.Server.Authorization;
 using HamgamCementWeb.Server.Data;
+using HamgamCementWeb.Server.Data.Models.Finance;
 using HamgamCementWeb.Server.Data.Models.People;
+using HamgamCementWeb.Server.Services;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
@@ -17,17 +19,49 @@ public class ShareholderController : ControllerBase
     private static readonly Dictionary<int, string> OrderColumns = new()
     {
         [1] = "FullName",
-        [2] = nameof(Shareholder.ProfitShare),
-        [3] = nameof(Shareholder.LossShare),
-        [4] = nameof(Shareholder.InitialBalance),
-        [5] = nameof(Shareholder.IsActive),
+        [3] = nameof(Shareholder.ProfitShare),
+        [4] = nameof(Shareholder.LossShare),
+        [5] = nameof(Shareholder.InitialBalance),
+        [6] = nameof(Shareholder.IsActive),
     };
 
     private readonly AppDbContext _db;
+    private readonly IAccountLookupService _accounts;
+    private readonly IShareholderEquityPostingService _equity;
+    private readonly ICurrencyConversionService _currency;
 
-    public ShareholderController(AppDbContext db)
+    public ShareholderController(
+        AppDbContext db,
+        IAccountLookupService accounts,
+        IShareholderEquityPostingService equity,
+        ICurrencyConversionService currency)
     {
         _db = db;
+        _accounts = accounts;
+        _equity = equity;
+        _currency = currency;
+    }
+
+    [HttpGet("options")]
+    [HasPermission("people.shareholders.view")]
+    public async Task<IActionResult> Options(CancellationToken cancellationToken)
+    {
+        var rows = await _db.Shareholders
+            .AsNoTracking()
+            .Where(s => s.IsDeleted != true && s.IsActive == true)
+            .OrderBy(s => s.LastName)
+            .ThenBy(s => s.FirstName)
+            .Select(s => new
+            {
+                value = s.ShareholderID,
+                label = (s.FirstName + " " + s.LastName).Trim(),
+                profitShare = s.ProfitShare,
+                lossShare = s.LossShare,
+                accountId = s.AccountId,
+            })
+            .ToListAsync(cancellationToken);
+
+        return Ok(rows);
     }
 
     [HttpPost("datatable")]
@@ -72,13 +106,28 @@ public class ShareholderController : ControllerBase
                 ProfitShare = s.ProfitShare,
                 LossShare = s.LossShare,
                 IsActive = s.IsActive == true,
+                AccountId = s.AccountId,
+                AccountCode = s.Account != null ? s.Account.Code : null,
             })
             .ToListAsync(cancellationToken);
+
+        var ids = rows.Select(r => r.ShareholderId).ToList();
+        var openedIds = await _db.ShareholderEquityTxns
+            .AsNoTracking()
+            .Where(t =>
+                ids.Contains(t.ShareholderId)
+                && t.IsDeleted != true
+                && t.TxnType == ShareholderEquityTxnType.OpeningBalance)
+            .Select(t => t.ShareholderId)
+            .Distinct()
+            .ToListAsync(cancellationToken);
+        var openedSet = openedIds.ToHashSet();
 
         for (var i = 0; i < rows.Count; i++)
         {
             rows[i].RowNumber = start + i + 1;
             rows[i].FullName = $"{rows[i].FirstName} {rows[i].LastName}".Trim();
+            rows[i].HasOpeningBalance = openedSet.Contains(rows[i].ShareholderId);
         }
 
         return Ok(new
@@ -99,6 +148,9 @@ public class ShareholderController : ControllerBase
                 r.ProfitShare,
                 r.LossShare,
                 r.IsActive,
+                r.AccountId,
+                r.AccountCode,
+                r.HasOpeningBalance,
             }),
         });
     }
@@ -132,10 +184,23 @@ public class ShareholderController : ControllerBase
         _db.Shareholders.Add(shareholder);
         await _db.SaveChangesAsync(cancellationToken);
 
+        var fullName = $"{shareholder.FirstName} {shareholder.LastName}".Trim();
+        var account = await _accounts.EnsureShareholderAccountAsync(
+            shareholder.ShareholderID,
+            fullName,
+            cancellationToken);
+        shareholder.AccountId = account.AccountID;
+        await _db.SaveChangesAsync(cancellationToken);
+
+        if (shareholder.InitialBalance > 0)
+        {
+            await PostOpeningBalanceAsync(shareholder, cancellationToken);
+        }
+
         return CreatedAtAction(
             nameof(Update),
             new { id = shareholder.ShareholderID },
-            new { message = "سهام‌دار با موفقیت ایجاد شد." });
+            new { message = "سهام‌دار با موفقیت ایجاد شد.", shareholderId = shareholder.ShareholderID });
     }
 
     [HttpPut("{id:int}")]
@@ -170,9 +235,53 @@ public class ShareholderController : ControllerBase
         shareholder.IsUpdated = true;
         shareholder.UpdatedBy = ResolveCurrentUserId();
 
+        var fullName = $"{shareholder.FirstName} {shareholder.LastName}".Trim();
+        var account = await _accounts.EnsureShareholderAccountAsync(
+            shareholder.ShareholderID,
+            fullName,
+            cancellationToken);
+        shareholder.AccountId = account.AccountID;
+
         await _db.SaveChangesAsync(cancellationToken);
 
         return Ok(new { message = "سهام‌دار با موفقیت ویرایش شد." });
+    }
+
+    // ثبت صریح مانده اولیه اگر هنوز سند Opening ندارد
+    [HttpPost("{id:int}/opening-balance")]
+    [HasPermission("people.shareholders.edit")]
+    public async Task<IActionResult> PostOpeningBalance(int id, CancellationToken cancellationToken)
+    {
+        var shareholder = await _db.Shareholders
+            .FirstOrDefaultAsync(s => s.ShareholderID == id && s.IsDeleted != true, cancellationToken);
+
+        if (shareholder is null)
+        {
+            return NotFound(new { message = "سهام‌دار یافت نشد." });
+        }
+
+        if (shareholder.InitialBalance <= 0)
+        {
+            return BadRequest(new { message = "مانده اولیه باید بزرگ‌تر از صفر باشد." });
+        }
+
+        var exists = await _db.ShareholderEquityTxns.AnyAsync(
+            t => t.ShareholderId == id
+                 && t.IsDeleted != true
+                 && t.TxnType == ShareholderEquityTxnType.OpeningBalance,
+            cancellationToken);
+        if (exists)
+        {
+            return BadRequest(new { message = "مانده اولیه این سهامدار قبلاً ثبت شده است." });
+        }
+
+        var txn = await PostOpeningBalanceAsync(shareholder, cancellationToken);
+        return Ok(new
+        {
+            message = "مانده اولیه سرمایه ثبت شد.",
+            shareholderEquityTxnId = txn.ShareholderEquityTxnID,
+            journalEntryId = txn.JournalEntryId,
+        });
     }
 
     [HttpDelete("{id:int}")]
@@ -195,6 +304,39 @@ public class ShareholderController : ControllerBase
         await _db.SaveChangesAsync(cancellationToken);
 
         return Ok(new { message = "سهام‌دار با موفقیت حذف شد." });
+    }
+
+    private async Task<ShareholderEquityTxn> PostOpeningBalanceAsync(
+        Shareholder shareholder,
+        CancellationToken cancellationToken)
+    {
+        var baseCurrency = await _currency.GetBaseCurrencyAsync(cancellationToken);
+        var amount = shareholder.InitialBalance;
+        var txn = new ShareholderEquityTxn
+        {
+            TxnType = ShareholderEquityTxnType.OpeningBalance,
+            ShareholderId = shareholder.ShareholderID,
+            TxnDate = DateTime.Today,
+            CurrencyId = baseCurrency.CurrencyID,
+            BaseCurrencyId = baseCurrency.CurrencyID,
+            BaseUnitsPerUnitAtTransaction = 1,
+            Amount = amount,
+            AmountInBaseCurrency = amount,
+            SettlementMode = EquitySettlementMode.Cash,
+            Description = $"مانده اولیه سرمایه — {shareholder.FirstName} {shareholder.LastName}".Trim(),
+            IsActive = true,
+            IsDeleted = false,
+            CreatedAt = DateTime.Now,
+            CreatedBy = ResolveCurrentUserId(),
+        };
+
+        _db.ShareholderEquityTxns.Add(txn);
+        await _db.SaveChangesAsync(cancellationToken);
+
+        var journal = await _equity.PostTxnAsync(txn, ResolveCurrentUserId(), cancellationToken);
+        txn.JournalEntryId = journal.JournalEntryID;
+        await _db.SaveChangesAsync(cancellationToken);
+        return txn;
     }
 
     private static IQueryable<Shareholder> ApplyOrdering(
@@ -295,6 +437,9 @@ public class ShareholderController : ControllerBase
         public decimal ProfitShare { get; set; }
         public decimal LossShare { get; set; }
         public bool IsActive { get; set; }
+        public int? AccountId { get; set; }
+        public string? AccountCode { get; set; }
+        public bool HasOpeningBalance { get; set; }
     }
 
     public class SaveShareholderRequest

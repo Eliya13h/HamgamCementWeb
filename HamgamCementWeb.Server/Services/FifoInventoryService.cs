@@ -13,6 +13,13 @@ public record FifoAllocation(
     decimal LineCost,
     int? PurchaseInvoiceId = null);
 
+/// <summary>
+/// نتیجه تعدیل موجودی پس از انبارگردانی — برای ساخت سند دابل‌انتری.
+/// </summary>
+public record StockCountAdjustmentResult(
+    decimal DifferenceInBase,
+    decimal AdjustmentCostInBase);
+
 public class ReceiveStockRequest
 {
     public int ProductId { get; set; }
@@ -63,11 +70,23 @@ public interface IFifoInventoryService
         int inventoryLotId,
         decimal quantityInBase,
         CancellationToken cancellationToken = default);
-    Task AdjustToCountAsync(
+    Task<StockCountAdjustmentResult> AdjustToCountAsync(
         int productId,
         int warehouseId,
         decimal countedQuantityInBase,
         DateTime? countedAt = null,
+        int? userId = null,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// انتقال FIFO از انبار مبدأ به مقصد با حفظ بهای واحد هر Lot.
+    /// </summary>
+    Task<IReadOnlyList<FifoAllocation>> TransferAsync(
+        int productId,
+        int fromWarehouseId,
+        int toWarehouseId,
+        decimal quantityInBase,
+        DateTime? transferredAt = null,
         int? userId = null,
         CancellationToken cancellationToken = default);
 }
@@ -266,7 +285,7 @@ public class FifoInventoryService : IFifoInventoryService
 
     // چرا: تأیید انبارگردانی باید موجودی تجمیعی (InventoryStock) و مجموع Lotها را هم‌زمان با مقدار شمارش‌شده
     // هماهنگ کند؛ در غیر این صورت FIFO از موجودی مجازی تخصیص می‌دهد و Stock با Lotها ناسازگار می‌شود.
-    public async Task AdjustToCountAsync(
+    public async Task<StockCountAdjustmentResult> AdjustToCountAsync(
         int productId,
         int warehouseId,
         decimal countedQuantityInBase,
@@ -292,10 +311,11 @@ public class FifoInventoryService : IFifoInventoryService
 
         var currentRemaining = lots.Sum(l => l.RemainingQuantityInBase);
         var diff = countedQuantityInBase - currentRemaining;
+        var adjustmentCost = 0m;
 
         if (diff < 0)
         {
-            // کسری: کاهش از قدیمی‌ترین Lotها بر اساس FIFO
+            // کسری: کاهش از قدیمی‌ترین Lotها بر اساس FIFO و جمع بهای خارج‌شده
             var toReduce = -diff;
             foreach (var lot in lots.Where(l => l.RemainingQuantityInBase > 0))
             {
@@ -305,6 +325,7 @@ public class FifoInventoryService : IFifoInventoryService
                 }
 
                 var take = Math.Min(lot.RemainingQuantityInBase, toReduce);
+                adjustmentCost += take * lot.UnitCost;
                 lot.RemainingQuantityInBase -= take;
                 lot.IsUpdated = true;
                 lot.UpdatedAt = now;
@@ -319,6 +340,8 @@ public class FifoInventoryService : IFifoInventoryService
             var weightedCost = totalRemaining > 0
                 ? lots.Sum(l => l.RemainingQuantityInBase * l.UnitCost) / totalRemaining
                 : 0m;
+
+            adjustmentCost = diff * weightedCost;
 
             var sequence = lots.Count > 0 ? lots.Max(l => l.ReceiptSequence) : 0;
 
@@ -369,6 +392,54 @@ public class FifoInventoryService : IFifoInventoryService
             stock.UpdatedAt = now;
             stock.UpdatedBy = userId;
         }
+
+        return new StockCountAdjustmentResult(diff, Math.Round(adjustmentCost, 4));
+    }
+
+    public async Task<IReadOnlyList<FifoAllocation>> TransferAsync(
+        int productId,
+        int fromWarehouseId,
+        int toWarehouseId,
+        decimal quantityInBase,
+        DateTime? transferredAt = null,
+        int? userId = null,
+        CancellationToken cancellationToken = default)
+    {
+        if (fromWarehouseId == toWarehouseId)
+        {
+            throw new InvalidOperationException("انبار مبدأ و مقصد نمی‌توانند یکسان باشند.");
+        }
+
+        if (quantityInBase <= 0)
+        {
+            throw new InvalidOperationException("مقدار انتقال باید بزرگ‌تر از صفر باشد.");
+        }
+
+        var allocations = await AllocateAndApplyAsync(
+            new AllocateStockRequest
+            {
+                ProductId = productId,
+                WarehouseId = fromWarehouseId,
+                QuantityInBase = quantityInBase,
+            },
+            allowInsufficientStock: false,
+            cancellationToken);
+
+        var receivedAt = transferredAt ?? DateTime.Now;
+        foreach (var alloc in allocations)
+        {
+            await ReceiveAsync(new ReceiveStockRequest
+            {
+                ProductId = productId,
+                WarehouseId = toWarehouseId,
+                QuantityInBase = alloc.QuantityInBase,
+                UnitCost = alloc.UnitCost,
+                ReceivedAt = receivedAt,
+                CreatedBy = userId,
+            }, cancellationToken);
+        }
+
+        return allocations;
     }
 
     private async Task<IReadOnlyList<FifoAllocation>> BuildAllocationsAsync(

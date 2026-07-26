@@ -1,10 +1,12 @@
 using System.ComponentModel.DataAnnotations;
 using System.ComponentModel.DataAnnotations.Schema;
+using HamgamCementWeb.Server.Data;
+using HamgamCementWeb.Server.Data.Models.Invoice;
 using HamgamCementWeb.Server.Data.Models.People;
 
 namespace HamgamCementWeb.Server.Data.Models.Transport
 {
-    // سفر حمل و نقل — تخصیص یک وسیله نقلیه به یک مسیر برای انتقال بار
+    // سفر حمل و نقل — هسته گزارش‌گیری حمل (خرید، فروش، باربری)
     public class TransportTrip : BaseEntity
     {
         [Key]
@@ -14,12 +16,34 @@ namespace HamgamCementWeb.Server.Data.Models.Transport
         [MaxLength(50)]
         public string TripNumber { get; set; } = string.Empty;
 
-        public int VehicleId { get; set; }
+        // وسیله — برای کرایه خارجی می‌تواند خالی باشد
+        public int? VehicleId { get; set; }
 
-        public int TransportRouteId { get; set; }
+        // مسیر اختیاری — ساخت خودکار از فاکتور بدون مسیر مجاز است
+        public int? TransportRouteId { get; set; }
 
         // راننده سفر — اگر خالی باشد از راننده پیش‌فرض وسیله نقلیه استفاده می‌شود
         public int? DriverId { get; set; }
+
+        // هدف سفر برای تفکیک گزارش خرید / فروش / باربری
+        public TripPurpose TripPurpose { get; set; } = TripPurpose.CommercialHaul;
+
+        // نوع کرایه (خودی / کرایه‌ای)
+        public FreightMode FreightMode { get; set; } = FreightMode.None;
+
+        // نرخ کرایه به‌ازای هر تن
+        [Column(TypeName = "decimal(18,4)")]
+        public decimal FreightRatePerTon { get; set; }
+
+        // نام باربری / مالک خارجی — برای حمل کرایه‌ای
+        [MaxLength(200)]
+        public string? FreightCarrierName { get; set; }
+
+        // لینک به فاکتور خرید مبدأ (در صورت ورود خرید)
+        public int? PurchaseInvoiceId { get; set; }
+
+        // لینک به فاکتور فروش مبدأ (در صورت تحویل فروش)
+        public int? SaleInvoiceId { get; set; }
 
         // شرح بار / محموله
         [MaxLength(500)]
@@ -47,7 +71,7 @@ namespace HamgamCementWeb.Server.Data.Models.Transport
 
         public TripStatus Status { get; set; } = TripStatus.Planned;
 
-        // درآمد سفر
+        // درآمد سفر (کرایه دریافتی / باربری)
         [Column(TypeName = "decimal(18,4)")]
         public decimal TripRevenue { get; set; }
 
@@ -61,5 +85,11 @@ namespace HamgamCementWeb.Server.Data.Models.Transport
 
         [ForeignKey(nameof(TransportRouteId))]
         public virtual TransportRoute? Route { get; set; }
+
+        [ForeignKey(nameof(PurchaseInvoiceId))]
+        public virtual PurchaseInvoice? PurchaseInvoice { get; set; }
+
+        [ForeignKey(nameof(SaleInvoiceId))]
+        public virtual SaleInvoice? SaleInvoice { get; set; }
     }
 }

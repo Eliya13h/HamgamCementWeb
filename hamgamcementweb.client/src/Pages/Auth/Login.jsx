@@ -69,7 +69,7 @@ function Login() {
                         </div>
                         <div>
                             <h1 className="login-visual-title" style={{ color: 'var(--hc-text)', fontSize: '1.1rem' }}>
-                                همگام سیمان
+                                همگام سمنت
                             </h1>
                             <p className="login-visual-subtitle" style={{ color: 'var(--hc-text-muted)' }}>
                                 پنل مدیریت

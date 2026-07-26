@@ -328,6 +328,7 @@ public class WarehouseTurnoverService : IWarehouseTurnoverService
                 MeaurmentSymbol = l.CountedMeaurment.Symbol,
                 l.CountedQuantityInBase,
                 l.DifferenceInBase,
+                l.AdjustmentCostInBase,
                 Stocktaking = l.Stocktaking,
             })
             .ToListAsync(cancellationToken);
@@ -356,8 +357,299 @@ public class WarehouseTurnoverService : IWarehouseTurnoverService
                 QuantityInBase = Math.Abs(diff),
                 QuantityIn = diff > 0 ? diff : 0,
                 QuantityOut = diff < 0 ? Math.Abs(diff) : 0,
+                UnitPrice = Math.Abs(diff) > 0 ? row.AdjustmentCostInBase / Math.Abs(diff) : 0,
+                LineTotal = row.AdjustmentCostInBase,
+                WarehouseId = warehouseId,
+                WarehouseName = warehouseName,
+            });
+        }
+
+        // مصرف مواد در تولید (خروج از انبار Raw/Semi)
+        var productionInputQuery = _db.ProductionInputLines
+            .AsNoTracking()
+            .Where(l =>
+                l.IsDeleted != true &&
+                l.WarehouseId == warehouseId &&
+                l.Batch.IsDeleted != true &&
+                l.Batch.IsPosted);
+
+        if (productId is > 0)
+        {
+            productionInputQuery = productionInputQuery.Where(l => l.ProductId == productId);
+        }
+
+        if (dateFrom.HasValue)
+        {
+            productionInputQuery = productionInputQuery.Where(l => l.Batch.ProductionDate >= dateFrom.Value.Date);
+        }
+
+        if (dateTo.HasValue)
+        {
+            var end = dateTo.Value.Date.AddDays(1).AddTicks(-1);
+            productionInputQuery = productionInputQuery.Where(l => l.Batch.ProductionDate <= end);
+        }
+
+        var productionInputs = await productionInputQuery
+            .Select(l => new
+            {
+                l.ProductionInputLineID,
+                l.ProductId,
+                ProductCode = l.Product.Code,
+                ProductName = l.Product.Name,
+                l.Quantity,
+                l.MeaurmentId,
+                MeaurmentName = l.Meaurment.Name,
+                MeaurmentSymbol = l.Meaurment.Symbol,
+                l.QuantityInBase,
+                Batch = l.Batch,
+            })
+            .ToListAsync(cancellationToken);
+
+        foreach (var row in productionInputs)
+        {
+            movements.Add(new MovementEntry
+            {
+                MovementDate = row.Batch.ProductionDate,
+                SortTimestamp = row.Batch.PostedAt ?? row.Batch.ProductionDate,
+                SortId = row.ProductionInputLineID,
+                MovementKind = "ProductionOut",
+                MovementTypeLabel = "مصرف تولید",
+                DocumentType = 0,
+                DocumentNumber = row.Batch.BatchNumber,
+                DocumentId = row.Batch.ProductionBatchID,
+                CounterpartyName = string.Empty,
+                ProductId = row.ProductId,
+                ProductCode = row.ProductCode,
+                ProductName = row.ProductName,
+                MeaurmentId = row.MeaurmentId,
+                MeaurmentName = row.MeaurmentName,
+                MeaurmentSymbol = row.MeaurmentSymbol,
+                Quantity = row.Quantity,
+                QuantityInBase = row.QuantityInBase,
+                QuantityIn = 0,
+                QuantityOut = row.QuantityInBase,
                 UnitPrice = 0,
                 LineTotal = 0,
+                WarehouseId = warehouseId,
+                WarehouseName = warehouseName,
+            });
+        }
+
+        // ورود محصول ساخته‌شده به انبار Processed
+        var productionOutputQuery = _db.ProductionOutputLines
+            .AsNoTracking()
+            .Where(l =>
+                l.IsDeleted != true &&
+                l.Batch.OutputWarehouseId == warehouseId &&
+                l.Batch.IsDeleted != true &&
+                l.Batch.IsPosted);
+
+        if (productId is > 0)
+        {
+            productionOutputQuery = productionOutputQuery.Where(l => l.ProductId == productId);
+        }
+
+        if (dateFrom.HasValue)
+        {
+            productionOutputQuery = productionOutputQuery.Where(l => l.Batch.ProductionDate >= dateFrom.Value.Date);
+        }
+
+        if (dateTo.HasValue)
+        {
+            var end = dateTo.Value.Date.AddDays(1).AddTicks(-1);
+            productionOutputQuery = productionOutputQuery.Where(l => l.Batch.ProductionDate <= end);
+        }
+
+        var productionOutputs = await productionOutputQuery
+            .Select(l => new
+            {
+                l.ProductionOutputLineID,
+                l.ProductId,
+                ProductCode = l.Product.Code,
+                ProductName = l.Product.Name,
+                l.Quantity,
+                l.MeaurmentId,
+                MeaurmentName = l.Meaurment.Name,
+                MeaurmentSymbol = l.Meaurment.Symbol,
+                l.QuantityInBase,
+                l.UnitCostInBase,
+                Batch = l.Batch,
+            })
+            .ToListAsync(cancellationToken);
+
+        foreach (var row in productionOutputs)
+        {
+            movements.Add(new MovementEntry
+            {
+                MovementDate = row.Batch.ProductionDate,
+                SortTimestamp = row.Batch.PostedAt ?? row.Batch.ProductionDate,
+                SortId = row.ProductionOutputLineID,
+                MovementKind = "ProductionIn",
+                MovementTypeLabel = "ورود از تولید",
+                DocumentType = 0,
+                DocumentNumber = row.Batch.BatchNumber,
+                DocumentId = row.Batch.ProductionBatchID,
+                CounterpartyName = string.Empty,
+                ProductId = row.ProductId,
+                ProductCode = row.ProductCode,
+                ProductName = row.ProductName,
+                MeaurmentId = row.MeaurmentId,
+                MeaurmentName = row.MeaurmentName,
+                MeaurmentSymbol = row.MeaurmentSymbol,
+                Quantity = row.Quantity,
+                QuantityInBase = row.QuantityInBase,
+                QuantityIn = row.QuantityInBase,
+                QuantityOut = 0,
+                UnitPrice = row.UnitCostInBase,
+                LineTotal = row.UnitCostInBase * row.QuantityInBase,
+                WarehouseId = warehouseId,
+                WarehouseName = warehouseName,
+            });
+        }
+
+        // خروج انتقال به انبار دیگر
+        var transferOutQuery = _db.WarehouseTransferLines
+            .AsNoTracking()
+            .Where(l =>
+                l.IsDeleted != true &&
+                l.WarehouseTransfer.IsDeleted != true &&
+                l.WarehouseTransfer.IsPosted &&
+                l.WarehouseTransfer.FromWarehouseId == warehouseId);
+
+        if (productId is > 0)
+        {
+            transferOutQuery = transferOutQuery.Where(l => l.ProductId == productId);
+        }
+
+        if (dateFrom.HasValue)
+        {
+            transferOutQuery = transferOutQuery.Where(l => l.WarehouseTransfer.TransferDate >= dateFrom.Value.Date);
+        }
+
+        if (dateTo.HasValue)
+        {
+            var end = dateTo.Value.Date.AddDays(1).AddTicks(-1);
+            transferOutQuery = transferOutQuery.Where(l => l.WarehouseTransfer.TransferDate <= end);
+        }
+
+        var transferOuts = await transferOutQuery
+            .Select(l => new
+            {
+                l.WarehouseTransferLineID,
+                l.ProductId,
+                ProductCode = l.Product.Code,
+                ProductName = l.Product.Name,
+                l.Quantity,
+                l.MeaurmentId,
+                MeaurmentName = l.Meaurment.Name,
+                MeaurmentSymbol = l.Meaurment.Symbol,
+                l.QuantityInBase,
+                l.UnitCostInBase,
+                l.LineCostInBase,
+                Transfer = l.WarehouseTransfer,
+                ToWarehouseName = l.WarehouseTransfer.ToWarehouse.Name,
+            })
+            .ToListAsync(cancellationToken);
+
+        foreach (var row in transferOuts)
+        {
+            movements.Add(new MovementEntry
+            {
+                MovementDate = row.Transfer.TransferDate,
+                SortTimestamp = row.Transfer.PostedAt ?? row.Transfer.TransferDate,
+                SortId = row.WarehouseTransferLineID,
+                MovementKind = "TransferOut",
+                MovementTypeLabel = "خروج انتقال",
+                DocumentType = 0,
+                DocumentNumber = row.Transfer.Code,
+                DocumentId = row.Transfer.WarehouseTransferID,
+                CounterpartyName = row.ToWarehouseName,
+                ProductId = row.ProductId,
+                ProductCode = row.ProductCode,
+                ProductName = row.ProductName,
+                MeaurmentId = row.MeaurmentId,
+                MeaurmentName = row.MeaurmentName,
+                MeaurmentSymbol = row.MeaurmentSymbol,
+                Quantity = row.Quantity,
+                QuantityInBase = row.QuantityInBase,
+                QuantityIn = 0,
+                QuantityOut = row.QuantityInBase,
+                UnitPrice = row.UnitCostInBase,
+                LineTotal = row.LineCostInBase,
+                WarehouseId = warehouseId,
+                WarehouseName = warehouseName,
+            });
+        }
+
+        // ورود انتقال از انبار دیگر
+        var transferInQuery = _db.WarehouseTransferLines
+            .AsNoTracking()
+            .Where(l =>
+                l.IsDeleted != true &&
+                l.WarehouseTransfer.IsDeleted != true &&
+                l.WarehouseTransfer.IsPosted &&
+                l.WarehouseTransfer.ToWarehouseId == warehouseId);
+
+        if (productId is > 0)
+        {
+            transferInQuery = transferInQuery.Where(l => l.ProductId == productId);
+        }
+
+        if (dateFrom.HasValue)
+        {
+            transferInQuery = transferInQuery.Where(l => l.WarehouseTransfer.TransferDate >= dateFrom.Value.Date);
+        }
+
+        if (dateTo.HasValue)
+        {
+            var end = dateTo.Value.Date.AddDays(1).AddTicks(-1);
+            transferInQuery = transferInQuery.Where(l => l.WarehouseTransfer.TransferDate <= end);
+        }
+
+        var transferIns = await transferInQuery
+            .Select(l => new
+            {
+                l.WarehouseTransferLineID,
+                l.ProductId,
+                ProductCode = l.Product.Code,
+                ProductName = l.Product.Name,
+                l.Quantity,
+                l.MeaurmentId,
+                MeaurmentName = l.Meaurment.Name,
+                MeaurmentSymbol = l.Meaurment.Symbol,
+                l.QuantityInBase,
+                l.UnitCostInBase,
+                l.LineCostInBase,
+                Transfer = l.WarehouseTransfer,
+                FromWarehouseName = l.WarehouseTransfer.FromWarehouse.Name,
+            })
+            .ToListAsync(cancellationToken);
+
+        foreach (var row in transferIns)
+        {
+            movements.Add(new MovementEntry
+            {
+                MovementDate = row.Transfer.TransferDate,
+                SortTimestamp = row.Transfer.PostedAt ?? row.Transfer.TransferDate,
+                SortId = row.WarehouseTransferLineID,
+                MovementKind = "TransferIn",
+                MovementTypeLabel = "ورود انتقال",
+                DocumentType = 0,
+                DocumentNumber = row.Transfer.Code,
+                DocumentId = row.Transfer.WarehouseTransferID,
+                CounterpartyName = row.FromWarehouseName,
+                ProductId = row.ProductId,
+                ProductCode = row.ProductCode,
+                ProductName = row.ProductName,
+                MeaurmentId = row.MeaurmentId,
+                MeaurmentName = row.MeaurmentName,
+                MeaurmentSymbol = row.MeaurmentSymbol,
+                Quantity = row.Quantity,
+                QuantityInBase = row.QuantityInBase,
+                QuantityIn = row.QuantityInBase,
+                QuantityOut = 0,
+                UnitPrice = row.UnitCostInBase,
+                LineTotal = row.LineCostInBase,
                 WarehouseId = warehouseId,
                 WarehouseName = warehouseName,
             });

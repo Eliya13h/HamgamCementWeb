@@ -24,14 +24,20 @@ public class TransportInvoiceController : TransportControllerBase
 
     private readonly ICurrencyConversionService _currency;
     private readonly IFinanceCategoryService _financeCategories;
+    private readonly IOperationalGlService _gl;
+    private readonly ICashBoxService _cashBoxes;
 
     public TransportInvoiceController(
         AppDbContext db,
         ICurrencyConversionService currency,
-        IFinanceCategoryService financeCategories) : base(db)
+        IFinanceCategoryService financeCategories,
+        IOperationalGlService gl,
+        ICashBoxService cashBoxes) : base(db)
     {
         _currency = currency;
         _financeCategories = financeCategories;
+        _gl = gl;
+        _cashBoxes = cashBoxes;
     }
 
     [HttpPost("datatable")]
@@ -464,6 +470,14 @@ public class TransportInvoiceController : TransportControllerBase
 
         await Db.SaveChangesAsync(cancellationToken);
         invoice.ExpenseId = expense.ExpenseID;
+
+        if (expense.JournalEntryId is null)
+        {
+            var cashBoxId = await _cashBoxes.ResolveUserCashBoxIdAsync(userId, cancellationToken);
+            var journal = await _gl.PostMiscExpenseAsync(expense, userId, cashBoxId, cancellationToken);
+            expense.JournalEntryId = journal.JournalEntryID;
+            await Db.SaveChangesAsync(cancellationToken);
+        }
     }
 
     // اعتبارسنجی وجود کلیدهای خارجی و سازگاری سفر با وسیله.
@@ -486,7 +500,7 @@ public class TransportInvoiceController : TransportControllerBase
                 return "سفر انتخاب‌شده یافت نشد.";
             }
 
-            if (trip.VehicleId != request.VehicleId)
+            if (trip.VehicleId is int tripVehicleId && tripVehicleId != request.VehicleId)
             {
                 return "سفر انتخاب‌شده متعلق به وسیله نقلیه‌ی این فاکتور نیست.";
             }
