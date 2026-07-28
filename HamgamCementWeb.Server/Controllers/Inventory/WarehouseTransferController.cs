@@ -324,7 +324,7 @@ public class WarehouseTransferController : InventoryControllerBase
             return Ok(new
             {
                 message = journal is null
-                    ? "انتقال ثبت شد و موجودی به‌روزرسانی شد."
+                    ? "انتقال ثبت شد و موجودی به‌روزرسانی شد؛ چون بهای انتقال صفر است یا حساب مبدأ/مقصد یکسان است، سند دفتر ثبت نشد."
                     : "انتقال ثبت شد؛ موجودی و سند دابل‌انتری ایجاد شد.",
                 journalEntryId = transfer.JournalEntryId,
                 totalCostInBaseCurrency = transfer.TotalCostInBaseCurrency,

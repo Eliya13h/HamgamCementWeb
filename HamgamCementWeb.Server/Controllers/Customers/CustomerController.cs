@@ -21,11 +21,16 @@ public class CustomerController : ControllerBase
 
     private readonly AppDbContext _db;
     private readonly ICustomerReadService _reads;
+    private readonly IPartyOpeningBalanceService _opening;
 
-    public CustomerController(AppDbContext db, ICustomerReadService reads)
+    public CustomerController(
+        AppDbContext db,
+        ICustomerReadService reads,
+        IPartyOpeningBalanceService opening)
     {
         _db = db;
         _reads = reads;
+        _opening = opening;
     }
 
     [HttpGet("list")]
@@ -190,28 +195,83 @@ public class CustomerController : ControllerBase
             return ValidationProblem(ModelState);
         }
 
-        var customer = new Customer
+        await using var tx = await _db.Database.BeginTransactionAsync(cancellationToken);
+        try
         {
-            Name = request.Name.Trim(),
-            PhoneNumber = request.PhoneNumber.Trim(),
-            Address = request.Address.Trim(),
-            City = request.City.Trim(),
-            Country = request.Country.Trim(),
-            InitialBalance = request.InitialBalance,
-            CustomerType = request.CustomerType,
-            CreatedBy = ResolveCurrentUserId(),
-            CreatedAt = DateTime.Now,
-            IsActive = request.IsActive,
-            IsDeleted = false,
-        };
+            var customer = new Customer
+            {
+                Name = request.Name.Trim(),
+                PhoneNumber = request.PhoneNumber.Trim(),
+                Address = request.Address.Trim(),
+                City = request.City.Trim(),
+                Country = request.Country.Trim(),
+                InitialBalance = request.InitialBalance,
+                CustomerType = request.CustomerType,
+                CreatedBy = ResolveCurrentUserId(),
+                CreatedAt = DateTime.Now,
+                IsActive = request.IsActive,
+                IsDeleted = false,
+            };
 
-        _db.Customers.Add(customer);
-        await _db.SaveChangesAsync(cancellationToken);
+            _db.Customers.Add(customer);
+            await _db.SaveChangesAsync(cancellationToken);
 
-        return CreatedAtAction(
-            nameof(Update),
-            new { id = customer.CustomerID },
-            new { message = "مشتری با موفقیت ایجاد شد." });
+            if (customer.InitialBalance > 0)
+            {
+                await _opening.PostCustomerOpeningAsync(
+                    customer.CustomerID,
+                    customer.Name,
+                    customer.InitialBalance,
+                    DateTime.Today,
+                    ResolveCurrentUserId(),
+                    cancellationToken);
+            }
+
+            await tx.CommitAsync(cancellationToken);
+
+            return CreatedAtAction(
+                nameof(Update),
+                new { id = customer.CustomerID },
+                new { message = "مشتری با موفقیت ایجاد شد.", customerId = customer.CustomerID });
+        }
+        catch (InvalidOperationException ex)
+        {
+            await tx.RollbackAsync(cancellationToken);
+            return BadRequest(new { message = ex.Message });
+        }
+    }
+
+    // ثبت صریح مانده اولیه مشتری در دفترروزنامه
+    [HttpPost("{id:int}/opening-balance")]
+    [HasPermission("people.customers.edit")]
+    public async Task<IActionResult> PostOpeningBalance(int id, CancellationToken cancellationToken)
+    {
+        var customer = await _db.Customers
+            .FirstOrDefaultAsync(c => c.CustomerID == id && c.IsDeleted != true, cancellationToken);
+        if (customer is null)
+        {
+            return NotFound(new { message = "مشتری یافت نشد." });
+        }
+
+        try
+        {
+            var journal = await _opening.PostCustomerOpeningAsync(
+                customer.CustomerID,
+                customer.Name,
+                customer.InitialBalance,
+                DateTime.Today,
+                ResolveCurrentUserId(),
+                cancellationToken);
+            return Ok(new
+            {
+                message = "مانده اولیه مشتری در دفتر ثبت شد.",
+                journalEntryId = journal.JournalEntryID,
+            });
+        }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(new { message = ex.Message });
+        }
     }
 
     [HttpPut("{id:int}")]
@@ -234,21 +294,43 @@ public class CustomerController : ControllerBase
             return NotFound(new { message = "مشتری یافت نشد." });
         }
 
-        customer.Name = request.Name.Trim();
-        customer.PhoneNumber = request.PhoneNumber.Trim();
-        customer.Address = request.Address.Trim();
-        customer.City = request.City.Trim();
-        customer.Country = request.Country.Trim();
-        customer.InitialBalance = request.InitialBalance;
-        customer.CustomerType = request.CustomerType;
-        customer.IsActive = request.IsActive;
-        customer.UpdatedAt = DateTime.Now;
-        customer.IsUpdated = true;
-        customer.UpdatedBy = ResolveCurrentUserId();
+        var balanceChanged = customer.InitialBalance != request.InitialBalance;
+        var userId = ResolveCurrentUserId();
 
-        await _db.SaveChangesAsync(cancellationToken);
+        await using var tx = await _db.Database.BeginTransactionAsync(cancellationToken);
+        try
+        {
+            customer.Name = request.Name.Trim();
+            customer.PhoneNumber = request.PhoneNumber.Trim();
+            customer.Address = request.Address.Trim();
+            customer.City = request.City.Trim();
+            customer.Country = request.Country.Trim();
+            customer.InitialBalance = request.InitialBalance;
+            customer.CustomerType = request.CustomerType;
+            customer.IsActive = request.IsActive;
+            customer.UpdatedAt = DateTime.Now;
+            customer.IsUpdated = true;
+            customer.UpdatedBy = userId;
+            await _db.SaveChangesAsync(cancellationToken);
 
-        return Ok(new { message = "مشتری با موفقیت ویرایش شد." });
+            if (balanceChanged)
+            {
+                await _opening.SyncCustomerOpeningAsync(
+                    customer.CustomerID,
+                    customer.Name,
+                    customer.InitialBalance,
+                    userId,
+                    cancellationToken);
+            }
+
+            await tx.CommitAsync(cancellationToken);
+            return Ok(new { message = "مشتری با موفقیت ویرایش شد." });
+        }
+        catch (InvalidOperationException ex)
+        {
+            await tx.RollbackAsync(cancellationToken);
+            return BadRequest(new { message = ex.Message });
+        }
     }
 
     [HttpDelete("{id:int}")]
@@ -263,14 +345,31 @@ public class CustomerController : ControllerBase
             return NotFound(new { message = "مشتری یافت نشد." });
         }
 
-        customer.IsDeleted = true;
-        customer.IsActive = false;
-        customer.DeletedAt = DateTime.Now;
-        customer.DeletedBy = ResolveCurrentUserId();
+        if (await _opening.HasCustomerGlActivityAsync(id, cancellationToken))
+        {
+            return Conflict(new { message = "مشتری گردش حسابداری دارد و قابل حذف نیست." });
+        }
 
-        await _db.SaveChangesAsync(cancellationToken);
+        var userId = ResolveCurrentUserId();
+        await using var tx = await _db.Database.BeginTransactionAsync(cancellationToken);
+        try
+        {
+            await _opening.ReverseCustomerOpeningAsync(id, userId, cancellationToken);
 
-        return Ok(new { message = "مشتری با موفقیت حذف شد." });
+            customer.IsDeleted = true;
+            customer.IsActive = false;
+            customer.DeletedAt = DateTime.Now;
+            customer.DeletedBy = userId;
+            await _db.SaveChangesAsync(cancellationToken);
+            await tx.CommitAsync(cancellationToken);
+
+            return Ok(new { message = "مشتری با موفقیت حذف شد." });
+        }
+        catch (InvalidOperationException ex)
+        {
+            await tx.RollbackAsync(cancellationToken);
+            return BadRequest(new { message = ex.Message });
+        }
     }
 
     private async Task<bool> CanViewDeletedAsync(CancellationToken cancellationToken)

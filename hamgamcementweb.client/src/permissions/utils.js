@@ -21,6 +21,11 @@ export function canViewPage(permissions, hasFullAccess, path) {
 
 /** مسیرهایی که برای نمایش آیتم سایدبار بررسی می‌شوند */
 export function getNavAccessPaths(item) {
+  if (item.skipPermissionTree) {
+    // میانبر به صفحهٔ دیگر — دسترسی همان صفحهٔ هدف (بدون hash)
+    const path = String(item.path ?? '').split('#')[0]
+    return path ? [path] : []
+  }
   if (item.permissionPages?.length) {
     return item.permissionPages.map((page) => page.path)
   }

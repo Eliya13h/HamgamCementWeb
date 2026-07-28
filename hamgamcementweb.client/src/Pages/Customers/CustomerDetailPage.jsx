@@ -11,6 +11,7 @@ import { fetchBaseCurrency } from '../../services/currenciesApi'
 import {
   createCustomerInvoicesDataTableAjax,
   fetchCustomer,
+  postCustomerOpeningBalance,
 } from '../../services/customersApi'
 
 function statusBadgeClass(code) {
@@ -25,9 +26,13 @@ function CustomerDetailPage() {
   const customerId = Number(id)
   const tableRef = useRef(null)
   const { canEdit } = usePageCrud('/transactions/sale')
+  const { canEdit: canEditCustomer } = usePageCrud('/people/customers')
   const [customer, setCustomer] = useState(null)
   const [loadError, setLoadError] = useState('')
   const [tableError, setTableError] = useState('')
+  const [actionError, setActionError] = useState('')
+  const [actionMessage, setActionMessage] = useState('')
+  const [postingOpening, setPostingOpening] = useState(false)
   const [invoiceTotals, setInvoiceTotals] = useState({ totalPurchase: 0, totalPayment: 0 })
   const [loading, setLoading] = useState(true)
   const [baseCurrencySymbol, setBaseCurrencySymbol] = useState('')
@@ -139,6 +144,21 @@ function CustomerDetailPage() {
     [customerId, handleInvoiceLoaded, amountCurrencyRender],
   )
 
+  const handlePostOpeningBalance = async () => {
+    if (!customerId) return
+    setActionError('')
+    setActionMessage('')
+    setPostingOpening(true)
+    try {
+      const result = await postCustomerOpeningBalance(customerId)
+      setActionMessage(result?.message || 'مانده اولیه در دفتر ثبت شد.')
+    } catch (error) {
+      setActionError(error.message)
+    } finally {
+      setPostingOpening(false)
+    }
+  }
+
   const actionSlots = useMemo(
     () => ({
       7: (_data, _type, row) => (
@@ -214,12 +234,32 @@ function CustomerDetailPage() {
               <span className="badge badge-inactive">حذف‌شده</span>
             )}
           </div>
-          <span className={`badge ${statusBadgeClass(customer.accountStatusCode)}`}>
-            {customer.accountStatus}
-          </span>
+          <div className="d-flex align-items-center gap-2 flex-wrap">
+            {canEditCustomer && Number(customer.initialBalance) !== 0 && (
+              <button
+                type="button"
+                className="btn btn-sm btn-outline-primary"
+                onClick={handlePostOpeningBalance}
+                disabled={postingOpening}
+              >
+                {postingOpening
+                  ? 'در حال ثبت...'
+                  : 'ثبت مانده اولیه در دفتر'}
+              </button>
+            )}
+            <span className={`badge ${statusBadgeClass(customer.accountStatusCode)}`}>
+              {customer.accountStatus}
+            </span>
+          </div>
         </div>
 
         <div className="card-body px-4 pb-4">
+          {actionError && (
+            <div className="alert alert-danger py-2">{actionError}</div>
+          )}
+          {actionMessage && (
+            <div className="alert alert-success py-2">{actionMessage}</div>
+          )}
           <div className="customer-detail-grid">
             <div className="customer-detail-item">
               <span className="customer-detail-label">تلفن</span>

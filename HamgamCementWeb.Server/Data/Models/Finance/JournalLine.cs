@@ -38,6 +38,9 @@ public class JournalLine : BaseEntity
     // مشتری یا تأمین‌کننده مرتبط با خط تفصیلی
     public int? PartyId { get; set; }
 
+    // مرکز هزینه اختیاری برای گزارش تحلیلی
+    public int? CostCenterId { get; set; }
+
     [ForeignKey(nameof(JournalEntryId))]
     public virtual JournalEntry JournalEntry { get; set; } = null!;
 
@@ -49,4 +52,7 @@ public class JournalLine : BaseEntity
 
     [ForeignKey(nameof(CashBoxId))]
     public virtual CashBox? CashBox { get; set; }
+
+    [ForeignKey(nameof(CostCenterId))]
+    public virtual CostCenter? CostCenter { get; set; }
 }

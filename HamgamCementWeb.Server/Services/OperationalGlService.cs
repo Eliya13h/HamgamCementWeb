@@ -55,8 +55,7 @@ public class OperationalGlService : IOperationalGlService
             }
         }
 
-        var banks = await _accounts.GetBySystemCodeAsync(AccountSystemCode.Banks, cancellationToken);
-        return banks.AccountID;
+        throw new InvalidOperationException("صندوق یا حساب بانکی برای تسویه نقدی الزامی است.");
     }
 
     public async Task<JournalEntry> PostPurchaseAsync(
@@ -76,11 +75,22 @@ public class OperationalGlService : IOperationalGlService
 
         var amount = invoice.TotalAmount;
         var amountBase = invoice.TotalAmountInBaseCurrency;
+        var subTotal = invoice.SubTotalAmount > 0 ? invoice.SubTotalAmount : amount;
+        var subTotalBase = invoice.SubTotalAmountInBaseCurrency > 0 ? invoice.SubTotalAmountInBaseCurrency : amountBase;
+        var tax = invoice.TaxAmount;
+        var taxBase = invoice.TaxAmountInBaseCurrency;
+        var taxAccount = tax > 0
+            ? await _accounts.GetBySystemCodeAsync(AccountSystemCode.TaxReceivable, cancellationToken)
+            : null;
         var lines = new List<JournalLineDraft>
         {
-            new(inventoryAccountId, amount, 0, amountBase, 0, invoice.CurrencyId, $"خرید {invoice.InvoiceNumber}"),
+            new(inventoryAccountId, subTotal, 0, subTotalBase, 0, invoice.CurrencyId, $"خرید {invoice.InvoiceNumber}"),
             new(ap.AccountID, 0, amount, 0, amountBase, invoice.CurrencyId, $"بدهی تأمین‌کننده — {invoice.InvoiceNumber}", PartyId: invoice.SupplierId),
         };
+        if (taxAccount is not null)
+        {
+            lines.Add(new(taxAccount.AccountID, tax, 0, taxBase, 0, invoice.CurrencyId, $"مالیات خرید — {invoice.InvoiceNumber}"));
+        }
 
         if (invoice.PaidAmount > 0)
         {
@@ -120,11 +130,22 @@ public class OperationalGlService : IOperationalGlService
 
         var amount = invoice.TotalAmount;
         var amountBase = invoice.TotalAmountInBaseCurrency;
+        var subTotal = invoice.SubTotalAmount > 0 ? invoice.SubTotalAmount : amount;
+        var subTotalBase = invoice.SubTotalAmountInBaseCurrency > 0 ? invoice.SubTotalAmountInBaseCurrency : amountBase;
+        var tax = invoice.TaxAmount;
+        var taxBase = invoice.TaxAmountInBaseCurrency;
+        var taxAccount = tax > 0
+            ? await _accounts.GetBySystemCodeAsync(AccountSystemCode.TaxReceivable, cancellationToken)
+            : null;
         var lines = new List<JournalLineDraft>
         {
             new(ap.AccountID, amount, 0, amountBase, 0, invoice.CurrencyId, $"برگشت خرید {invoice.InvoiceNumber}", PartyId: invoice.SupplierId),
-            new(inventoryAccountId, 0, amount, 0, amountBase, invoice.CurrencyId, $"کاهش موجودی — {invoice.InvoiceNumber}"),
+            new(inventoryAccountId, 0, subTotal, 0, subTotalBase, invoice.CurrencyId, $"کاهش موجودی — {invoice.InvoiceNumber}"),
         };
+        if (taxAccount is not null)
+        {
+            lines.Add(new(taxAccount.AccountID, 0, tax, 0, taxBase, invoice.CurrencyId, $"برگشت مالیات خرید — {invoice.InvoiceNumber}"));
+        }
 
         if (invoice.PaidAmount > 0)
         {
@@ -165,6 +186,13 @@ public class OperationalGlService : IOperationalGlService
 
         var amount = invoice.TotalAmount;
         var amountBase = invoice.TotalAmountInBaseCurrency;
+        var subTotal = invoice.SubTotalAmount > 0 ? invoice.SubTotalAmount : amount;
+        var subTotalBase = invoice.SubTotalAmountInBaseCurrency > 0 ? invoice.SubTotalAmountInBaseCurrency : amountBase;
+        var tax = invoice.TaxAmount;
+        var taxBase = invoice.TaxAmountInBaseCurrency;
+        var taxPayable = tax > 0
+            ? await _accounts.GetBySystemCodeAsync(AccountSystemCode.TaxPayable, cancellationToken)
+            : null;
         var costBase = invoice.TotalCostInBaseCurrency;
         var costDoc = amount > 0 && amountBase > 0
             ? costBase * (amount / amountBase)
@@ -173,8 +201,12 @@ public class OperationalGlService : IOperationalGlService
         var lines = new List<JournalLineDraft>
         {
             new(ar.AccountID, amount, 0, amountBase, 0, invoice.CurrencyId, $"فروش {invoice.InvoiceNumber}", PartyId: invoice.CustomerId),
-            new(sales.AccountID, 0, amount, 0, amountBase, invoice.CurrencyId, $"درآمد فروش — {invoice.InvoiceNumber}"),
+            new(sales.AccountID, 0, subTotal, 0, subTotalBase, invoice.CurrencyId, $"درآمد فروش — {invoice.InvoiceNumber}"),
         };
+        if (taxPayable is not null)
+        {
+            lines.Add(new(taxPayable.AccountID, 0, tax, 0, taxBase, invoice.CurrencyId, $"مالیات فروش — {invoice.InvoiceNumber}"));
+        }
 
         if (costBase > 0)
         {
@@ -221,6 +253,13 @@ public class OperationalGlService : IOperationalGlService
 
         var amount = invoice.TotalAmount;
         var amountBase = invoice.TotalAmountInBaseCurrency;
+        var subTotal = invoice.SubTotalAmount > 0 ? invoice.SubTotalAmount : amount;
+        var subTotalBase = invoice.SubTotalAmountInBaseCurrency > 0 ? invoice.SubTotalAmountInBaseCurrency : amountBase;
+        var tax = invoice.TaxAmount;
+        var taxBase = invoice.TaxAmountInBaseCurrency;
+        var taxPayable = tax > 0
+            ? await _accounts.GetBySystemCodeAsync(AccountSystemCode.TaxPayable, cancellationToken)
+            : null;
         var costBase = invoice.TotalCostInBaseCurrency;
         var costDoc = amount > 0 && amountBase > 0
             ? costBase * (amount / amountBase)
@@ -228,9 +267,13 @@ public class OperationalGlService : IOperationalGlService
 
         var lines = new List<JournalLineDraft>
         {
-            new(sales.AccountID, amount, 0, amountBase, 0, invoice.CurrencyId, $"برگشت فروش {invoice.InvoiceNumber}"),
+            new(sales.AccountID, subTotal, 0, subTotalBase, 0, invoice.CurrencyId, $"برگشت فروش {invoice.InvoiceNumber}"),
             new(ar.AccountID, 0, amount, 0, amountBase, invoice.CurrencyId, $"کاهش طلب — {invoice.InvoiceNumber}", PartyId: invoice.CustomerId),
         };
+        if (taxPayable is not null)
+        {
+            lines.Add(new(taxPayable.AccountID, tax, 0, taxBase, 0, invoice.CurrencyId, $"برگشت مالیات فروش — {invoice.InvoiceNumber}"));
+        }
 
         if (costBase > 0)
         {
@@ -271,7 +314,8 @@ public class OperationalGlService : IOperationalGlService
         var expenseAccountId = category.AccountId
             ?? (await _accounts.GetBySystemCodeAsync(AccountSystemCode.MiscExpense, cancellationToken)).AccountID;
 
-        var creditAccountId = await ResolveSettlementAccountIdAsync(cashBoxId, cancellationToken);
+        int creditAccountId;
+        int? lineCashBoxId = null;
         if (expense.SupplierId is int supplierId)
         {
             var name = await _db.Suppliers.Where(s => s.SupplierID == supplierId).Select(s => s.Name).FirstAsync(cancellationToken);
@@ -279,14 +323,16 @@ public class OperationalGlService : IOperationalGlService
         }
         else
         {
+            creditAccountId = await ResolveSettlementAccountIdAsync(cashBoxId, cancellationToken);
             await EnsureCashOutAsync(cashBoxId, expense.CurrencyId, expense.Amount, cancellationToken);
+            lineCashBoxId = cashBoxId;
         }
 
         var lines = new List<JournalLineDraft>
         {
             new(expenseAccountId, expense.Amount, 0, expense.AmountInBaseCurrency, 0, expense.CurrencyId, expense.Title),
             new(creditAccountId, 0, expense.Amount, 0, expense.AmountInBaseCurrency, expense.CurrencyId, expense.Title,
-                CashBoxId: expense.SupplierId is null ? cashBoxId : null,
+                CashBoxId: lineCashBoxId,
                 PartyId: expense.SupplierId),
         };
 
@@ -313,17 +359,23 @@ public class OperationalGlService : IOperationalGlService
         var revenueAccountId = category.AccountId
             ?? (await _accounts.GetBySystemCodeAsync(AccountSystemCode.OtherRevenue, cancellationToken)).AccountID;
 
-        var debitAccountId = await ResolveSettlementAccountIdAsync(cashBoxId, cancellationToken);
+        int debitAccountId;
+        int? lineCashBoxId = null;
         if (revenue.CustomerId is int customerId)
         {
             var name = await _db.Customers.Where(c => c.CustomerID == customerId).Select(c => c.Name).FirstAsync(cancellationToken);
             debitAccountId = (await _accounts.EnsureCustomerAccountAsync(customerId, name, cancellationToken)).AccountID;
         }
+        else
+        {
+            debitAccountId = await ResolveSettlementAccountIdAsync(cashBoxId, cancellationToken);
+            lineCashBoxId = cashBoxId;
+        }
 
         var lines = new List<JournalLineDraft>
         {
             new(debitAccountId, revenue.Amount, 0, revenue.AmountInBaseCurrency, 0, revenue.CurrencyId, revenue.Title,
-                CashBoxId: revenue.CustomerId is null ? cashBoxId : null,
+                CashBoxId: lineCashBoxId,
                 PartyId: revenue.CustomerId),
             new(revenueAccountId, 0, revenue.Amount, 0, revenue.AmountInBaseCurrency, revenue.CurrencyId, revenue.Title),
         };
@@ -471,20 +523,20 @@ public class OperationalGlService : IOperationalGlService
                 line.Amount, 0,
                 line.AmountInBaseCurrency, 0,
                 line.CurrencyId,
-                "دریافت از صندوق پایین‌تر",
+                "ورود انتقال صندوق",
                 CashBoxId: transfer.ToCashBoxId));
             lines.Add(new(
                 fromAccount.AccountID,
                 0, line.Amount,
                 0, line.AmountInBaseCurrency,
                 line.CurrencyId,
-                "تحویل به صندوق بالاتر",
+                "خروج انتقال صندوق",
                 CashBoxId: transfer.FromCashBoxId));
         }
 
         return await _journal.PostAsync(
             transfer.TransferDate,
-            transfer.Description ?? "تحویل شیفت صندوق",
+            transfer.Description ?? "انتقال صندوق",
             JournalSource.CashTransfer,
             transfer.CashTransferID,
             baseCurrencyId,

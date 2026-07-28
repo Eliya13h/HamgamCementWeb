@@ -25,6 +25,7 @@ public class TransportInvoiceController : TransportControllerBase
     private readonly ICurrencyConversionService _currency;
     private readonly IFinanceCategoryService _financeCategories;
     private readonly IOperationalGlService _gl;
+    private readonly IJournalPostingService _journal;
     private readonly ICashBoxService _cashBoxes;
 
     public TransportInvoiceController(
@@ -32,11 +33,13 @@ public class TransportInvoiceController : TransportControllerBase
         ICurrencyConversionService currency,
         IFinanceCategoryService financeCategories,
         IOperationalGlService gl,
+        IJournalPostingService journal,
         ICashBoxService cashBoxes) : base(db)
     {
         _currency = currency;
         _financeCategories = financeCategories;
         _gl = gl;
+        _journal = journal;
         _cashBoxes = cashBoxes;
     }
 
@@ -180,54 +183,61 @@ public class TransportInvoiceController : TransportControllerBase
 
         // چرا تراکنش: ایجاد فاکتور، ردیف‌ها و رکورد مصرف حسابداری مرتبط باید اتمیک باشد.
         await using var tx = await Db.Database.BeginTransactionAsync(cancellationToken);
-
-        var invoice = new TransportInvoice
+        try
         {
-            InvoiceNumber = $"TMP{DateTime.UtcNow.Ticks}",
-            VehicleId = request.VehicleId,
-            TransportTripId = request.TransportTripId,
-            InvoiceDate = request.InvoiceDate,
-            Description = request.Description?.Trim(),
-            IsActive = true,
-            IsDeleted = false,
-            CreatedAt = now,
-            CreatedBy = userId,
-        };
-
-        foreach (var line in request.Expenses)
-        {
-            var expense = new TransportExpense
+            var invoice = new TransportInvoice
             {
-                ExpensesCategoryId = line.ExpensesCategoryId,
-                Title = line.Title.Trim(),
-                Amount = line.Amount,
-                CurrencyId = line.CurrencyId,
-                ExpenseDate = line.ExpenseDate ?? request.InvoiceDate,
-                Description = line.Description?.Trim(),
+                InvoiceNumber = $"TMP{DateTime.UtcNow.Ticks}",
+                VehicleId = request.VehicleId,
+                TransportTripId = request.TransportTripId,
+                InvoiceDate = request.InvoiceDate,
+                Description = request.Description?.Trim(),
                 IsActive = true,
                 IsDeleted = false,
                 CreatedAt = now,
                 CreatedBy = userId,
             };
 
-            await ApplyExpenseCurrencyAsync(expense, cancellationToken);
-            invoice.Expenses.Add(expense);
+            foreach (var line in request.Expenses)
+            {
+                var expense = new TransportExpense
+                {
+                    ExpensesCategoryId = line.ExpensesCategoryId,
+                    Title = line.Title.Trim(),
+                    Amount = line.Amount,
+                    CurrencyId = line.CurrencyId,
+                    ExpenseDate = line.ExpenseDate ?? request.InvoiceDate,
+                    Description = line.Description?.Trim(),
+                    IsActive = true,
+                    IsDeleted = false,
+                    CreatedAt = now,
+                    CreatedBy = userId,
+                };
+
+                await ApplyExpenseCurrencyAsync(expense, cancellationToken);
+                invoice.Expenses.Add(expense);
+            }
+
+            invoice.TotalAmount = invoice.Expenses.Sum(e => e.Amount);
+            invoice.TotalAmountInBaseCurrency = invoice.Expenses.Sum(e => e.AmountInBaseCurrency);
+
+            Db.TransportInvoices.Add(invoice);
+            await Db.SaveChangesAsync(cancellationToken);
+
+            invoice.InvoiceNumber = TransportCodeHelper.ForInvoice(invoice.TransportInvoiceID);
+
+            await SyncAccountingExpenseAsync(invoice, userId, cancellationToken);
+            await Db.SaveChangesAsync(cancellationToken);
+
+            await tx.CommitAsync(cancellationToken);
+
+            return Ok(new { message = "فاکتور مصارف با موفقیت ایجاد شد." });
         }
-
-        invoice.TotalAmount = invoice.Expenses.Sum(e => e.Amount);
-        invoice.TotalAmountInBaseCurrency = invoice.Expenses.Sum(e => e.AmountInBaseCurrency);
-
-        Db.TransportInvoices.Add(invoice);
-        await Db.SaveChangesAsync(cancellationToken);
-
-        invoice.InvoiceNumber = TransportCodeHelper.ForInvoice(invoice.TransportInvoiceID);
-
-        await SyncAccountingExpenseAsync(invoice, userId, cancellationToken);
-        await Db.SaveChangesAsync(cancellationToken);
-
-        await tx.CommitAsync(cancellationToken);
-
-        return Ok(new { message = "فاکتور مصارف با موفقیت ایجاد شد." });
+        catch (InvalidOperationException ex)
+        {
+            await tx.RollbackAsync(cancellationToken);
+            return BadRequest(new { message = ex.Message });
+        }
     }
 
     [HttpPut("{id:int}")]
@@ -266,80 +276,87 @@ public class TransportInvoiceController : TransportControllerBase
 
         // چرا تراکنش: به‌روزرسانی فاکتور، ردیف‌ها و رکورد مصرف حسابداری مرتبط باید اتمیک باشد.
         await using var tx = await Db.Database.BeginTransactionAsync(cancellationToken);
-
-        invoice.VehicleId = request.VehicleId;
-        invoice.TransportTripId = request.TransportTripId;
-        invoice.InvoiceDate = request.InvoiceDate;
-        invoice.Description = request.Description?.Trim();
-        invoice.IsUpdated = true;
-        invoice.UpdatedAt = now;
-        invoice.UpdatedBy = userId;
-
-        // همگام‌سازی ردیف‌ها: ردیف حذف‌شده سافت دیلیت، ردیف موجود ویرایش و ردیف جدید اضافه می‌شود
-        var incomingIds = request.Expenses
-            .Where(e => e.TransportExpenseId is > 0)
-            .Select(e => e.TransportExpenseId!.Value)
-            .ToHashSet();
-
-        foreach (var existing in invoice.Expenses.Where(e => !incomingIds.Contains(e.TransportExpenseID)))
+        try
         {
-            existing.IsDeleted = true;
-            existing.IsActive = false;
-            existing.DeletedAt = now;
-            existing.DeletedBy = userId;
-        }
+            invoice.VehicleId = request.VehicleId;
+            invoice.TransportTripId = request.TransportTripId;
+            invoice.InvoiceDate = request.InvoiceDate;
+            invoice.Description = request.Description?.Trim();
+            invoice.IsUpdated = true;
+            invoice.UpdatedAt = now;
+            invoice.UpdatedBy = userId;
 
-        foreach (var line in request.Expenses)
-        {
-            var existing = line.TransportExpenseId is > 0
-                ? invoice.Expenses.FirstOrDefault(e => e.TransportExpenseID == line.TransportExpenseId)
-                : null;
+            // همگام‌سازی ردیف‌ها: ردیف حذف‌شده سافت دیلیت، ردیف موجود ویرایش و ردیف جدید اضافه می‌شود
+            var incomingIds = request.Expenses
+                .Where(e => e.TransportExpenseId is > 0)
+                .Select(e => e.TransportExpenseId!.Value)
+                .ToHashSet();
 
-            if (existing is null)
+            foreach (var existing in invoice.Expenses.Where(e => !incomingIds.Contains(e.TransportExpenseID)))
             {
-                var created = new TransportExpense
+                existing.IsDeleted = true;
+                existing.IsActive = false;
+                existing.DeletedAt = now;
+                existing.DeletedBy = userId;
+            }
+
+            foreach (var line in request.Expenses)
+            {
+                var existing = line.TransportExpenseId is > 0
+                    ? invoice.Expenses.FirstOrDefault(e => e.TransportExpenseID == line.TransportExpenseId)
+                    : null;
+
+                if (existing is null)
                 {
-                    ExpensesCategoryId = line.ExpensesCategoryId,
-                    Title = line.Title.Trim(),
-                    Amount = line.Amount,
-                    CurrencyId = line.CurrencyId,
-                    ExpenseDate = line.ExpenseDate ?? request.InvoiceDate,
-                    Description = line.Description?.Trim(),
-                    IsActive = true,
-                    IsDeleted = false,
-                    CreatedAt = now,
-                    CreatedBy = userId,
-                };
+                    var created = new TransportExpense
+                    {
+                        ExpensesCategoryId = line.ExpensesCategoryId,
+                        Title = line.Title.Trim(),
+                        Amount = line.Amount,
+                        CurrencyId = line.CurrencyId,
+                        ExpenseDate = line.ExpenseDate ?? request.InvoiceDate,
+                        Description = line.Description?.Trim(),
+                        IsActive = true,
+                        IsDeleted = false,
+                        CreatedAt = now,
+                        CreatedBy = userId,
+                    };
 
-                await ApplyExpenseCurrencyAsync(created, cancellationToken);
-                invoice.Expenses.Add(created);
-            }
-            else
-            {
-                existing.ExpensesCategoryId = line.ExpensesCategoryId;
-                existing.Title = line.Title.Trim();
-                existing.Amount = line.Amount;
-                existing.CurrencyId = line.CurrencyId;
-                existing.ExpenseDate = line.ExpenseDate ?? request.InvoiceDate;
-                existing.Description = line.Description?.Trim();
-                existing.IsUpdated = true;
-                existing.UpdatedAt = now;
-                existing.UpdatedBy = userId;
+                    await ApplyExpenseCurrencyAsync(created, cancellationToken);
+                    invoice.Expenses.Add(created);
+                }
+                else
+                {
+                    existing.ExpensesCategoryId = line.ExpensesCategoryId;
+                    existing.Title = line.Title.Trim();
+                    existing.Amount = line.Amount;
+                    existing.CurrencyId = line.CurrencyId;
+                    existing.ExpenseDate = line.ExpenseDate ?? request.InvoiceDate;
+                    existing.Description = line.Description?.Trim();
+                    existing.IsUpdated = true;
+                    existing.UpdatedAt = now;
+                    existing.UpdatedBy = userId;
 
-                await ApplyExpenseCurrencyAsync(existing, cancellationToken);
+                    await ApplyExpenseCurrencyAsync(existing, cancellationToken);
+                }
             }
+
+            var activeExpenses = invoice.Expenses.Where(e => e.IsDeleted != true).ToList();
+            invoice.TotalAmount = activeExpenses.Sum(e => e.Amount);
+            invoice.TotalAmountInBaseCurrency = activeExpenses.Sum(e => e.AmountInBaseCurrency);
+
+            await SyncAccountingExpenseAsync(invoice, userId, cancellationToken);
+            await Db.SaveChangesAsync(cancellationToken);
+
+            await tx.CommitAsync(cancellationToken);
+
+            return Ok(new { message = "فاکتور مصارف با موفقیت ویرایش شد." });
         }
-
-        var activeExpenses = invoice.Expenses.Where(e => e.IsDeleted != true).ToList();
-        invoice.TotalAmount = activeExpenses.Sum(e => e.Amount);
-        invoice.TotalAmountInBaseCurrency = activeExpenses.Sum(e => e.AmountInBaseCurrency);
-
-        await SyncAccountingExpenseAsync(invoice, userId, cancellationToken);
-        await Db.SaveChangesAsync(cancellationToken);
-
-        await tx.CommitAsync(cancellationToken);
-
-        return Ok(new { message = "فاکتور مصارف با موفقیت ویرایش شد." });
+        catch (InvalidOperationException ex)
+        {
+            await tx.RollbackAsync(cancellationToken);
+            return BadRequest(new { message = ex.Message });
+        }
     }
 
     [HttpDelete("{id:int}")]
@@ -357,36 +374,47 @@ public class TransportInvoiceController : TransportControllerBase
         var userId = ResolveCurrentUserId();
         var now = DateTime.Now;
 
-        invoice.IsDeleted = true;
-        invoice.IsActive = false;
-        invoice.DeletedAt = now;
-        invoice.DeletedBy = userId;
-
-        foreach (var expense in invoice.Expenses)
+        await using var tx = await Db.Database.BeginTransactionAsync(cancellationToken);
+        try
         {
-            expense.IsDeleted = true;
-            expense.IsActive = false;
-            expense.DeletedAt = now;
-            expense.DeletedBy = userId;
-        }
-
-        // حذف رکورد مصرف حسابداری مرتبط تا در گزارش‌های مالی باقی نماند.
-        if (invoice.ExpenseId is int expenseId)
-        {
-            var accountingExpense = await Db.Expenses
-                .FirstOrDefaultAsync(e => e.ExpenseID == expenseId && e.IsDeleted != true, cancellationToken);
-            if (accountingExpense is not null)
+            if (invoice.ExpenseId is int expenseId)
             {
-                accountingExpense.IsDeleted = true;
-                accountingExpense.IsActive = false;
-                accountingExpense.DeletedAt = now;
-                accountingExpense.DeletedBy = userId;
+                var accountingExpense = await Db.Expenses
+                    .FirstOrDefaultAsync(e => e.ExpenseID == expenseId && e.IsDeleted != true, cancellationToken);
+                if (accountingExpense is not null)
+                {
+                    await ReverseLinkedExpenseJournalAsync(accountingExpense, userId, cancellationToken);
+                    accountingExpense.IsDeleted = true;
+                    accountingExpense.IsActive = false;
+                    accountingExpense.DeletedAt = now;
+                    accountingExpense.DeletedBy = userId;
+                    accountingExpense.JournalEntryId = null;
+                }
             }
+
+            invoice.IsDeleted = true;
+            invoice.IsActive = false;
+            invoice.DeletedAt = now;
+            invoice.DeletedBy = userId;
+            invoice.ExpenseId = null;
+
+            foreach (var expense in invoice.Expenses)
+            {
+                expense.IsDeleted = true;
+                expense.IsActive = false;
+                expense.DeletedAt = now;
+                expense.DeletedBy = userId;
+            }
+
+            await Db.SaveChangesAsync(cancellationToken);
+            await tx.CommitAsync(cancellationToken);
+            return Ok(new { message = "فاکتور مصارف با موفقیت حذف شد." });
         }
-
-        await Db.SaveChangesAsync(cancellationToken);
-
-        return Ok(new { message = "فاکتور مصارف با موفقیت حذف شد." });
+        catch (InvalidOperationException ex)
+        {
+            await tx.RollbackAsync(cancellationToken);
+            return BadRequest(new { message = ex.Message });
+        }
     }
 
     // چرا: مبلغ هر ردیف مصرف را با اسنپ‌شات نرخ ارز به ارز پایه تبدیل و روی ردیف ذخیره می‌کند
@@ -405,7 +433,7 @@ public class TransportInvoiceController : TransportControllerBase
     }
 
     // چرا: فاکتور مصارف حمل‌ونقل باید در حسابداری به‌صورت یک رکورد مصرف (Expense) به ارز پایه منعکس شود؛
-    // این متد رکورد را در ایجاد/به‌روزرسانی هماهنگ نگه می‌دارد (ساخت یا به‌روزرسانی مبلغ کل).
+    // این متد رکورد را در ایجاد/به‌روزرسانی هماهنگ نگه می‌دارد (ساخت، معکوس، یا ثبت مجدد سند).
     private async Task SyncAccountingExpenseAsync(TransportInvoice invoice, int? userId, CancellationToken cancellationToken)
     {
         var now = DateTime.Now;
@@ -420,17 +448,25 @@ public class TransportInvoiceController : TransportControllerBase
 
         if (invoice.TotalAmountInBaseCurrency <= 0)
         {
-            // اگر مبلغی باقی نمانده، رکورد مصرف موجود حذف (soft delete) می‌شود.
             if (expense is not null)
             {
+                await ReverseLinkedExpenseJournalAsync(expense, userId, cancellationToken);
                 expense.IsDeleted = true;
                 expense.IsActive = false;
                 expense.DeletedAt = now;
                 expense.DeletedBy = userId;
+                expense.JournalEntryId = null;
                 invoice.ExpenseId = null;
+                await Db.SaveChangesAsync(cancellationToken);
             }
 
             return;
+        }
+
+        var cashBoxId = await _cashBoxes.ResolveUserCashBoxIdAsync(userId, cancellationToken);
+        if (cashBoxId is null)
+        {
+            throw new InvalidOperationException("برای ثبت مصارف حمل، صندوق کاربر الزامی است.");
         }
 
         if (expense is null)
@@ -450,33 +486,68 @@ public class TransportInvoiceController : TransportControllerBase
             };
             Db.Expenses.Add(expense);
         }
+        else
+        {
+            // همیشه سند قبلی معکوس می‌شود تا مبلغ جدید در سند تازه ثبت شود
+            await ReverseLinkedExpenseJournalAsync(expense, userId, cancellationToken);
+        }
 
-        // مبلغ حسابداری همیشه به ارز پایه ثبت می‌شود؛ چون فاکتور می‌تواند ردیف‌های چندارزی داشته باشد.
         expense.Title = $"مصارف حمل‌ونقل — {invoice.InvoiceNumber}";
         expense.ExpenseDate = invoice.InvoiceDate;
         expense.ExpenseCategoryId = categoryId;
+        expense.CurrencyId = baseCurrency.CurrencyID;
+        expense.BaseCurrencyId = baseCurrency.CurrencyID;
+        expense.BaseUnitsPerUnitAtTransaction = 1m;
         expense.Amount = invoice.TotalAmountInBaseCurrency;
         expense.AmountInBaseCurrency = invoice.TotalAmountInBaseCurrency;
         expense.Description = invoice.Description;
+        expense.IsDeleted = false;
+        expense.IsActive = true;
 
         if (expense.ExpenseID != 0)
         {
             expense.IsUpdated = true;
             expense.UpdatedAt = now;
             expense.UpdatedBy = userId;
-            expense.IsDeleted = false;
-            expense.IsActive = true;
         }
 
         await Db.SaveChangesAsync(cancellationToken);
         invoice.ExpenseId = expense.ExpenseID;
 
-        if (expense.JournalEntryId is null)
+        var journal = await _gl.PostMiscExpenseAsync(expense, userId, cashBoxId, cancellationToken);
+        expense.JournalEntryId = journal.JournalEntryID;
+        await Db.SaveChangesAsync(cancellationToken);
+    }
+
+    private async Task ReverseLinkedExpenseJournalAsync(Expense expense, int? userId, CancellationToken cancellationToken)
+    {
+        if (expense.JournalEntryId is int jeId)
         {
-            var cashBoxId = await _cashBoxes.ResolveUserCashBoxIdAsync(userId, cancellationToken);
-            var journal = await _gl.PostMiscExpenseAsync(expense, userId, cashBoxId, cancellationToken);
-            expense.JournalEntryId = journal.JournalEntryID;
-            await Db.SaveChangesAsync(cancellationToken);
+            var exists = await Db.JournalEntries.AnyAsync(
+                e => e.JournalEntryID == jeId && e.IsDeleted != true, cancellationToken);
+            if (!exists)
+            {
+                throw new InvalidOperationException("سند حسابداری مرتبط با مصرف حمل یافت نشد.");
+            }
+
+            var alreadyReversed = await Db.JournalEntries.AnyAsync(
+                e => e.Source == JournalSource.ManualReversal
+                     && e.SourceId == jeId
+                     && e.IsDeleted != true,
+                cancellationToken);
+            if (!alreadyReversed)
+            {
+                await _journal.ReverseEntryAsync(jeId, userId, null, cancellationToken);
+            }
+
+            expense.JournalEntryId = null;
+            return;
+        }
+
+        if (expense.ExpenseID != 0)
+        {
+            await _journal.ReverseBySourceAsync(JournalSource.Expense, expense.ExpenseID, userId, cancellationToken: cancellationToken);
+            expense.JournalEntryId = null;
         }
     }
 

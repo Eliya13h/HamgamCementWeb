@@ -10,9 +10,13 @@ import {
   todayGregorianIso,
 } from '../../lib/afghanSolarCalendar'
 import {
+  fetchApAging,
+  fetchArAging,
   fetchBalanceSheet,
   fetchCashBoxesOverview,
+  fetchCashFlow,
   fetchProfitAndLoss,
+  fetchTrialBalance,
 } from '../../services/ledgerApi'
 
 function CurrencyAmountList({ currencies }) {
@@ -148,6 +152,8 @@ function ProfitLossCard() {
 
   const [dateFrom, setDateFrom] = useState(yearStart)
   const [dateTo, setDateTo] = useState(todayGregorianIso())
+  const [compareFrom, setCompareFrom] = useState('')
+  const [compareTo, setCompareTo] = useState('')
   const [appliedFrom, setAppliedFrom] = useState(yearStart)
   const [appliedTo, setAppliedTo] = useState(todayGregorianIso())
   const [data, setData] = useState(null)
@@ -164,8 +170,10 @@ function ProfitLossCard() {
         const result = await fetchProfitAndLoss({
           dateFrom: toLatinIsoDate(appliedFrom) || appliedFrom,
           dateTo: toLatinIsoDate(appliedTo) || appliedTo,
+          compareFrom: toLatinIsoDate(compareFrom) || compareFrom || undefined,
+          compareTo: toLatinIsoDate(compareTo) || compareTo || undefined,
         })
-        if (!cancelled) setData(result)
+        if (!cancelled) setData(result.current ? { ...result.current, compare: result.compare } : result)
       } catch (err) {
         if (!cancelled) {
           setData(null)
@@ -180,7 +188,7 @@ function ProfitLossCard() {
     return () => {
       cancelled = true
     }
-  }, [appliedFrom, appliedTo])
+  }, [appliedFrom, appliedTo, compareFrom, compareTo])
 
   const applyFilter = () => {
     if (dateFrom && dateTo && dateFrom > dateTo) {
@@ -223,6 +231,8 @@ function ProfitLossCard() {
               <label className="form-label">تا تاریخ</label>
               <JalaliDateField value={dateTo} onChange={setDateTo} />
             </div>
+            <div className="col-md-3"><label className="form-label">مقایسه از</label><JalaliDateField value={compareFrom} onChange={setCompareFrom} /></div>
+            <div className="col-md-3"><label className="form-label">مقایسه تا</label><JalaliDateField value={compareTo} onChange={setCompareTo} /></div>
             <div className="col-md-3">
               <button type="button" className="btn btn-primary w-100" onClick={applyFilter}>
                 نمایش
@@ -293,6 +303,7 @@ function ProfitLossCard() {
 
 function BalanceSheetCard() {
   const [asOf, setAsOf] = useState(todayGregorianIso())
+  const [compareAsOf, setCompareAsOf] = useState('')
   const [appliedAsOf, setAppliedAsOf] = useState(todayGregorianIso())
   const [data, setData] = useState(null)
   const [loading, setLoading] = useState(true)
@@ -307,8 +318,9 @@ function BalanceSheetCard() {
       try {
         const result = await fetchBalanceSheet({
           asOf: toLatinIsoDate(appliedAsOf) || appliedAsOf,
+          compareAsOf: toLatinIsoDate(compareAsOf) || compareAsOf || undefined,
         })
-        if (!cancelled) setData(result)
+        if (!cancelled) setData(result.current ? { ...result.current, compare: result.compare } : result)
       } catch (err) {
         if (!cancelled) {
           setData(null)
@@ -323,7 +335,7 @@ function BalanceSheetCard() {
     return () => {
       cancelled = true
     }
-  }, [appliedAsOf])
+  }, [appliedAsOf, compareAsOf])
 
   const totals = data?.totals
   const netIncome = Number(totals?.currentNetIncome ?? 0)
@@ -350,6 +362,7 @@ function BalanceSheetCard() {
               <label className="form-label">تا تاریخ</label>
               <JalaliDateField value={asOf} onChange={setAsOf} />
             </div>
+            <div className="col-md-3"><label className="form-label">تاریخ مقایسه</label><JalaliDateField value={compareAsOf} onChange={setCompareAsOf} /></div>
             <div className="col-md-3">
               <button
                 type="button"
@@ -583,6 +596,369 @@ function CashBoxesCard() {
   )
 }
 
+function CashFlowCard() {
+  const [data, setData] = useState(null)
+  const [error, setError] = useState('')
+  useEffect(() => {
+    fetchCashFlow()
+      .then(setData)
+      .catch((e) => setError(e.message))
+  }, [])
+
+  return (
+    <section className="mb-4">
+      <div className="content-card card border-0">
+        <div className="card-header bg-transparent border-0 pt-4 px-4 pb-0"><h3 className="card-title mb-1">جریان وجوه نقد</h3><p className="silo-section-subtitle mb-0">تغییر خالص صندوق و بانک به ارز پایه</p></div>
+        <div className="card-body p-4">
+          {error && <div className="alert alert-danger py-2">{error}</div>}
+          {!error && !data && <p className="placeholder-text mb-0">در حال بارگذاری جریان نقد…</p>}
+          {data && <div className="statement-kpi-grid">
+            <article className="statement-kpi"><span className="statement-kpi-label">عملیاتی</span><AmountDisplay value={data.operating} /></article>
+            <article className="statement-kpi"><span className="statement-kpi-label">سرمایه‌گذاری</span><AmountDisplay value={data.investing} /></article>
+            <article className="statement-kpi"><span className="statement-kpi-label">تأمین مالی</span><AmountDisplay value={data.financing} /></article>
+            <article className="statement-kpi is-highlight"><span className="statement-kpi-label">تغییر خالص</span><AmountDisplay value={data.netChange} /></article>
+          </div>}
+        </div>
+      </div>
+    </section>
+  )
+}
+
+function TrialBalanceCard() {
+  const [asOf, setAsOf] = useState(todayGregorianIso())
+  const [appliedAsOf, setAppliedAsOf] = useState(todayGregorianIso())
+  const [data, setData] = useState(null)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState('')
+
+  useEffect(() => {
+    let cancelled = false
+
+    async function load() {
+      setLoading(true)
+      setError('')
+      try {
+        const result = await fetchTrialBalance({
+          asOf: toLatinIsoDate(appliedAsOf) || appliedAsOf,
+        })
+        if (!cancelled) setData(result)
+      } catch (err) {
+        if (!cancelled) {
+          setData(null)
+          setError(err.message || 'بارگذاری تراز آزمایشی با خطا مواجه شد.')
+        }
+      } finally {
+        if (!cancelled) setLoading(false)
+      }
+    }
+
+    load()
+    return () => {
+      cancelled = true
+    }
+  }, [appliedAsOf])
+
+  const totals = data?.totals
+
+  return (
+    <section className="mb-4">
+      <div className="content-card card border-0">
+        <div className="card-header bg-transparent border-0 pt-4 px-4 pb-0 d-flex align-items-center justify-content-between flex-wrap gap-2">
+          <div>
+            <h3 className="card-title mb-1">تراز آزمایشی</h3>
+            <p className="silo-section-subtitle mb-0">
+              جمع بدهکار و بستانکار حساب‌های قابل‌ثبت به ارز پایه
+              {data?.asOfLabel ? ` — تا ${data.asOfLabel}` : ''}
+            </p>
+          </div>
+          <Link to="/accounting/accounts" className="btn btn-sm btn-outline-accent">
+            کدینگ حساب‌ها
+          </Link>
+        </div>
+
+        <div className="card-body p-4">
+          <div className="row g-3 align-items-end mb-4">
+            <div className="col-md-3">
+              <label className="form-label">تا تاریخ</label>
+              <JalaliDateField value={asOf} onChange={setAsOf} />
+            </div>
+            <div className="col-md-3">
+              <button
+                type="button"
+                className="btn btn-primary w-100"
+                onClick={() => setAppliedAsOf(asOf)}
+              >
+                نمایش
+              </button>
+            </div>
+          </div>
+
+          {loading && (
+            <div className="silo-empty-state">
+              <p className="placeholder-text mb-0">در حال بارگذاری تراز آزمایشی…</p>
+            </div>
+          )}
+
+          {!loading && error && (
+            <div className="silo-empty-state">
+              <p className="text-danger mb-0">{error}</p>
+            </div>
+          )}
+
+          {!loading && !error && data && (
+            <>
+              <div className="statement-kpi-grid mb-4">
+                <article className="statement-kpi">
+                  <span className="statement-kpi-label">جمع بدهکار</span>
+                  <AmountDisplay value={totals?.debitTotal} />
+                </article>
+                <article className="statement-kpi">
+                  <span className="statement-kpi-label">جمع بستانکار</span>
+                  <AmountDisplay value={totals?.creditTotal} />
+                </article>
+                <article className={`statement-kpi is-highlight ${totals?.isBalanced ? 'is-profit' : 'is-loss'}`}>
+                  <span className="statement-kpi-label">
+                    {totals?.isBalanced ? 'متوازن' : 'نامتوازن'}
+                  </span>
+                  <AmountDisplay
+                    value={Math.abs(Number(totals?.debitTotal ?? 0) - Number(totals?.creditTotal ?? 0))}
+                  />
+                </article>
+              </div>
+
+              <div className="table-responsive">
+                <table className="table table-sm align-middle mb-0">
+                  <thead>
+                    <tr>
+                      <th>کد</th>
+                      <th>حساب</th>
+                      <th className="text-end">گردش بدهکار</th>
+                      <th className="text-end">گردش بستانکار</th>
+                      <th className="text-end">مانده بدهکار</th>
+                      <th className="text-end">مانده بستانکار</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {(data.lines ?? []).map((row) => (
+                      <tr key={row.accountId}>
+                        <td style={{ fontFamily: 'monospace' }}>{row.code}</td>
+                        <td>{row.name}</td>
+                        <td className="text-end">
+                          <AmountDisplay value={row.debitTotal} />
+                        </td>
+                        <td className="text-end">
+                          <AmountDisplay value={row.creditTotal} />
+                        </td>
+                        <td className="text-end">
+                          <AmountDisplay value={row.debitBalance} />
+                        </td>
+                        <td className="text-end">
+                          <AmountDisplay value={row.creditBalance} />
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                  <tfoot>
+                    <tr>
+                      <th colSpan={2}>جمع</th>
+                      <th className="text-end">
+                        <AmountDisplay value={totals?.debitTotal} />
+                      </th>
+                      <th className="text-end">
+                        <AmountDisplay value={totals?.creditTotal} />
+                      </th>
+                      <th className="text-end">
+                        <AmountDisplay value={totals?.debitBalance} />
+                      </th>
+                      <th className="text-end">
+                        <AmountDisplay value={totals?.creditBalance} />
+                      </th>
+                    </tr>
+                  </tfoot>
+                </table>
+              </div>
+            </>
+          )}
+        </div>
+      </div>
+    </section>
+  )
+}
+
+function AgingCard() {
+  const [tab, setTab] = useState('ar')
+  const [asOf, setAsOf] = useState(todayGregorianIso())
+  const [appliedAsOf, setAppliedAsOf] = useState(todayGregorianIso())
+  const [data, setData] = useState(null)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState('')
+
+  useEffect(() => {
+    let cancelled = false
+
+    async function load() {
+      setLoading(true)
+      setError('')
+      try {
+        const fetcher = tab === 'ar' ? fetchArAging : fetchApAging
+        const result = await fetcher({
+          asOf: toLatinIsoDate(appliedAsOf) || appliedAsOf,
+        })
+        if (!cancelled) setData(result)
+      } catch (err) {
+        if (!cancelled) {
+          setData(null)
+          setError(err.message || 'بارگذاری گزارش سررسید با خطا مواجه شد.')
+        }
+      } finally {
+        if (!cancelled) setLoading(false)
+      }
+    }
+
+    load()
+    return () => {
+      cancelled = true
+    }
+  }, [appliedAsOf, tab])
+
+  const totals = data?.totals
+  const partyLabel = tab === 'ar' ? 'مشتری' : 'تأمین‌کننده'
+  const title = tab === 'ar' ? 'سررسید مطالبات (AR)' : 'سررسید بدهی‌ها (AP)'
+
+  return (
+    <section className="mb-4">
+      <div className="content-card card border-0">
+        <div className="card-header bg-transparent border-0 pt-4 px-4 pb-0 d-flex align-items-center justify-content-between flex-wrap gap-2">
+          <div>
+            <h3 className="card-title mb-1">گزارش سررسید</h3>
+            <p className="silo-section-subtitle mb-0">
+              مانده باز فاکتورها به تفکیک سن بدهی
+              {data?.asOfLabel ? ` — تا ${data.asOfLabel}` : ''}
+            </p>
+          </div>
+          <div className="btn-group" role="group">
+            <button
+              type="button"
+              className={`btn btn-sm ${tab === 'ar' ? 'btn-primary' : 'btn-outline-primary'}`}
+              onClick={() => setTab('ar')}
+            >
+              مطالبات (AR)
+            </button>
+            <button
+              type="button"
+              className={`btn btn-sm ${tab === 'ap' ? 'btn-primary' : 'btn-outline-primary'}`}
+              onClick={() => setTab('ap')}
+            >
+              بدهی‌ها (AP)
+            </button>
+          </div>
+        </div>
+
+        <div className="card-body p-4">
+          <div className="row g-3 align-items-end mb-4">
+            <div className="col-md-3">
+              <label className="form-label">تا تاریخ</label>
+              <JalaliDateField value={asOf} onChange={setAsOf} />
+            </div>
+            <div className="col-md-3">
+              <button
+                type="button"
+                className="btn btn-primary w-100"
+                onClick={() => setAppliedAsOf(asOf)}
+              >
+                نمایش
+              </button>
+            </div>
+          </div>
+
+          <h4 className="statement-section-title mb-3">{title}</h4>
+
+          {loading && (
+            <div className="silo-empty-state">
+              <p className="placeholder-text mb-0">در حال بارگذاری گزارش سررسید…</p>
+            </div>
+          )}
+
+          {!loading && error && (
+            <div className="silo-empty-state">
+              <p className="text-danger mb-0">{error}</p>
+            </div>
+          )}
+
+          {!loading && !error && data && (
+            <>
+              <div className="statement-kpi-grid mb-4">
+                <article className="statement-kpi">
+                  <span className="statement-kpi-label">۰–۳۰ روز</span>
+                  <AmountDisplay value={totals?.current0To30} />
+                </article>
+                <article className="statement-kpi">
+                  <span className="statement-kpi-label">۳۱–۶۰ روز</span>
+                  <AmountDisplay value={totals?.days31To60} />
+                </article>
+                <article className="statement-kpi">
+                  <span className="statement-kpi-label">۶۱–۹۰ روز</span>
+                  <AmountDisplay value={totals?.days61To90} />
+                </article>
+                <article className="statement-kpi">
+                  <span className="statement-kpi-label">بیش از ۹۰ روز</span>
+                  <AmountDisplay value={totals?.over90} />
+                </article>
+                <article className="statement-kpi is-highlight">
+                  <span className="statement-kpi-label">جمع (پایه)</span>
+                  <AmountDisplay value={totals?.total} />
+                </article>
+              </div>
+
+              <div className="table-responsive">
+                <table className="table table-sm align-middle mb-0">
+                  <thead>
+                    <tr>
+                      <th>شماره فاکتور</th>
+                      <th>{partyLabel}</th>
+                      <th>تاریخ</th>
+                      <th className="text-center">روز مانده</th>
+                      <th className="text-center">بازه</th>
+                      <th className="text-end">مانده باز</th>
+                      <th className="text-end">معادل پایه</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {(data.lines ?? []).length === 0 && (
+                      <tr>
+                        <td colSpan={7} className="text-center text-muted py-3">
+                          مانده بازی ثبت نشده است.
+                        </td>
+                      </tr>
+                    )}
+                    {(data.lines ?? []).map((row) => (
+                      <tr key={`${tab}-${row.invoiceId}`}>
+                        <td>{row.invoiceNumber || '—'}</td>
+                        <td>{row.partyName || '—'}</td>
+                        <td>{row.invoiceDate}</td>
+                        <td className="text-center">{row.daysOutstanding}</td>
+                        <td className="text-center">
+                          <span className="badge bg-secondary">{row.bucket}</span>
+                        </td>
+                        <td className="text-end">
+                          <AmountDisplay value={row.openAmount} />
+                        </td>
+                        <td className="text-end">
+                          <AmountDisplay value={row.openAmountInBase} />
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </>
+          )}
+        </div>
+      </div>
+    </section>
+  )
+}
+
 function ReportsPage() {
   return (
     <div className="reports-page">
@@ -591,14 +967,17 @@ function ReportsPage() {
           <div className="card-body p-4">
             <h2 className="welcome-title mb-2">آمار و تحلیل</h2>
             <p className="welcome-text mb-0">
-              نمای کلی وضعیت مالی شرکت: سود و زیان، تراز کلی و موجودی صندوق‌ها.
+              نمای کلی وضعیت مالی شرکت: تراز آزمایشی، سود و زیان، تراز کلی، سررسید و موجودی صندوق‌ها.
             </p>
           </div>
         </div>
       </section>
 
+      <TrialBalanceCard />
+      <AgingCard />
       <ProfitLossCard />
       <BalanceSheetCard />
+      <CashFlowCard />
       <CashBoxesCard />
     </div>
   )

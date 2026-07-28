@@ -1,4 +1,6 @@
-﻿namespace HamgamCementWeb.Server.Data.Models
+﻿using System.ComponentModel.DataAnnotations.Schema;
+
+namespace HamgamCementWeb.Server.Data.Models
 {
     public class GeneralSettings 
     {
@@ -16,6 +18,9 @@
         public string? CompanyEmail { set; get; } = string.Empty;
         public string? CompanySite { set; get; } = string.Empty;
         public string CalendarType { set; get; } = "Solar";
-        
+
+        // درصد مالیات پیش‌فرض فاکتور (پیش‌نویس)
+        [Column(TypeName = "decimal(18,4)")]
+        public decimal DefaultTaxPercent { set; get; }
     }
 }

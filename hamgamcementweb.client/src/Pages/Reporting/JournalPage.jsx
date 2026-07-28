@@ -19,25 +19,25 @@ const journalSections = [
     id: 'revenue',
     title: 'روزنامچه عواید',
     type: 'revenue',
-    enabled: false,
+    enabled: true,
   },
   {
     id: 'expense',
     title: 'روزنامچه مصارف',
     type: 'expense',
-    enabled: false,
+    enabled: true,
   },
   {
     id: 'production',
     title: 'روزنامچه تولید',
     type: 'production',
-    enabled: false,
+    enabled: true,
   },
   {
     id: 'general',
     title: 'روزنامچه عمومی',
     type: 'general',
-    enabled: false,
+    enabled: true,
   },
 ]
 

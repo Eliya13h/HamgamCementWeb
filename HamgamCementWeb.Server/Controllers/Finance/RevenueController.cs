@@ -25,6 +25,7 @@ public class RevenueController : FinanceControllerBase
 
     private readonly ICurrencyConversionService _currency;
     private readonly IOperationalGlService _gl;
+    private readonly IJournalPostingService _journal;
     private readonly ICashBoxService _cashBoxes;
     private readonly IFinanceReadService _reads;
 
@@ -32,11 +33,13 @@ public class RevenueController : FinanceControllerBase
         AppDbContext db,
         ICurrencyConversionService currency,
         IOperationalGlService gl,
+        IJournalPostingService journal,
         ICashBoxService cashBoxes,
         IFinanceReadService reads) : base(db)
     {
         _currency = currency;
         _gl = gl;
+        _journal = journal;
         _cashBoxes = cashBoxes;
         _reads = reads;
     }
@@ -133,37 +136,52 @@ public class RevenueController : FinanceControllerBase
         var snapshot = await _currency.GetSnapshotAsync(request.CurrencyId, revenueDate, cancellationToken);
         var amountInBase = _currency.ConvertToBase(request.Amount, snapshot);
 
-        var revenue = new Revenue
-        {
-            Title = request.Title.Trim(),
-            RevenueDate = revenueDate,
-            RevenueCategoryId = request.RevenueCategoryId,
-            Source = FinancialEntrySource.Miscellaneous,
-            CustomerId = request.CustomerId,
-            CurrencyId = snapshot.CurrencyId,
-            BaseCurrencyId = snapshot.BaseCurrencyId,
-            ExchangeHistoryId = snapshot.ExchangeHistoryId,
-            BaseUnitsPerUnitAtTransaction = snapshot.BaseUnitsPerUnit,
-            Amount = request.Amount,
-            AmountInBaseCurrency = amountInBase,
-            ProfitInBaseCurrency = 0,
-            Description = request.Description?.Trim(),
-            IsActive = true,
-            IsDeleted = false,
-            CreatedAt = DateTime.Now,
-            CreatedBy = ResolveCurrentUserId(),
-        };
-
-        Db.Revenues.Add(revenue);
-        await Db.SaveChangesAsync(cancellationToken);
-
         var userId = ResolveCurrentUserId();
         var cashBoxId = await _cashBoxes.ResolveUserCashBoxIdAsync(userId, cancellationToken);
-        var journal = await _gl.PostMiscRevenueAsync(revenue, userId, cashBoxId, cancellationToken);
-        revenue.JournalEntryId = journal.JournalEntryID;
-        await Db.SaveChangesAsync(cancellationToken);
+        if (request.CustomerId is null && cashBoxId is null)
+        {
+            return BadRequest(new { message = "برای ثبت عاید نقدی، صندوق کاربر الزامی است." });
+        }
 
-        return Ok(new { message = "عاید با موفقیت ثبت شد.", revenueId = revenue.RevenueID, journalEntryId = journal.JournalEntryID });
+        await using var tx = await Db.Database.BeginTransactionAsync(cancellationToken);
+        try
+        {
+            var revenue = new Revenue
+            {
+                Title = request.Title.Trim(),
+                RevenueDate = revenueDate,
+                RevenueCategoryId = request.RevenueCategoryId,
+                Source = FinancialEntrySource.Miscellaneous,
+                CustomerId = request.CustomerId,
+                CurrencyId = snapshot.CurrencyId,
+                BaseCurrencyId = snapshot.BaseCurrencyId,
+                ExchangeHistoryId = snapshot.ExchangeHistoryId,
+                BaseUnitsPerUnitAtTransaction = snapshot.BaseUnitsPerUnit,
+                Amount = request.Amount,
+                AmountInBaseCurrency = amountInBase,
+                ProfitInBaseCurrency = 0,
+                Description = request.Description?.Trim(),
+                IsActive = true,
+                IsDeleted = false,
+                CreatedAt = DateTime.Now,
+                CreatedBy = userId,
+            };
+
+            Db.Revenues.Add(revenue);
+            await Db.SaveChangesAsync(cancellationToken);
+
+            var journal = await _gl.PostMiscRevenueAsync(revenue, userId, cashBoxId, cancellationToken);
+            revenue.JournalEntryId = journal.JournalEntryID;
+            await Db.SaveChangesAsync(cancellationToken);
+            await tx.CommitAsync(cancellationToken);
+
+            return Ok(new { message = "عاید با موفقیت ثبت شد.", revenueId = revenue.RevenueID, journalEntryId = journal.JournalEntryID });
+        }
+        catch (InvalidOperationException ex)
+        {
+            await tx.RollbackAsync(cancellationToken);
+            return BadRequest(new { message = ex.Message });
+        }
     }
 
     [HttpPut("{id:int}")]
@@ -214,28 +232,60 @@ public class RevenueController : FinanceControllerBase
             return BadRequest(new { message = "دسته‌بندی فروش محصولات فقط از طریق فاکتور فروش ثبت می‌شود." });
         }
 
+        if (request.CustomerId is int customerId)
+        {
+            var customerExists = await Db.Customers
+                .AnyAsync(c => c.CustomerID == customerId && c.IsDeleted != true, cancellationToken);
+            if (!customerExists)
+            {
+                return BadRequest(new { message = "مشتری یافت نشد." });
+            }
+        }
+
+        var userId = ResolveCurrentUserId();
+        var cashBoxId = await _cashBoxes.ResolveUserCashBoxIdAsync(userId, cancellationToken);
+        if (request.CustomerId is null && cashBoxId is null)
+        {
+            return BadRequest(new { message = "برای ثبت عاید نقدی، صندوق کاربر الزامی است." });
+        }
+
         var revenueDate = request.RevenueDate?.Date ?? revenue.RevenueDate.Date;
         var snapshot = await _currency.GetSnapshotAsync(request.CurrencyId, revenueDate, cancellationToken);
         var amountInBase = _currency.ConvertToBase(request.Amount, snapshot);
 
-        revenue.Title = request.Title.Trim();
-        revenue.RevenueDate = revenueDate;
-        revenue.RevenueCategoryId = request.RevenueCategoryId;
-        revenue.CustomerId = request.CustomerId;
-        revenue.CurrencyId = snapshot.CurrencyId;
-        revenue.BaseCurrencyId = snapshot.BaseCurrencyId;
-        revenue.ExchangeHistoryId = snapshot.ExchangeHistoryId;
-        revenue.BaseUnitsPerUnitAtTransaction = snapshot.BaseUnitsPerUnit;
-        revenue.Amount = request.Amount;
-        revenue.AmountInBaseCurrency = amountInBase;
-        revenue.Description = request.Description?.Trim();
-        revenue.IsUpdated = true;
-        revenue.UpdatedAt = DateTime.Now;
-        revenue.UpdatedBy = ResolveCurrentUserId();
+        await using var tx = await Db.Database.BeginTransactionAsync(cancellationToken);
+        try
+        {
+            await ReverseRevenueJournalAsync(revenue, userId, cancellationToken);
 
-        await Db.SaveChangesAsync(cancellationToken);
+            revenue.Title = request.Title.Trim();
+            revenue.RevenueDate = revenueDate;
+            revenue.RevenueCategoryId = request.RevenueCategoryId;
+            revenue.CustomerId = request.CustomerId;
+            revenue.CurrencyId = snapshot.CurrencyId;
+            revenue.BaseCurrencyId = snapshot.BaseCurrencyId;
+            revenue.ExchangeHistoryId = snapshot.ExchangeHistoryId;
+            revenue.BaseUnitsPerUnitAtTransaction = snapshot.BaseUnitsPerUnit;
+            revenue.Amount = request.Amount;
+            revenue.AmountInBaseCurrency = amountInBase;
+            revenue.Description = request.Description?.Trim();
+            revenue.IsUpdated = true;
+            revenue.UpdatedAt = DateTime.Now;
+            revenue.UpdatedBy = userId;
+            await Db.SaveChangesAsync(cancellationToken);
 
-        return Ok(new { message = "عاید با موفقیت ویرایش شد." });
+            var journal = await _gl.PostMiscRevenueAsync(revenue, userId, cashBoxId, cancellationToken);
+            revenue.JournalEntryId = journal.JournalEntryID;
+            await Db.SaveChangesAsync(cancellationToken);
+            await tx.CommitAsync(cancellationToken);
+
+            return Ok(new { message = "عاید با موفقیت ویرایش شد.", journalEntryId = journal.JournalEntryID });
+        }
+        catch (InvalidOperationException ex)
+        {
+            await tx.RollbackAsync(cancellationToken);
+            return BadRequest(new { message = ex.Message });
+        }
     }
 
     [HttpDelete("{id:int}")]
@@ -259,14 +309,47 @@ public class RevenueController : FinanceControllerBase
             return Conflict(new { message = "فقط عواید متفرقه قابل حذف هستند." });
         }
 
-        revenue.IsDeleted = true;
-        revenue.IsActive = false;
-        revenue.DeletedAt = DateTime.Now;
-        revenue.DeletedBy = ResolveCurrentUserId();
+        var userId = ResolveCurrentUserId();
+        await using var tx = await Db.Database.BeginTransactionAsync(cancellationToken);
+        try
+        {
+            await ReverseRevenueJournalAsync(revenue, userId, cancellationToken);
 
-        await Db.SaveChangesAsync(cancellationToken);
+            revenue.IsDeleted = true;
+            revenue.IsActive = false;
+            revenue.DeletedAt = DateTime.Now;
+            revenue.DeletedBy = userId;
+            revenue.JournalEntryId = null;
+            await Db.SaveChangesAsync(cancellationToken);
+            await tx.CommitAsync(cancellationToken);
 
-        return Ok(new { message = "عاید با موفقیت حذف شد." });
+            return Ok(new { message = "عاید با موفقیت حذف شد." });
+        }
+        catch (InvalidOperationException ex)
+        {
+            await tx.RollbackAsync(cancellationToken);
+            return BadRequest(new { message = ex.Message });
+        }
+    }
+
+    private async Task ReverseRevenueJournalAsync(Revenue revenue, int? userId, CancellationToken cancellationToken)
+    {
+        if (revenue.JournalEntryId is int jeId)
+        {
+            var exists = await Db.JournalEntries.AnyAsync(
+                e => e.JournalEntryID == jeId && e.IsDeleted != true, cancellationToken);
+            if (!exists)
+            {
+                throw new InvalidOperationException("سند حسابداری مرتبط با این عاید یافت نشد.");
+            }
+
+            await _journal.ReverseEntryAsync(jeId, userId, null, cancellationToken);
+            revenue.JournalEntryId = null;
+            return;
+        }
+
+        await _journal.ReverseBySourceAsync(JournalSource.Revenue, revenue.RevenueID, userId, cancellationToken: cancellationToken);
+        revenue.JournalEntryId = null;
     }
 
     private Task<bool> IsLinkedToInvoiceAsync(int revenueId, CancellationToken cancellationToken) =>

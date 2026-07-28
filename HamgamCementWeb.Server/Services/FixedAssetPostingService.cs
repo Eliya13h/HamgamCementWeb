@@ -203,7 +203,7 @@ public class FixedAssetPostingService : IFixedAssetPostingService
     }
 
     public Task SoftDeleteAcquisitionAsync(int fixedAssetId, int? userId, CancellationToken cancellationToken = default) =>
-        _journal.SoftDeleteBySourceAsync(JournalSource.FixedAssetAcquire, fixedAssetId, userId, cancellationToken);
+        _journal.ReverseBySourceAsync(JournalSource.FixedAssetAcquire, fixedAssetId, userId, cancellationToken: cancellationToken);
 
     public static (int Year, int Month) GetSolarPeriod(DateTime date)
     {

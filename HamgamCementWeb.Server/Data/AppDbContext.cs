@@ -46,7 +46,17 @@ namespace HamgamCementWeb.Server.Data
         public DbSet<CashShiftOpeningLine> CashShiftOpeningLines { get; set; }
         public DbSet<CashTransfer> CashTransfers { get; set; }
         public DbSet<CashTransferLine> CashTransferLines { get; set; }
+        public DbSet<BankAccount> BankAccounts { get; set; }
+        public DbSet<PartySettlement> PartySettlements { get; set; }
+        public DbSet<CurrencyExchangeTxn> CurrencyExchangeTxns { get; set; }
         public DbSet<FiscalYear> FiscalYears { get; set; }
+        public DbSet<FiscalPeriod> FiscalPeriods { get; set; }
+        public DbSet<CostCenter> CostCenters { get; set; }
+        public DbSet<Attachment> Attachments { get; set; }
+        public DbSet<InvoiceInstallment> InvoiceInstallments { get; set; }
+        public DbSet<DoubtfulDebtProvision> DoubtfulDebtProvisions { get; set; }
+        public DbSet<RecurringJournalTemplate> RecurringJournalTemplates { get; set; }
+        public DbSet<RecurringJournalTemplateLine> RecurringJournalTemplateLines { get; set; }
         public DbSet<ShareholderEquityTxn> ShareholderEquityTxns { get; set; }
         public DbSet<FixedAssetCategory> FixedAssetCategories { get; set; }
         public DbSet<FixedAsset> FixedAssets { get; set; }
@@ -890,6 +900,12 @@ namespace HamgamCementWeb.Server.Data
                 .HasForeignKey(l => l.CashBoxId)
                 .OnDelete(DeleteBehavior.Restrict);
 
+            modelBuilder.Entity<JournalLine>()
+                .HasOne(l => l.CostCenter)
+                .WithMany()
+                .HasForeignKey(l => l.CostCenterId)
+                .OnDelete(DeleteBehavior.Restrict);
+
             modelBuilder.Entity<Expense>()
                 .HasOne(e => e.JournalEntry)
                 .WithMany()
@@ -1102,6 +1118,103 @@ namespace HamgamCementWeb.Server.Data
                 .WithMany()
                 .HasForeignKey(l => l.CurrencyId)
                 .OnDelete(DeleteBehavior.Restrict);
+
+            // ---------- خرید/فروش ارز ----------
+            modelBuilder.Entity<CurrencyExchangeTxn>()
+                .HasOne(t => t.FromCurrency)
+                .WithMany()
+                .HasForeignKey(t => t.FromCurrencyId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            modelBuilder.Entity<CurrencyExchangeTxn>()
+                .HasOne(t => t.ToCurrency)
+                .WithMany()
+                .HasForeignKey(t => t.ToCurrencyId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            modelBuilder.Entity<CurrencyExchangeTxn>()
+                .HasOne(t => t.FromCashBox)
+                .WithMany()
+                .HasForeignKey(t => t.FromCashBoxId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            modelBuilder.Entity<CurrencyExchangeTxn>()
+                .HasOne(t => t.FromBankAccount)
+                .WithMany()
+                .HasForeignKey(t => t.FromBankAccountId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            modelBuilder.Entity<CurrencyExchangeTxn>()
+                .HasOne(t => t.ToCashBox)
+                .WithMany()
+                .HasForeignKey(t => t.ToCashBoxId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            modelBuilder.Entity<CurrencyExchangeTxn>()
+                .HasOne(t => t.ToBankAccount)
+                .WithMany()
+                .HasForeignKey(t => t.ToBankAccountId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            // هر دو به CurrencyExchangeHistories وصل‌اند — SET NULL چندمسیره در SQL Server می‌سازد
+            modelBuilder.Entity<CurrencyExchangeTxn>()
+                .HasOne(t => t.ExchangeHistoryFrom)
+                .WithMany()
+                .HasForeignKey(t => t.ExchangeHistoryFromId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            modelBuilder.Entity<CurrencyExchangeTxn>()
+                .HasOne(t => t.ExchangeHistoryTo)
+                .WithMany()
+                .HasForeignKey(t => t.ExchangeHistoryToId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            modelBuilder.Entity<CurrencyExchangeTxn>()
+                .HasOne(t => t.JournalEntry)
+                .WithMany()
+                .HasForeignKey(t => t.JournalEntryId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            // ---------- تکمیل حسابداری (اقساط، ذخیره، قالب تکراری، دوره ماهانه) ----------
+            modelBuilder.Entity<PartySettlement>()
+                .HasOne(s => s.Installment)
+                .WithMany()
+                .HasForeignKey(s => s.InstallmentId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            modelBuilder.Entity<DoubtfulDebtProvision>()
+                .HasOne(p => p.JournalEntry)
+                .WithMany()
+                .HasForeignKey(p => p.JournalEntryId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            modelBuilder.Entity<RecurringJournalTemplateLine>()
+                .HasOne(l => l.Template)
+                .WithMany(t => t.Lines)
+                .HasForeignKey(l => l.RecurringJournalTemplateId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            modelBuilder.Entity<RecurringJournalTemplateLine>()
+                .HasOne(l => l.Account)
+                .WithMany()
+                .HasForeignKey(l => l.AccountId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            modelBuilder.Entity<RecurringJournalTemplateLine>()
+                .HasOne(l => l.CostCenter)
+                .WithMany()
+                .HasForeignKey(l => l.CostCenterId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            modelBuilder.Entity<FiscalPeriod>()
+                .HasIndex(p => new { p.SolarYear, p.Month })
+                .IsUnique()
+                .HasFilter("[IsDeleted] = 0");
+
+            modelBuilder.Entity<CostCenter>()
+                .HasIndex(c => c.Code)
+                .IsUnique()
+                .HasFilter("[IsDeleted] = 0");
 
             // ---------- سال مالی ----------
             modelBuilder.Entity<FiscalYear>()

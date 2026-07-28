@@ -63,6 +63,7 @@ public class GeneralSettingsController : ControllerBase
         settings.CompanyPhoneNumber3 = request.CompanyPhoneNumber3?.Trim() ?? string.Empty;
         settings.CompanyEmail = request.CompanyEmail.Trim();
         settings.CompanySite = request.CompanySite?.Trim() ?? string.Empty;
+        settings.DefaultTaxPercent = request.DefaultTaxPercent;
 
         await _db.SaveChangesAsync(cancellationToken);
 
@@ -176,6 +177,7 @@ public class GeneralSettingsController : ControllerBase
         settings.CompanyPhoneNumber3,
         settings.CompanyEmail,
         settings.CompanySite,
+        settings.DefaultTaxPercent,
     };
 
     public class SaveGeneralSettingsRequest
@@ -211,5 +213,8 @@ public class GeneralSettingsController : ControllerBase
 
         [MaxLength(300)]
         public string? CompanySite { get; set; }
+
+        [Range(0, 100)]
+        public decimal DefaultTaxPercent { get; set; }
     }
 }

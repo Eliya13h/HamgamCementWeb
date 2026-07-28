@@ -1,3 +1,4 @@
+using System.Globalization;
 using Dapper;
 using HamgamCementWeb.Server.Authorization;
 using HamgamCementWeb.Server.Controllers.Transport;
@@ -5,6 +6,7 @@ using HamgamCementWeb.Server.Data;
 using HamgamCementWeb.Server.Services;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
 
 namespace HamgamCementWeb.Server.Controllers.Finance;
 
@@ -14,10 +16,40 @@ namespace HamgamCementWeb.Server.Controllers.Finance;
 public class JournalController : FinanceControllerBase
 {
     private readonly ISqlConnectionFactory _sql;
+    private readonly IJournalPostingService _journal;
+    private readonly ICurrencyConversionService _currency;
+    private readonly IAccountingIntegrityService _integrity;
 
-    public JournalController(AppDbContext db, ISqlConnectionFactory sql) : base(db)
+    public JournalController(
+        AppDbContext db,
+        ISqlConnectionFactory sql,
+        IJournalPostingService journal,
+        ICurrencyConversionService currency,
+        IAccountingIntegrityService integrity) : base(db)
     {
         _sql = sql;
+        _journal = journal;
+        _currency = currency;
+        _integrity = integrity;
+    }
+
+    // بررسی یکپارچگی دابل‌انتری — فقط‌خواندنی، برای آماده‌سازی پرداکشن
+    [HttpGet("integrity-check")]
+    [HasPermission("accounting.expenses.view")]
+    public async Task<IActionResult> IntegrityCheck(CancellationToken cancellationToken)
+    {
+        var issues = await _integrity.CheckAsync(cancellationToken);
+        return Ok(new
+        {
+            ok = issues.Count == 0,
+            issueCount = issues.Count,
+            issues = issues.Select(i => new
+            {
+                code = i.Code,
+                message = i.Message,
+                relatedId = i.RelatedId,
+            }),
+        });
     }
 
     [HttpPost("datatable")]
@@ -80,6 +112,7 @@ public class JournalController : FinanceControllerBase
                 sourceLabel = SourceLabel(r.Source),
                 totalDebitInBaseCurrency = r.TotalDebitInBaseCurrency,
                 totalCreditInBaseCurrency = r.TotalCreditInBaseCurrency,
+                canDelete = r.Source == (int)JournalSource.Manual,
             }),
         });
     }
@@ -106,7 +139,7 @@ public class JournalController : FinanceControllerBase
         var lines = await connection.QueryAsync(
             """
             SELECT l.JournalLineID AS journalLineId,
-                   l.[lineNo] AS [lineNo],
+                   l.[LineNo] AS [lineNo],
                    l.AccountId AS accountId,
                    a.Code AS accountCode,
                    a.Name AS accountName,
@@ -114,11 +147,15 @@ public class JournalController : FinanceControllerBase
                    l.Debit AS debit,
                    l.Credit AS credit,
                    l.DebitInBaseCurrency AS debitInBaseCurrency,
-                   l.CreditInBaseCurrency AS creditInBaseCurrency
+                   l.CreditInBaseCurrency AS creditInBaseCurrency,
+                   l.CurrencyId AS currencyId,
+                   l.CashBoxId AS cashBoxId,
+                   l.PartyId AS partyId,
+                   l.CostCenterId AS costCenterId
             FROM JournalLines l
             INNER JOIN Accounts a ON a.AccountID = l.AccountId
             WHERE l.JournalEntryId = @Id AND l.IsDeleted = 0
-            ORDER BY l.[lineNo]
+            ORDER BY l.[LineNo]
             """, new { Id = id });
 
         return Ok(new
@@ -131,29 +168,174 @@ public class JournalController : FinanceControllerBase
             sourceLabel = SourceLabel(entry.Source),
             totalDebitInBaseCurrency = entry.TotalDebitInBaseCurrency,
             totalCreditInBaseCurrency = entry.TotalCreditInBaseCurrency,
+            canDelete = entry.Source == (int)JournalSource.Manual,
             lines,
         });
     }
 
-    private static string SourceLabel(int source) => source switch
+    [HttpPost]
+    [HasPermission("accounting.expenses.create")]
+    public async Task<IActionResult> Create(
+        [FromBody] ManualJournalRequest request,
+        CancellationToken cancellationToken)
     {
-        1 => "فاکتور خرید",
-        2 => "فاکتور فروش",
-        3 => "مصرف",
-        4 => "عاید",
-        5 => "تولید",
-        6 => "انتقال صندوق",
-        7 => "دستی",
-        8 => "حقوق",
-        9 => "انبارگردانی",
-        10 => "انتقال انبار",
-        11 => "اختتام سال مالی",
-        12 => "معکوس اختتام سال",
-        13 => "خرید دارایی ثابت",
-        14 => "استهلاک دارایی ثابت",
-        15 => "فروش/اسقاط دارایی ثابت",
-        _ => source.ToString(),
-    };
+        if (!ModelState.IsValid)
+        {
+            return ValidationProblem(ModelState);
+        }
+
+        if (request.Lines is null || request.Lines.Count < 2)
+        {
+            return BadRequest(new { message = "سند دستی باید حداقل دو ردیف داشته باشد." });
+        }
+
+        try
+        {
+            var entryDate = ParseRequiredDate(request.EntryDate);
+            var baseCurrency = await _currency.GetBaseCurrencyAsync(cancellationToken);
+            var drafts = new List<JournalLineDraft>();
+
+            foreach (var line in request.Lines)
+            {
+                if (line.AccountId <= 0)
+                {
+                    throw new InvalidOperationException("حساب هر ردیف الزامی است.");
+                }
+
+                var debit = line.Debit;
+                var credit = line.Credit;
+                if (debit < 0 || credit < 0)
+                {
+                    throw new InvalidOperationException("مبالغ نمی‌توانند منفی باشند.");
+                }
+
+                if ((debit > 0 && credit > 0) || (debit == 0 && credit == 0))
+                {
+                    throw new InvalidOperationException("هر ردیف باید فقط بدهکار یا فقط بستانکار باشد.");
+                }
+
+                var currencyId = line.CurrencyId > 0 ? line.CurrencyId : baseCurrency.CurrencyID;
+                var snapshot = await _currency.GetSnapshotAsync(currencyId, entryDate, cancellationToken);
+                var debitBase = _currency.ConvertToBase(debit, snapshot);
+                var creditBase = _currency.ConvertToBase(credit, snapshot);
+
+                drafts.Add(new JournalLineDraft(
+                    line.AccountId,
+                    debit,
+                    credit,
+                    debitBase,
+                    creditBase,
+                    currencyId,
+                    line.Description?.Trim(),
+                    line.CashBoxId,
+                    line.PartyId,
+                    line.CostCenterId));
+            }
+
+            var entry = await _journal.PostAsync(
+                entryDate,
+                string.IsNullOrWhiteSpace(request.Description) ? "سند دستی" : request.Description.Trim(),
+                JournalSource.Manual,
+                null,
+                baseCurrency.CurrencyID,
+                drafts,
+                ResolveCurrentUserId(),
+                cancellationToken);
+
+            return Ok(new
+            {
+                message = "سند دستی ثبت شد.",
+                journalEntryId = entry.JournalEntryID,
+                entryNumber = entry.EntryNumber,
+            });
+        }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(new { message = ex.Message });
+        }
+    }
+
+    [HttpDelete("{id:int}")]
+    [HasPermission("accounting.expenses.delete")]
+    public async Task<IActionResult> Delete(int id, CancellationToken cancellationToken)
+    {
+        try
+        {
+            await _journal.SoftDeleteEntryAsync(id, ResolveCurrentUserId(), cancellationToken);
+            return Ok(new { message = "سند دستی ثبت‌شده با سند معکوس برگشت داده شد؛ پیش‌نویس حذف شد." });
+        }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(new { message = ex.Message });
+        }
+    }
+
+    [HttpPost("{id:int}/reverse")]
+    [HasPermission("accounting.expenses.create")]
+    public async Task<IActionResult> Reverse(int id, [FromQuery] DateTime? reverseDate, CancellationToken cancellationToken)
+    {
+        try
+        {
+            var entry = await _journal.ReverseEntryAsync(id, ResolveCurrentUserId(), reverseDate, cancellationToken);
+            return Ok(new { message = "سند معکوس ثبت شد.", journalEntryId = entry.JournalEntryID, entryNumber = entry.EntryNumber });
+        }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(new { message = ex.Message });
+        }
+    }
+
+    public static string SourceLabel(int source) => JournalSourceLabels.Label(source);
+
+    private static DateTime ParseRequiredDate(string? value)
+    {
+        var parsed = ParseOptionalDate(value);
+        if (parsed is null)
+        {
+            throw new InvalidOperationException("تاریخ سند الزامی است.");
+        }
+
+        return parsed.Value;
+    }
+
+    private static DateTime? ParseOptionalDate(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value)) return null;
+
+        var normalized = value.Trim()
+            .Replace('\u06F0', '0').Replace('\u06F1', '1').Replace('\u06F2', '2').Replace('\u06F3', '3')
+            .Replace('\u06F4', '4').Replace('\u06F5', '5').Replace('\u06F6', '6').Replace('\u06F7', '7')
+            .Replace('\u06F8', '8').Replace('\u06F9', '9')
+            .Replace('\u0660', '0').Replace('\u0661', '1').Replace('\u0662', '2').Replace('\u0663', '3')
+            .Replace('\u0664', '4').Replace('\u0665', '5').Replace('\u0666', '6').Replace('\u0667', '7')
+            .Replace('\u0668', '8').Replace('\u0669', '9');
+
+        if (DateTime.TryParse(normalized, CultureInfo.InvariantCulture, DateTimeStyles.AssumeLocal, out var parsed))
+        {
+            return parsed.Date;
+        }
+
+        throw new InvalidOperationException("فرمت تاریخ نامعتبر است.");
+    }
+
+    public class ManualJournalRequest
+    {
+        public string EntryDate { get; set; } = string.Empty;
+        public string? Description { get; set; }
+        public List<ManualJournalLineRequest> Lines { get; set; } = [];
+    }
+
+    public class ManualJournalLineRequest
+    {
+        public int AccountId { get; set; }
+        public decimal Debit { get; set; }
+        public decimal Credit { get; set; }
+        public int CurrencyId { get; set; }
+        public string? Description { get; set; }
+        public int? CashBoxId { get; set; }
+        public int? PartyId { get; set; }
+        public int? CostCenterId { get; set; }
+    }
 
     private sealed class JournalListRow
     {

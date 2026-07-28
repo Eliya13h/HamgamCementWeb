@@ -625,7 +625,7 @@ public class ProductionPostingService : IProductionPostingService
             line.UpdatedBy = userId;
         }
 
-        await _journal.SoftDeleteBySourceAsync(JournalSource.Production, productionBatchId, userId, cancellationToken);
+        await _journal.ReverseBySourceAsync(JournalSource.Production, productionBatchId, userId, cancellationToken: cancellationToken);
 
         batch.IsPosted = false;
         batch.PostedAt = null;

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
+import { useLocation } from 'react-router-dom'
 import Icon from '../../components/common/Icon'
 import { useAuth } from '../../context/AuthContext'
 import { formatJalaliDate } from '../../lib/afghanSolarCalendar'
@@ -13,6 +14,7 @@ import {
   updateGeneralSettings,
   uploadCompanyLogo,
 } from '../../services/settingsApi'
+import { fiscalPeriodsApi } from '../../services/ledgerApi'
 
 const emptyForm = {
   persianCompanyName: '',
@@ -24,6 +26,7 @@ const emptyForm = {
   companyPhoneNumber3: '',
   companyEmail: '',
   companySite: '',
+  defaultTaxPercent: '',
 }
 
 const emptyModal = {
@@ -44,6 +47,7 @@ function withCacheBust(path) {
 function SettingsPage() {
   const { canEdit } = usePageCrud('/settings')
   const { user } = useAuth()
+  const location = useLocation()
   const [form, setForm] = useState(emptyForm)
   const [logoPreviewSrc, setLogoPreviewSrc] = useState('')
   const [logoFileName, setLogoFileName] = useState('')
@@ -59,6 +63,10 @@ function SettingsPage() {
   const [fiscalLoading, setFiscalLoading] = useState(true)
   const [fiscalError, setFiscalError] = useState('')
   const [modal, setModal] = useState(emptyModal)
+  const [selectedPeriodYear, setSelectedPeriodYear] = useState('')
+  const [fiscalPeriods, setFiscalPeriods] = useState([])
+  const [periodsLoading, setPeriodsLoading] = useState(false)
+  const [periodsError, setPeriodsError] = useState('')
 
   // نقش مدیر سیستم از سرور؛ نام کاربری مهم نیست
   const canManageFiscalYear =
@@ -95,6 +103,7 @@ function SettingsPage() {
           companyPhoneNumber3: data.companyPhoneNumber3 ?? '',
           companyEmail: data.companyEmail ?? '',
           companySite: data.companySite ?? '',
+          defaultTaxPercent: data.defaultTaxPercent ?? '',
         })
         setLogoPreviewSrc(companyLogoPath ? withCacheBust(companyLogoPath) : '')
         setLoadError('')
@@ -115,6 +124,38 @@ function SettingsPage() {
   useEffect(() => {
     loadFiscalYears()
   }, [loadFiscalYears])
+
+  useEffect(() => {
+    if (!selectedPeriodYear && fiscalYears.length > 0) {
+      setSelectedPeriodYear(String(fiscalYears[0].solarYear))
+    }
+  }, [fiscalYears, selectedPeriodYear])
+
+  const loadFiscalPeriods = useCallback(async () => {
+    if (!selectedPeriodYear) return
+    setPeriodsLoading(true)
+    setPeriodsError('')
+    try {
+      const data = await fiscalPeriodsApi.list(Number(selectedPeriodYear))
+      setFiscalPeriods(data.items ?? [])
+    } catch (error) {
+      setPeriodsError(error.message)
+    } finally {
+      setPeriodsLoading(false)
+    }
+  }, [selectedPeriodYear])
+
+  useEffect(() => {
+    loadFiscalPeriods()
+  }, [loadFiscalPeriods])
+
+  useEffect(() => {
+    if (location.hash !== '#fiscal-years') return
+    const el = document.getElementById('fiscal-years')
+    if (el) {
+      el.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    }
+  }, [location.hash, fiscalLoading])
 
   const updateField = (field, value) => {
     setForm((prev) => ({ ...prev, [field]: value }))
@@ -177,6 +218,7 @@ function SettingsPage() {
         companyPhoneNumber3: form.companyPhoneNumber3,
         companyEmail: form.companyEmail,
         companySite: form.companySite,
+        defaultTaxPercent: Number(form.defaultTaxPercent) || 0,
       })
 
       if (result.settings) {
@@ -191,6 +233,7 @@ function SettingsPage() {
           companyPhoneNumber3: result.settings.companyPhoneNumber3 ?? '',
           companyEmail: result.settings.companyEmail ?? '',
           companySite: result.settings.companySite ?? '',
+          defaultTaxPercent: result.settings.defaultTaxPercent ?? '',
         })
         setLogoPreviewSrc(companyLogoPath ? withCacheBust(companyLogoPath) : '')
       }
@@ -276,6 +319,15 @@ function SettingsPage() {
       await loadFiscalYears()
     } catch (error) {
       setModal((prev) => ({ ...prev, loading: false, error: error.message }))
+    }
+  }
+
+  const updateFiscalPeriodStatus = async (period, action) => {
+    try {
+      await fiscalPeriodsApi[action](period.fiscalPeriodId)
+      await loadFiscalPeriods()
+    } catch (error) {
+      setPeriodsError(error.message)
     }
   }
 
@@ -366,6 +418,23 @@ function SettingsPage() {
                       dir="ltr"
                       value={form.companySite}
                       onChange={(e) => updateField('companySite', e.target.value)}
+                      disabled={!canEdit}
+                    />
+                  </div>
+
+                  <div className="col-md-6">
+                    <label className="form-label" htmlFor="defaultTaxPercent">
+                      درصد مالیات پیش‌فرض فاکتور
+                    </label>
+                    <input
+                      id="defaultTaxPercent"
+                      type="number"
+                      min="0"
+                      max="100"
+                      step="any"
+                      className="form-control"
+                      value={form.defaultTaxPercent}
+                      onChange={(e) => updateField('defaultTaxPercent', e.target.value)}
                       disabled={!canEdit}
                     />
                   </div>
@@ -504,7 +573,7 @@ function SettingsPage() {
             </form>
           )}
 
-          <section className="settings-group mb-2">
+          <section id="fiscal-years" className="settings-group mb-2">
             <div className="settings-group-header d-flex align-items-center gap-2 mb-3 pb-2 border-bottom">
               <Icon name="accounting" className="text-primary" />
               <h3 className="h5 mb-0">سال مالی</h3>
@@ -598,6 +667,64 @@ function SettingsPage() {
                 </table>
               </div>
             )}
+
+            <div className="mt-4 pt-3 border-top">
+              <div className="d-flex align-items-end justify-content-between gap-2 mb-3 flex-wrap">
+                <div>
+                  <h4 className="h6 mb-2">دوره‌های ماهانه</h4>
+                  <select
+                    className="form-select form-select-sm"
+                    value={selectedPeriodYear}
+                    onChange={(e) => setSelectedPeriodYear(e.target.value)}
+                  >
+                    {fiscalYears.map((year) => (
+                      <option key={year.fiscalYearId} value={year.solarYear}>
+                        سال {year.solarYear}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <button type="button" className="btn btn-sm btn-outline-secondary" onClick={loadFiscalPeriods}>
+                  بروزرسانی
+                </button>
+              </div>
+              {periodsError && <div className="alert alert-danger py-2">{periodsError}</div>}
+              {periodsLoading ? (
+                <div className="text-muted small">در حال بارگذاری دوره‌ها...</div>
+              ) : (
+                <div className="table-responsive">
+                  <table className="table table-sm align-middle mb-0">
+                    <thead><tr><th>ماه</th><th>وضعیت</th><th className="text-end">عملیات</th></tr></thead>
+                    <tbody>
+                      {fiscalPeriods.map((period) => {
+                        const isClosed = Number(period.status) === 2
+                        return (
+                          <tr key={period.fiscalPeriodId}>
+                            <td>{period.monthName}</td>
+                            <td>
+                              <span className={`badge ${isClosed ? 'badge-inactive' : 'badge-active'}`}>
+                                {period.statusLabel}
+                              </span>
+                            </td>
+                            <td className="text-end">
+                              {canEdit && (
+                                <button
+                                  type="button"
+                                  className={`btn btn-sm ${isClosed ? 'btn-outline-danger' : 'btn-outline-secondary'}`}
+                                  onClick={() => updateFiscalPeriodStatus(period, isClosed ? 'reopen' : 'close')}
+                                >
+                                  {isClosed ? 'بازگشایی' : 'بستن'}
+                                </button>
+                              )}
+                            </td>
+                          </tr>
+                        )
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
           </section>
         </div>
       </div>

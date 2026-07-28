@@ -23,7 +23,15 @@ import {
   EquityTxnsPage,
   CashBoxesPage,
   CashShiftsPage,
+  BankAccountsPage,
+  PartySettlementsPage,
+  CurrencyExchangePage,
+  CostCentersPage,
+  DoubtfulProvisionsPage,
+  RecurringJournalsPage,
+  PettyCashPage,
   InventoryStockPage,
+  InventoryOpeningPage,
   JournalPage,
   Login,
   MaintenancePage,
@@ -122,12 +130,18 @@ function AppRoutes() {
 
             <Route path="inventory/warehouses" element={<WarehousesPage />} />
             <Route path="inventory/stock" element={<InventoryStockPage />} />
+            <Route path="inventory/opening" element={<InventoryOpeningPage />} />
             <Route path="inventory/turnover" element={<WarehouseTurnoverPage />} />
             <Route path="inventory/transfers" element={<WarehouseTransfersPage />} />
             <Route path="inventory/stocktaking" element={<StocktakingHistoryPage />} />
 
             <Route path="accounting/accounts" element={<AccountsPage />} />
             <Route path="accounting/journal-entries" element={<JournalEntriesPage />} />
+            <Route path="accounting/settlements" element={<PartySettlementsPage />} />
+            <Route path="accounting/currency-exchange" element={<CurrencyExchangePage />} />
+            <Route path="accounting/cost-centers" element={<CostCentersPage />} />
+            <Route path="accounting/doubtful-provisions" element={<DoubtfulProvisionsPage />} />
+            <Route path="accounting/recurring-journals" element={<RecurringJournalsPage />} />
             <Route path="accounting/equity" element={<EquityTxnsPage />} />
             <Route path="accounting/fixed-assets" element={<FixedAssetsPage />} />
             <Route path="accounting/revenues" element={<RevenuesPage />} />
@@ -147,7 +161,9 @@ function AppRoutes() {
             />
 
             <Route path="cash/boxes" element={<CashBoxesPage />} />
+            <Route path="cash/banks" element={<BankAccountsPage />} />
             <Route path="cash/shifts" element={<CashShiftsPage />} />
+            <Route path="cash/petty-cash" element={<PettyCashPage />} />
 
             <Route path="reporting/products" element={<ProductsReportPage />} />
             <Route path="reporting/production" element={<ProductionReportPage />} />

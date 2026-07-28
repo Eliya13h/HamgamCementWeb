@@ -27,6 +27,10 @@ public static class AccountSystemCode
     public const string FixedAssetDisposalGain = "SYS_FA_GAIN";
     public const string FixedAssetDisposalLoss = "SYS_FA_LOSS";
 
+    // سود/زیان تسعیر ارز در خرید و فروش ارز
+    public const string FxGain = "SYS_FX_GAIN";
+    public const string FxLoss = "SYS_FX_LOSS";
+
     public const string Liabilities = "SYS_LIABILITIES";
     public const string Payables = "SYS_PAYABLES";
     public const string SuppliersAp = "SYS_AP";
@@ -58,6 +62,16 @@ public static class AccountSystemCode
     public const string MiscExpense = "SYS_MISC_EXP";
     // هزینه حقوق و دستمزد کارکنان اداری/عملیاتی
     public const string SalaryExpense = "SYS_SALARY_EXP";
+    // کسورات حقوق (طرف بستانکار در سند پرداخت)
+    public const string SalaryDeductions = "SYS_SALARY_DEDUCTIONS";
+
+    // مالیات پیش‌نویس
+    public const string TaxPayable = "SYS_TAX_PAYABLE";
+    public const string TaxReceivable = "SYS_TAX_RECEIVABLE";
+
+    // ذخیره مطالبات مشکوک
+    public const string DoubtfulDebtExpense = "SYS_DOUBTFUL_EXP";
+    public const string DoubtfulDebtAllowance = "SYS_DOUBTFUL_ALLOW";
 
     // هزینه‌های ساخت در تولید — بستانکار در سند تولید (سرمایه‌گذاری در موجودی FG)
     public const string ProductionWage = "SYS_PROD_WAGE";

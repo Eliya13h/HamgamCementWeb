@@ -188,6 +188,8 @@ public class CashBoxController : FinanceControllerBase
                 parentCashBoxId = c.ParentCashBoxId,
                 description = c.Description,
                 isActive = c.IsActive == true,
+                isPettyCash = c.IsPettyCash,
+                ceilingAmountInBase = c.CeilingAmountInBase,
                 userIds = c.Users.Where(u => u.IsDeleted != true).Select(u => u.UserId).ToList(),
             })
             .FirstOrDefaultAsync(cancellationToken);
@@ -237,6 +239,8 @@ public class CashBoxController : FinanceControllerBase
                 request.ParentCashBoxId,
                 request.UserIds ?? [],
                 request.Description,
+                request.IsPettyCash,
+                request.CeilingAmountInBase,
                 ResolveCurrentUserId(),
                 cancellationToken);
             return Ok(new { message = "صندوق ثبت شد.", cashBoxId = box.CashBoxID, code = box.Code });
@@ -265,9 +269,73 @@ public class CashBoxController : FinanceControllerBase
                 request.UserIds ?? [],
                 request.Description,
                 request.IsActive ?? true,
+                request.IsPettyCash,
+                request.CeilingAmountInBase,
                 ResolveCurrentUserId(),
                 cancellationToken);
             return Ok(new { message = "صندوق به‌روزرسانی شد." });
+        }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(new { message = ex.Message });
+        }
+    }
+
+    // انتقال آزاد بین صندوق‌ها (بدون محدودیت والد/فرزند)
+    [HttpPost("transfers")]
+    [HasPermission("accounting.expenses.create")]
+    public async Task<IActionResult> Transfer([FromBody] FreeCashTransferRequest request, CancellationToken cancellationToken)
+    {
+        if (!ModelState.IsValid)
+        {
+            return ValidationProblem(ModelState);
+        }
+
+        try
+        {
+            var lines = (request.Lines ?? [])
+                .Where(l => l.CurrencyId > 0 && l.Amount > 0)
+                .Select(l => new CashTransferLineInput(l.CurrencyId, l.Amount, l.AmountInBaseCurrency))
+                .ToList();
+
+            var transfer = await _cashBoxes.TransferAsync(
+                request.FromCashBoxId,
+                request.ToCashBoxId,
+                request.TransferDate ?? DateTime.Now,
+                request.Description,
+                lines,
+                ResolveCurrentUserId(),
+                cancellationToken);
+
+            return Ok(new
+            {
+                message = "انتقال صندوق ثبت شد.",
+                cashTransferId = transfer.CashTransferID,
+                journalEntryId = transfer.JournalEntryId,
+            });
+        }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(new { message = ex.Message });
+        }
+    }
+
+    [HttpPost("{id:int}/recharge")]
+    [HasPermission("accounting.expenses.create")]
+    public async Task<IActionResult> RechargePettyCash(
+        int id,
+        [FromBody] PettyCashRechargeRequest request,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            var lines = (request.Lines ?? [])
+                .Where(l => l.CurrencyId > 0 && l.Amount > 0)
+                .Select(l => new CashTransferLineInput(l.CurrencyId, l.Amount, l.AmountInBaseCurrency))
+                .ToList();
+            var transfer = await _cashBoxes.RechargePettyCashAsync(
+                id, request.TransferDate ?? DateTime.Now, lines, ResolveCurrentUserId(), cancellationToken);
+            return Ok(new { message = "تنخواه شارژ شد.", cashTransferId = transfer.CashTransferID, journalEntryId = transfer.JournalEntryId });
         }
         catch (InvalidOperationException ex)
         {
@@ -437,6 +505,10 @@ public class SaveCashBoxRequest
     public string? Description { get; set; }
 
     public bool? IsActive { get; set; } = true;
+
+    public bool IsPettyCash { get; set; }
+
+    public decimal CeilingAmountInBase { get; set; }
 }
 
 public class CashAmountLineRequest
@@ -464,4 +536,36 @@ public class CloseShiftRequest
 
     [MaxLength(1000)]
     public string? Notes { get; set; }
+}
+
+public class FreeCashTransferRequest
+{
+    [Required]
+    public int FromCashBoxId { get; set; }
+
+    [Required]
+    public int ToCashBoxId { get; set; }
+
+    public DateTime? TransferDate { get; set; }
+
+    [MaxLength(500)]
+    public string? Description { get; set; }
+
+    public List<FreeCashTransferLineRequest>? Lines { get; set; }
+}
+
+public class FreeCashTransferLineRequest
+{
+    [Required]
+    public int CurrencyId { get; set; }
+
+    public decimal Amount { get; set; }
+
+    public decimal? AmountInBaseCurrency { get; set; }
+}
+
+public class PettyCashRechargeRequest
+{
+    public DateTime? TransferDate { get; set; }
+    public List<FreeCashTransferLineRequest>? Lines { get; set; }
 }

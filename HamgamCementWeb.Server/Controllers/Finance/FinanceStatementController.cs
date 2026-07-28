@@ -22,13 +22,17 @@ public class FinanceStatementController : ControllerBase
     public async Task<IActionResult> ProfitAndLoss(
         [FromQuery] string? dateFrom,
         [FromQuery] string? dateTo,
+        [FromQuery] string? compareFrom,
+        [FromQuery] string? compareTo,
         CancellationToken cancellationToken = default)
     {
         try
         {
             var from = ParseOptionalDate(dateFrom);
             var to = ParseOptionalDate(dateTo);
-            var result = await _statements.GetProfitAndLossAsync(from, to, cancellationToken);
+            var compareStart = ParseOptionalDate(compareFrom);
+            var compareEnd = ParseOptionalDate(compareTo);
+            var result = await _statements.GetProfitAndLossAsync(from, to, compareStart, compareEnd, cancellationToken);
             return Ok(result);
         }
         catch (InvalidOperationException ex)
@@ -41,12 +45,88 @@ public class FinanceStatementController : ControllerBase
     [HttpGet("balance-sheet")]
     public async Task<IActionResult> BalanceSheet(
         [FromQuery] string? asOf,
+        [FromQuery] string? compareAsOf,
         CancellationToken cancellationToken = default)
     {
         try
         {
             var date = ParseOptionalDate(asOf);
-            var result = await _statements.GetBalanceSheetAsync(date, cancellationToken);
+            var compareDate = ParseOptionalDate(compareAsOf);
+            var result = await _statements.GetBalanceSheetAsync(date, compareDate, cancellationToken);
+            return Ok(result);
+        }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(new { message = ex.Message });
+        }
+    }
+
+    // تراز آزمایشی تا تاریخ
+    [HttpGet("trial-balance")]
+    public async Task<IActionResult> TrialBalance(
+        [FromQuery] string? asOf,
+        CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            var date = ParseOptionalDate(asOf);
+            var result = await _statements.GetTrialBalanceAsync(date, cancellationToken);
+            return Ok(result);
+        }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(new { message = ex.Message });
+        }
+    }
+
+    // سررسید دریافتنی
+    [HttpGet("aging/ar")]
+    public async Task<IActionResult> ArAging(
+        [FromQuery] string? asOf,
+        CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            var date = ParseOptionalDate(asOf);
+            var result = await _statements.GetArAgingAsync(date, cancellationToken);
+            return Ok(result);
+        }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(new { message = ex.Message });
+        }
+    }
+
+    // سررسید پرداختنی
+    [HttpGet("aging/ap")]
+    public async Task<IActionResult> ApAging(
+        [FromQuery] string? asOf,
+        CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            var date = ParseOptionalDate(asOf);
+            var result = await _statements.GetApAgingAsync(date, cancellationToken);
+            return Ok(result);
+        }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(new { message = ex.Message });
+        }
+    }
+
+    // صورت جریان وجوه نقد
+    [HttpGet("cash-flow")]
+    public async Task<IActionResult> CashFlow(
+        [FromQuery] string? dateFrom,
+        [FromQuery] string? dateTo,
+        CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            var from = ParseOptionalDate(dateFrom);
+            var to = ParseOptionalDate(dateTo);
+            var result = await _statements.GetCashFlowAsync(from, to, cancellationToken);
             return Ok(result);
         }
         catch (InvalidOperationException ex)

@@ -294,7 +294,7 @@ public class StocktakingController : InventoryControllerBase
             return Ok(new
             {
                 message = journal is null
-                    ? "انبارگردانی تأیید شد و موجودی انبار به‌روزرسانی شد."
+                    ? "انبارگردانی تأیید شد و موجودی به‌روزرسانی شد؛ چون بهای تعدیل صفر است سند دفتر ثبت نشد."
                     : "انبارگردانی تأیید شد؛ موجودی و سند دابل‌انتری ثبت شد.",
                 journalEntryId = stocktaking.JournalEntryId,
             });

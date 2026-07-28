@@ -56,6 +56,29 @@ public class PurchaseInvoice : BaseEntity
     [Column(TypeName = "decimal(18,4)")]
     public decimal TotalAmountInBaseCurrency { get; set; }
 
+    // جمع اقلام بدون مالیات (ارز فاکتور)
+    [Column(TypeName = "decimal(18,4)")]
+    public decimal SubTotalAmount { get; set; }
+
+    [Column(TypeName = "decimal(18,4)")]
+    public decimal SubTotalAmountInBaseCurrency { get; set; }
+
+    // درصد مالیات پیش‌نویس
+    [Column(TypeName = "decimal(18,4)")]
+    public decimal TaxPercent { get; set; }
+
+    [Column(TypeName = "decimal(18,4)")]
+    public decimal TaxAmount { get; set; }
+
+    [Column(TypeName = "decimal(18,4)")]
+    public decimal TaxAmountInBaseCurrency { get; set; }
+
+    // مهلت پرداخت به روز
+    public int PaymentTermDays { get; set; }
+
+    // تاریخ سررسید فاکتور نسیه
+    public DateTime? DueDate { get; set; }
+
     // مبلغ پرداخت‌شده — برای ثبت در جدول مصارف هنگام ثبت نهایی
     [Column(TypeName = "decimal(18,4)")]
     public decimal PaidAmount { get; set; }

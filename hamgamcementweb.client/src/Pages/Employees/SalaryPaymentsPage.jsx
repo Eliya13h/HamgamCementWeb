@@ -8,8 +8,10 @@ import {
   todayGregorianIso,
 } from '../../lib/afghanSolarCalendar'
 import { fetchCashBoxOptions } from '../../services/ledgerApi'
+import Icon from '../../components/common/Icon'
 import {
   createSalaryPayment,
+  deleteSalaryPayment,
   fetchAttendanceRange,
   fetchSalaryPayments,
   fetchSalaryPreview,
@@ -30,6 +32,7 @@ function SalaryPaymentsPage() {
   const [cashBoxes, setCashBoxes] = useState([])
   const [loading, setLoading] = useState(false)
   const [saving, setSaving] = useState(false)
+  const [deletingId, setDeletingId] = useState(null)
   const [error, setError] = useState('')
   const [message, setMessage] = useState('')
 
@@ -136,6 +139,24 @@ function SalaryPaymentsPage() {
       setOtherDeduction(data.suggestedOtherDeduction ?? 0)
     } catch (err) {
       setError(err.message)
+    }
+  }
+
+  const onDelete = async (row) => {
+    if (!window.confirm(`آیا از حذف فیش حقوق «${row.employeeName}» اطمینان دارید؟`)) {
+      return
+    }
+    setDeletingId(row.salaryPaymentId)
+    setError('')
+    setMessage('')
+    try {
+      const result = await deleteSalaryPayment(row.salaryPaymentId)
+      setMessage(result.message || 'پرداخت حقوق حذف شد.')
+      await loadList()
+    } catch (err) {
+      setError(err.message)
+    } finally {
+      setDeletingId(null)
     }
   }
 
@@ -387,19 +408,20 @@ function SalaryPaymentsPage() {
                   <th className="text-end">مزایا</th>
                   <th className="text-end">خالص</th>
                   <th>سند</th>
+                  <th className="text-center">عملیات</th>
                 </tr>
               </thead>
               <tbody>
                 {loading && (
                   <tr>
-                    <td colSpan={8} className="text-center text-muted py-3">
+                    <td colSpan={9} className="text-center text-muted py-3">
                       در حال بارگذاری...
                     </td>
                   </tr>
                 )}
                 {!loading && list.length === 0 && (
                   <tr>
-                    <td colSpan={8} className="text-center text-muted py-3">
+                    <td colSpan={9} className="text-center text-muted py-3">
                       فیشی برای این ماه ثبت نشده است.
                     </td>
                   </tr>
@@ -433,6 +455,17 @@ function SalaryPaymentsPage() {
                           ) : (
                             '—'
                           )}
+                        </td>
+                        <td className="text-center">
+                          <button
+                            type="button"
+                            className="btn btn-sm btn-outline-danger"
+                            title="حذف"
+                            disabled={deletingId === row.salaryPaymentId}
+                            onClick={() => onDelete(row)}
+                          >
+                            <Icon name="trash" size={14} />
+                          </button>
                         </td>
                       </tr>
                     )

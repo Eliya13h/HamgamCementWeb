@@ -35,6 +35,12 @@ public static class JalaliDateHelper
         return new PersianCalendar().GetYear(date);
     }
 
+    // ماه شمسی متناظر با تاریخ میلادی
+    public static int GetSolarMonth(DateTime date)
+    {
+        return new PersianCalendar().GetMonth(date);
+    }
+
     // بازه میلادی یک سال شمسی: ۱ فروردین تا آخرین روز اسفند
     public static (DateTime Start, DateTime End) GetSolarYearRange(int solarYear)
     {

@@ -143,6 +143,13 @@ public class FreightTripService : IFreightTripService
 
         invoice.TransportTripId = trip.TransportTripID;
 
+        // ناوگان خودی: فقط ردیابی عملیاتی — بدون سند نقدی/هزینه (هزینه واقعی از حقوق/سوخت/تعمیر)
+        if (invoice.FreightMode == FreightMode.OwnFleet)
+        {
+            await _db.SaveChangesAsync(cancellationToken);
+            return;
+        }
+
         var categoryId = await _financeCategories.GetExpenseCategoryIdAsync(
             FinanceCategoryCode.TransportExpense,
             cancellationToken);
@@ -218,6 +225,13 @@ public class FreightTripService : IFreightTripService
             cancellationToken: cancellationToken);
 
         invoice.TransportTripId = trip.TransportTripID;
+
+        // ناوگان خودی: فقط ردیابی عملیاتی — بدون درآمد/AR جداگانه
+        if (invoice.FreightMode == FreightMode.OwnFleet)
+        {
+            await _db.SaveChangesAsync(cancellationToken);
+            return;
+        }
 
         var categoryId = await _financeCategories.GetRevenueCategoryIdAsync(
             FinanceCategoryCode.TransportRevenue,

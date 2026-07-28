@@ -209,6 +209,7 @@ function CrudTablePage({
   defaultOrder = [[1, 'asc']],
   searching = true,
   extraRowActions,
+  headerExtra,
   embedded = false,
   permissionPath,
   onFormChange,
@@ -447,17 +448,20 @@ function CrudTablePage({
     <>
       <div className="card-header bg-transparent border-0 pt-4 px-4 pb-0 d-flex align-items-center justify-content-between gap-3 flex-wrap">
         <h2 className="card-title mb-0">{title}</h2>
-        {(!permissionsEnabled || canCreate) && (
-          <button
-            type="button"
-            className="btn btn-sm btn-accent btn-users-new d-inline-flex align-items-center gap-2"
-            title={createLabel ?? 'ایجاد'}
-            onClick={openCreate}
-          >
-            <Icon name="plus" />
-            <span>{createLabel ?? 'ایجاد'}</span>
-          </button>
-        )}
+        <div className="d-flex align-items-center gap-2 flex-wrap">
+          {headerExtra}
+          {(!permissionsEnabled || canCreate) && (
+            <button
+              type="button"
+              className="btn btn-sm btn-accent btn-users-new d-inline-flex align-items-center gap-2"
+              title={createLabel ?? 'ایجاد'}
+              onClick={openCreate}
+            >
+              <Icon name="plus" />
+              <span>{createLabel ?? 'ایجاد'}</span>
+            </button>
+          )}
+        </div>
       </div>
 
       <div className="card-body card-body-table">

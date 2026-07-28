@@ -98,8 +98,12 @@ public class InvoicePostingService : IInvoicePostingService
             totalBase += item.LineTotalInBaseCurrency;
         }
 
-        invoice.TotalAmount = total;
-        invoice.TotalAmountInBaseCurrency = totalBase;
+        invoice.SubTotalAmount = total;
+        invoice.SubTotalAmountInBaseCurrency = totalBase;
+        invoice.TaxAmount = Math.Round(total * invoice.TaxPercent / 100m, 4);
+        invoice.TaxAmountInBaseCurrency = Math.Round(totalBase * invoice.TaxPercent / 100m, 4);
+        invoice.TotalAmount = invoice.SubTotalAmount + invoice.TaxAmount;
+        invoice.TotalAmountInBaseCurrency = invoice.SubTotalAmountInBaseCurrency + invoice.TaxAmountInBaseCurrency;
     }
 
     public async Task ApplySaleCurrencyAsync(
@@ -129,8 +133,12 @@ public class InvoicePostingService : IInvoicePostingService
             totalBase += item.LineTotalInBaseCurrency;
         }
 
-        invoice.TotalAmount = total;
-        invoice.TotalAmountInBaseCurrency = totalBase;
+        invoice.SubTotalAmount = total;
+        invoice.SubTotalAmountInBaseCurrency = totalBase;
+        invoice.TaxAmount = Math.Round(total * invoice.TaxPercent / 100m, 4);
+        invoice.TaxAmountInBaseCurrency = Math.Round(totalBase * invoice.TaxPercent / 100m, 4);
+        invoice.TotalAmount = invoice.SubTotalAmount + invoice.TaxAmount;
+        invoice.TotalAmountInBaseCurrency = invoice.SubTotalAmountInBaseCurrency + invoice.TaxAmountInBaseCurrency;
     }
 
     // چرا تراکنش: عملیات ثبت شامل چند SaveChanges (ساخت Lot، مصرف FIFO، ثبت مالی) است؛ اگر یکی از مراحل

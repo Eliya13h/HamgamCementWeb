@@ -60,6 +60,16 @@ export async function deleteSupplier(supplierId) {
   return parseResponse(response)
 }
 
+export async function postSupplierOpeningBalance(supplierId) {
+  const response = await fetch(`${BASE}/${supplierId}/opening-balance`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    credentials: 'include',
+    body: JSON.stringify({}),
+  })
+  return parseResponse(response)
+}
+
 function createDataTableAjax(url, onError, onLoaded) {
   return (data, callback) => {
     fetch(url, {

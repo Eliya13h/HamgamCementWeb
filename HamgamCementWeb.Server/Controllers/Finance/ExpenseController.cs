@@ -25,6 +25,7 @@ public class ExpenseController : FinanceControllerBase
 
     private readonly ICurrencyConversionService _currency;
     private readonly IOperationalGlService _gl;
+    private readonly IJournalPostingService _journal;
     private readonly ICashBoxService _cashBoxes;
     private readonly IFinanceReadService _reads;
 
@@ -32,11 +33,13 @@ public class ExpenseController : FinanceControllerBase
         AppDbContext db,
         ICurrencyConversionService currency,
         IOperationalGlService gl,
+        IJournalPostingService journal,
         ICashBoxService cashBoxes,
         IFinanceReadService reads) : base(db)
     {
         _currency = currency;
         _gl = gl;
+        _journal = journal;
         _cashBoxes = cashBoxes;
         _reads = reads;
     }
@@ -134,36 +137,51 @@ public class ExpenseController : FinanceControllerBase
         var snapshot = await _currency.GetSnapshotAsync(request.CurrencyId, expenseDate, cancellationToken);
         var amountInBase = _currency.ConvertToBase(request.Amount, snapshot);
 
-        var expense = new Expense
-        {
-            Title = request.Title.Trim(),
-            ExpenseDate = expenseDate,
-            ExpenseCategoryId = request.ExpenseCategoryId,
-            Source = FinancialEntrySource.Miscellaneous,
-            SupplierId = request.SupplierId,
-            CurrencyId = snapshot.CurrencyId,
-            BaseCurrencyId = snapshot.BaseCurrencyId,
-            ExchangeHistoryId = snapshot.ExchangeHistoryId,
-            BaseUnitsPerUnitAtTransaction = snapshot.BaseUnitsPerUnit,
-            Amount = request.Amount,
-            AmountInBaseCurrency = amountInBase,
-            Description = request.Description?.Trim(),
-            IsActive = true,
-            IsDeleted = false,
-            CreatedAt = DateTime.Now,
-            CreatedBy = ResolveCurrentUserId(),
-        };
-
-        Db.Expenses.Add(expense);
-        await Db.SaveChangesAsync(cancellationToken);
-
         var userId = ResolveCurrentUserId();
         var cashBoxId = await _cashBoxes.ResolveUserCashBoxIdAsync(userId, cancellationToken);
-        var journal = await _gl.PostMiscExpenseAsync(expense, userId, cashBoxId, cancellationToken);
-        expense.JournalEntryId = journal.JournalEntryID;
-        await Db.SaveChangesAsync(cancellationToken);
+        if (request.SupplierId is null && cashBoxId is null)
+        {
+            return BadRequest(new { message = "برای ثبت مصرف نقدی، صندوق کاربر الزامی است." });
+        }
 
-        return Ok(new { message = "مصرف با موفقیت ثبت شد.", expenseId = expense.ExpenseID, journalEntryId = journal.JournalEntryID });
+        await using var tx = await Db.Database.BeginTransactionAsync(cancellationToken);
+        try
+        {
+            var expense = new Expense
+            {
+                Title = request.Title.Trim(),
+                ExpenseDate = expenseDate,
+                ExpenseCategoryId = request.ExpenseCategoryId,
+                Source = FinancialEntrySource.Miscellaneous,
+                SupplierId = request.SupplierId,
+                CurrencyId = snapshot.CurrencyId,
+                BaseCurrencyId = snapshot.BaseCurrencyId,
+                ExchangeHistoryId = snapshot.ExchangeHistoryId,
+                BaseUnitsPerUnitAtTransaction = snapshot.BaseUnitsPerUnit,
+                Amount = request.Amount,
+                AmountInBaseCurrency = amountInBase,
+                Description = request.Description?.Trim(),
+                IsActive = true,
+                IsDeleted = false,
+                CreatedAt = DateTime.Now,
+                CreatedBy = userId,
+            };
+
+            Db.Expenses.Add(expense);
+            await Db.SaveChangesAsync(cancellationToken);
+
+            var journal = await _gl.PostMiscExpenseAsync(expense, userId, cashBoxId, cancellationToken);
+            expense.JournalEntryId = journal.JournalEntryID;
+            await Db.SaveChangesAsync(cancellationToken);
+            await tx.CommitAsync(cancellationToken);
+
+            return Ok(new { message = "مصرف با موفقیت ثبت شد.", expenseId = expense.ExpenseID, journalEntryId = journal.JournalEntryID });
+        }
+        catch (InvalidOperationException ex)
+        {
+            await tx.RollbackAsync(cancellationToken);
+            return BadRequest(new { message = ex.Message });
+        }
     }
 
     [HttpPut("{id:int}")]
@@ -214,28 +232,60 @@ public class ExpenseController : FinanceControllerBase
             return BadRequest(new { message = "دسته‌بندی خرید محصولات فقط از طریق فاکتور خرید ثبت می‌شود." });
         }
 
+        if (request.SupplierId is int supplierId)
+        {
+            var supplierExists = await Db.Suppliers
+                .AnyAsync(s => s.SupplierID == supplierId && s.IsDeleted != true, cancellationToken);
+            if (!supplierExists)
+            {
+                return BadRequest(new { message = "تأمین‌کننده یافت نشد." });
+            }
+        }
+
+        var userId = ResolveCurrentUserId();
+        var cashBoxId = await _cashBoxes.ResolveUserCashBoxIdAsync(userId, cancellationToken);
+        if (request.SupplierId is null && cashBoxId is null)
+        {
+            return BadRequest(new { message = "برای ثبت مصرف نقدی، صندوق کاربر الزامی است." });
+        }
+
         var expenseDate = request.ExpenseDate?.Date ?? expense.ExpenseDate.Date;
         var snapshot = await _currency.GetSnapshotAsync(request.CurrencyId, expenseDate, cancellationToken);
         var amountInBase = _currency.ConvertToBase(request.Amount, snapshot);
 
-        expense.Title = request.Title.Trim();
-        expense.ExpenseDate = expenseDate;
-        expense.ExpenseCategoryId = request.ExpenseCategoryId;
-        expense.SupplierId = request.SupplierId;
-        expense.CurrencyId = snapshot.CurrencyId;
-        expense.BaseCurrencyId = snapshot.BaseCurrencyId;
-        expense.ExchangeHistoryId = snapshot.ExchangeHistoryId;
-        expense.BaseUnitsPerUnitAtTransaction = snapshot.BaseUnitsPerUnit;
-        expense.Amount = request.Amount;
-        expense.AmountInBaseCurrency = amountInBase;
-        expense.Description = request.Description?.Trim();
-        expense.IsUpdated = true;
-        expense.UpdatedAt = DateTime.Now;
-        expense.UpdatedBy = ResolveCurrentUserId();
+        await using var tx = await Db.Database.BeginTransactionAsync(cancellationToken);
+        try
+        {
+            await ReverseExpenseJournalAsync(expense, userId, cancellationToken);
 
-        await Db.SaveChangesAsync(cancellationToken);
+            expense.Title = request.Title.Trim();
+            expense.ExpenseDate = expenseDate;
+            expense.ExpenseCategoryId = request.ExpenseCategoryId;
+            expense.SupplierId = request.SupplierId;
+            expense.CurrencyId = snapshot.CurrencyId;
+            expense.BaseCurrencyId = snapshot.BaseCurrencyId;
+            expense.ExchangeHistoryId = snapshot.ExchangeHistoryId;
+            expense.BaseUnitsPerUnitAtTransaction = snapshot.BaseUnitsPerUnit;
+            expense.Amount = request.Amount;
+            expense.AmountInBaseCurrency = amountInBase;
+            expense.Description = request.Description?.Trim();
+            expense.IsUpdated = true;
+            expense.UpdatedAt = DateTime.Now;
+            expense.UpdatedBy = userId;
+            await Db.SaveChangesAsync(cancellationToken);
 
-        return Ok(new { message = "مصرف با موفقیت ویرایش شد." });
+            var journal = await _gl.PostMiscExpenseAsync(expense, userId, cashBoxId, cancellationToken);
+            expense.JournalEntryId = journal.JournalEntryID;
+            await Db.SaveChangesAsync(cancellationToken);
+            await tx.CommitAsync(cancellationToken);
+
+            return Ok(new { message = "مصرف با موفقیت ویرایش شد.", journalEntryId = journal.JournalEntryID });
+        }
+        catch (InvalidOperationException ex)
+        {
+            await tx.RollbackAsync(cancellationToken);
+            return BadRequest(new { message = ex.Message });
+        }
     }
 
     [HttpDelete("{id:int}")]
@@ -259,14 +309,47 @@ public class ExpenseController : FinanceControllerBase
             return Conflict(new { message = "فقط مصارف متفرقه قابل حذف هستند." });
         }
 
-        expense.IsDeleted = true;
-        expense.IsActive = false;
-        expense.DeletedAt = DateTime.Now;
-        expense.DeletedBy = ResolveCurrentUserId();
+        var userId = ResolveCurrentUserId();
+        await using var tx = await Db.Database.BeginTransactionAsync(cancellationToken);
+        try
+        {
+            await ReverseExpenseJournalAsync(expense, userId, cancellationToken);
 
-        await Db.SaveChangesAsync(cancellationToken);
+            expense.IsDeleted = true;
+            expense.IsActive = false;
+            expense.DeletedAt = DateTime.Now;
+            expense.DeletedBy = userId;
+            expense.JournalEntryId = null;
+            await Db.SaveChangesAsync(cancellationToken);
+            await tx.CommitAsync(cancellationToken);
 
-        return Ok(new { message = "مصرف با موفقیت حذف شد." });
+            return Ok(new { message = "مصرف با موفقیت حذف شد." });
+        }
+        catch (InvalidOperationException ex)
+        {
+            await tx.RollbackAsync(cancellationToken);
+            return BadRequest(new { message = ex.Message });
+        }
+    }
+
+    private async Task ReverseExpenseJournalAsync(Expense expense, int? userId, CancellationToken cancellationToken)
+    {
+        if (expense.JournalEntryId is int jeId)
+        {
+            var exists = await Db.JournalEntries.AnyAsync(
+                e => e.JournalEntryID == jeId && e.IsDeleted != true, cancellationToken);
+            if (!exists)
+            {
+                throw new InvalidOperationException("سند حسابداری مرتبط با این مصرف یافت نشد.");
+            }
+
+            await _journal.ReverseEntryAsync(jeId, userId, null, cancellationToken);
+            expense.JournalEntryId = null;
+            return;
+        }
+
+        await _journal.ReverseBySourceAsync(JournalSource.Expense, expense.ExpenseID, userId, cancellationToken: cancellationToken);
+        expense.JournalEntryId = null;
     }
 
     private Task<bool> IsLinkedToInvoiceAsync(int expenseId, CancellationToken cancellationToken) =>

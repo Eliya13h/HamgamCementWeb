@@ -34,6 +34,12 @@ namespace HamgamCementWeb.Server.Data.Models.Transport
 
         public string? Description { get; set; }
 
+        // شناسه مصرف حسابداری مرتبط با هزینه تعمیر
+        public int? ExpenseId { get; set; }
+
+        // سند دفترروزنامه ثبت‌شده برای هزینه تعمیر
+        public int? JournalEntryId { get; set; }
+
         [ForeignKey(nameof(VehicleId))]
         public virtual Vehicle? Vehicle { get; set; }
     }

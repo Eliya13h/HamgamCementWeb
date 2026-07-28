@@ -3,6 +3,7 @@ using System.Globalization;
 using System.Runtime.Versioning;
 using HamgamCementWeb.Server.Data;
 using HamgamCementWeb.Server.Data.Models;
+using HamgamCementWeb.Server.Data.Models.Finance;
 using HamgamCementWeb.Server.Data.Models.Invoice;
 using Microsoft.EntityFrameworkCore;
 using Stimulsoft.Report;
@@ -25,6 +26,12 @@ public interface IJournalReportService
     Task<StiReport> BuildPurchaseJournalReportAsync(DateTime? dateFrom, DateTime? dateTo, CancellationToken cancellationToken = default);
 
     Task<StiReport> BuildSaleJournalReportAsync(DateTime? dateFrom, DateTime? dateTo, CancellationToken cancellationToken = default);
+
+    Task<StiReport> BuildOperationalJournalReportAsync(
+        JournalReportType type,
+        DateTime? dateFrom,
+        DateTime? dateTo,
+        CancellationToken cancellationToken = default);
 }
 
 public class JournalReportService : IJournalReportService
@@ -67,6 +74,47 @@ public class JournalReportService : IJournalReportService
             LoadSaleRowsAsync,
             GetSaleReturnDescription,
             cancellationToken);
+    }
+
+    public async Task<StiReport> BuildOperationalJournalReportAsync(
+        JournalReportType type,
+        DateTime? dateFrom,
+        DateTime? dateTo,
+        CancellationToken cancellationToken = default)
+    {
+        if (type is JournalReportType.Purchase or JournalReportType.Sale)
+        {
+            throw new InvalidOperationException("برای روزنامچه خرید/فروش از متد اختصاصی استفاده کنید.");
+        }
+
+        var rows = await LoadOperationalJournalRowsAsync(type, dateFrom, dateTo, cancellationToken);
+        var settings = await _db.GeneralSettings
+            .AsNoTracking()
+            .FirstOrDefaultAsync(s => s.Id == GeneralSettingsId, cancellationToken)
+            ?? new GeneralSettings();
+
+        var baseSymbol = await _db.Currencies
+            .AsNoTracking()
+            .Where(c => c.IsBaseCurrency && c.IsDeleted != true)
+            .Select(c => c.Symbol)
+            .FirstOrDefaultAsync(cancellationToken) ?? string.Empty;
+
+        var info = BuildInfo(settings, GetOperationalReportTitle(type), dateFrom, dateTo);
+        var products = rows
+            .Select((row, index) => new JournalReportProduct
+            {
+                InvoiceNumber = row.EntryNumber,
+                ProductName = row.Description,
+                ProductQTY = 0,
+                ProductPrice = string.Empty,
+                SubTotal = FormatMoney(row.AmountInBase, baseSymbol),
+                Description = JournalSourceLabels.Label(row.Source),
+                ShamsiDate = JalaliDateHelper.FormatDate(row.EntryDate),
+                RowNumber = index + 1,
+            })
+            .ToList();
+
+        return BuildReport(info, products);
     }
 
     private async Task<StiReport> BuildInvoiceJournalReportAsync(
@@ -214,6 +262,73 @@ public class JournalReportService : IJournalReportService
         return row.DocumentType == InvoiceDocumentType.SaleReturn ? "برگشت از فروش" : null;
     }
 
+    private async Task<List<OperationalJournalRow>> LoadOperationalJournalRowsAsync(
+        JournalReportType type,
+        DateTime? dateFrom,
+        DateTime? dateTo,
+        CancellationToken cancellationToken)
+    {
+        var query = _db.JournalEntries
+            .AsNoTracking()
+            .Where(e => e.IsDeleted != true && e.IsPosted);
+
+        query = ApplyOperationalSourceFilter(query, type);
+
+        if (dateFrom.HasValue)
+        {
+            query = query.Where(e => e.EntryDate >= dateFrom.Value.Date);
+        }
+
+        if (dateTo.HasValue)
+        {
+            var end = dateTo.Value.Date.AddDays(1).AddTicks(-1);
+            query = query.Where(e => e.EntryDate <= end);
+        }
+
+        return await query
+            .OrderBy(e => e.EntryDate)
+            .ThenBy(e => e.EntryNumber)
+            .ThenBy(e => e.JournalEntryID)
+            .Select(e => new OperationalJournalRow
+            {
+                EntryNumber = e.EntryNumber,
+                Description = e.Description,
+                EntryDate = e.EntryDate,
+                AmountInBase = e.TotalDebitInBaseCurrency,
+                Source = (int)e.Source,
+            })
+            .ToListAsync(cancellationToken);
+    }
+
+    private static IQueryable<JournalEntry> ApplyOperationalSourceFilter(
+        IQueryable<JournalEntry> query,
+        JournalReportType type)
+    {
+        return type switch
+        {
+            JournalReportType.Revenue => query.Where(e => e.Source == JournalSource.Revenue),
+            JournalReportType.Expense => query.Where(e => e.Source == JournalSource.Expense),
+            JournalReportType.Production => query.Where(e => e.Source == JournalSource.Production),
+            JournalReportType.General => query.Where(e =>
+                e.Source == JournalSource.Manual
+                || (e.Source != JournalSource.PurchaseInvoice
+                    && e.Source != JournalSource.SaleInvoice
+                    && e.Source != JournalSource.Expense
+                    && e.Source != JournalSource.Revenue
+                    && e.Source != JournalSource.Production)),
+            _ => throw new InvalidOperationException("نوع روزنامچه عملیاتی نامعتبر است."),
+        };
+    }
+
+    private static string GetOperationalReportTitle(JournalReportType type) => type switch
+    {
+        JournalReportType.Revenue => "روزنامچه عواید",
+        JournalReportType.Expense => "روزنامچه مصارف",
+        JournalReportType.Production => "روزنامچه تولید",
+        JournalReportType.General => "روزنامچه عمومی",
+        _ => "روزنامچه",
+    };
+
     private JournalReportInfo BuildInfo(GeneralSettings settings, string reportTitle, DateTime? dateFrom, DateTime? dateTo)
     {
         var zmLogoWebPath = string.IsNullOrWhiteSpace(settings.ZmLogoPath) ? DefaultZmLogoWebPath : settings.ZmLogoPath;
@@ -359,6 +474,15 @@ public class JournalReportService : IJournalReportService
     {
         var formatted = amount.ToString("#,##0.##", CultureInfo.InvariantCulture);
         return string.IsNullOrWhiteSpace(symbol) ? formatted : $"{formatted} {symbol}";
+    }
+
+    private sealed class OperationalJournalRow
+    {
+        public string EntryNumber { get; set; } = string.Empty;
+        public string Description { get; set; } = string.Empty;
+        public DateTime EntryDate { get; set; }
+        public decimal AmountInBase { get; set; }
+        public int Source { get; set; }
     }
 
     private sealed class JournalInvoiceItemRow

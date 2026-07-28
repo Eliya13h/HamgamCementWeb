@@ -265,7 +265,7 @@ public class ShareholderEquityController : ControllerBase
             _ => JournalSource.Manual,
         };
 
-        await _journal.SoftDeleteBySourceAsync(source, txn.ShareholderEquityTxnID, userId, cancellationToken);
+        await _journal.ReverseBySourceAsync(source, txn.ShareholderEquityTxnID, userId, cancellationToken: cancellationToken);
 
         txn.IsDeleted = true;
         txn.IsActive = false;

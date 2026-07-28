@@ -11,6 +11,7 @@ import { fetchBaseCurrency } from '../../services/currenciesApi'
 import {
   createSupplierInvoicesDataTableAjax,
   fetchSupplier,
+  postSupplierOpeningBalance,
 } from '../../services/suppliersApi'
 
 function statusBadgeClass(code) {
@@ -25,9 +26,13 @@ function SupplierDetailPage() {
   const supplierId = Number(id)
   const tableRef = useRef(null)
   const { canEdit } = usePageCrud('/transactions/purchase')
+  const { canEdit: canEditSupplier } = usePageCrud('/people/suppliers')
   const [supplier, setSupplier] = useState(null)
   const [loadError, setLoadError] = useState('')
   const [tableError, setTableError] = useState('')
+  const [actionError, setActionError] = useState('')
+  const [actionMessage, setActionMessage] = useState('')
+  const [postingOpening, setPostingOpening] = useState(false)
   const [invoiceTotals, setInvoiceTotals] = useState({ totalPurchase: 0, totalPayment: 0 })
   const [loading, setLoading] = useState(true)
   const [baseCurrencySymbol, setBaseCurrencySymbol] = useState('')
@@ -139,6 +144,21 @@ function SupplierDetailPage() {
     [supplierId, handleInvoiceLoaded, amountCurrencyRender],
   )
 
+  const handlePostOpeningBalance = async () => {
+    if (!supplierId) return
+    setActionError('')
+    setActionMessage('')
+    setPostingOpening(true)
+    try {
+      const result = await postSupplierOpeningBalance(supplierId)
+      setActionMessage(result?.message || 'مانده اولیه در دفتر ثبت شد.')
+    } catch (error) {
+      setActionError(error.message)
+    } finally {
+      setPostingOpening(false)
+    }
+  }
+
   const actionSlots = useMemo(
     () => ({
       7: (_data, _type, row) => (
@@ -218,12 +238,32 @@ function SupplierDetailPage() {
               <span className="badge badge-inactive">حذف‌شده</span>
             )}
           </div>
-          <span className={`badge ${statusBadgeClass(supplier.accountStatusCode)}`}>
-            {supplier.accountStatus}
-          </span>
+          <div className="d-flex align-items-center gap-2 flex-wrap">
+            {canEditSupplier && Number(supplier.initialBalance) !== 0 && (
+              <button
+                type="button"
+                className="btn btn-sm btn-outline-primary"
+                onClick={handlePostOpeningBalance}
+                disabled={postingOpening}
+              >
+                {postingOpening
+                  ? 'در حال ثبت...'
+                  : 'ثبت مانده اولیه در دفتر'}
+              </button>
+            )}
+            <span className={`badge ${statusBadgeClass(supplier.accountStatusCode)}`}>
+              {supplier.accountStatus}
+            </span>
+          </div>
         </div>
 
         <div className="card-body px-4 pb-4">
+          {actionError && (
+            <div className="alert alert-danger py-2">{actionError}</div>
+          )}
+          {actionMessage && (
+            <div className="alert alert-success py-2">{actionMessage}</div>
+          )}
           <div className="customer-detail-grid">
             <div className="customer-detail-item">
               <span className="customer-detail-label">تلفن</span>

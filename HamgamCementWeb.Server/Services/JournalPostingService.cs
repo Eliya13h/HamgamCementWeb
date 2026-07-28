@@ -13,7 +13,8 @@ public record JournalLineDraft(
     int CurrencyId,
     string? Description = null,
     int? CashBoxId = null,
-    int? PartyId = null);
+    int? PartyId = null,
+    int? CostCenterId = null);
 
 public interface IJournalPostingService
 {
@@ -31,6 +32,26 @@ public interface IJournalPostingService
         JournalSource source,
         int sourceId,
         int? userId,
+        CancellationToken cancellationToken = default);
+
+    // اسناد Posted را معکوس می‌کند؛ پیش‌نویس‌های ثبت‌نشده را soft-delete می‌کند
+    Task ReverseBySourceAsync(
+        JournalSource source,
+        int sourceId,
+        int? userId,
+        DateTime? reverseDate = null,
+        CancellationToken cancellationToken = default);
+
+    Task SoftDeleteEntryAsync(
+        int journalEntryId,
+        int? userId,
+        CancellationToken cancellationToken = default);
+
+    // معکوس سند Posted — خطوط مخالف، سند اصلی دست‌نخورده می‌ماند
+    Task<JournalEntry> ReverseEntryAsync(
+        int journalEntryId,
+        int? userId,
+        DateTime? reverseDate = null,
         CancellationToken cancellationToken = default);
 }
 
@@ -54,6 +75,7 @@ public class JournalPostingService : IJournalPostingService
         CancellationToken cancellationToken = default)
     {
         await EnsureFiscalYearOpenAsync(entryDate, source, cancellationToken);
+        await EnsureFiscalPeriodOpenAsync(entryDate, source, cancellationToken);
 
         if (lines is null || lines.Count == 0)
         {
@@ -136,6 +158,7 @@ public class JournalPostingService : IJournalPostingService
                 CreditInBaseCurrency = draft.CreditInBaseCurrency,
                 CashBoxId = draft.CashBoxId,
                 PartyId = draft.PartyId,
+                CostCenterId = draft.CostCenterId,
                 IsActive = true,
                 IsDeleted = false,
                 CreatedAt = now,
@@ -148,15 +171,25 @@ public class JournalPostingService : IJournalPostingService
         return entry;
     }
 
-    public async Task SoftDeleteBySourceAsync(
+    public Task SoftDeleteBySourceAsync(
         JournalSource source,
         int sourceId,
         int? userId,
+        CancellationToken cancellationToken = default) =>
+        // سازگاری قدیمی: اسناد Posted باید معکوس شوند نه پاک
+        ReverseBySourceAsync(source, sourceId, userId, null, cancellationToken);
+
+    public async Task ReverseBySourceAsync(
+        JournalSource source,
+        int sourceId,
+        int? userId,
+        DateTime? reverseDate = null,
         CancellationToken cancellationToken = default)
     {
         var entries = await _db.JournalEntries
             .Include(e => e.Lines)
             .Where(e => e.Source == source && e.SourceId == sourceId && e.IsDeleted != true)
+            .OrderBy(e => e.JournalEntryID)
             .ToListAsync(cancellationToken);
 
         if (entries.Count == 0)
@@ -165,23 +198,128 @@ public class JournalPostingService : IJournalPostingService
         }
 
         var now = DateTime.Now;
+        var draftIds = new List<int>();
+
         foreach (var entry in entries)
         {
-            entry.IsDeleted = true;
-            entry.IsActive = false;
-            entry.DeletedAt = now;
-            entry.DeletedBy = userId;
-
-            foreach (var line in entry.Lines)
+            if (!entry.IsPosted)
             {
-                line.IsDeleted = true;
-                line.IsActive = false;
-                line.DeletedAt = now;
-                line.DeletedBy = userId;
+                SoftDeleteEntryCore(entry, userId, now);
+                draftIds.Add(entry.JournalEntryID);
+                continue;
             }
+
+            var alreadyReversed = await _db.JournalEntries.AnyAsync(
+                e => e.Source == JournalSource.ManualReversal
+                     && e.SourceId == entry.JournalEntryID
+                     && e.IsDeleted != true,
+                cancellationToken);
+            if (alreadyReversed)
+            {
+                continue;
+            }
+
+            await ReverseEntryAsync(entry.JournalEntryID, userId, reverseDate, cancellationToken);
         }
 
+        if (draftIds.Count > 0)
+        {
+            await _db.SaveChangesAsync(cancellationToken);
+        }
+    }
+
+    public async Task SoftDeleteEntryAsync(
+        int journalEntryId,
+        int? userId,
+        CancellationToken cancellationToken = default)
+    {
+        var entry = await _db.JournalEntries
+            .Include(e => e.Lines)
+            .FirstOrDefaultAsync(e => e.JournalEntryID == journalEntryId && e.IsDeleted != true, cancellationToken)
+            ?? throw new InvalidOperationException("سند یافت نشد.");
+
+        if (entry.Source != JournalSource.Manual && entry.Source != JournalSource.ManualReversal)
+        {
+            throw new InvalidOperationException("فقط اسناد دستی از این مسیر قابل حذف هستند.");
+        }
+
+        // سند Posted با معکوس ابطال می‌شود — حذف مستقیم ممنوع
+        if (entry.IsPosted)
+        {
+            await ReverseEntryAsync(journalEntryId, userId, null, cancellationToken);
+            return;
+        }
+
+        SoftDeleteEntryCore(entry, userId, DateTime.Now);
         await _db.SaveChangesAsync(cancellationToken);
+    }
+
+    public async Task<JournalEntry> ReverseEntryAsync(
+        int journalEntryId,
+        int? userId,
+        DateTime? reverseDate = null,
+        CancellationToken cancellationToken = default)
+    {
+        var original = await _db.JournalEntries
+            .Include(e => e.Lines.Where(l => l.IsDeleted != true))
+            .FirstOrDefaultAsync(e => e.JournalEntryID == journalEntryId && e.IsDeleted != true, cancellationToken)
+            ?? throw new InvalidOperationException("سند یافت نشد.");
+
+        if (!original.IsPosted)
+        {
+            throw new InvalidOperationException("فقط سند ثبت‌شده قابل معکوس است.");
+        }
+
+        var alreadyReversed = await _db.JournalEntries.AnyAsync(
+            e => e.Source == JournalSource.ManualReversal
+                 && e.SourceId == original.JournalEntryID
+                 && e.IsDeleted != true,
+            cancellationToken);
+        if (alreadyReversed)
+        {
+            throw new InvalidOperationException("این سند قبلاً معکوس شده است.");
+        }
+
+        var drafts = original.Lines
+            .OrderBy(l => l.LineNo)
+            .Select(l => new JournalLineDraft(
+                l.AccountId,
+                l.Credit,
+                l.Debit,
+                l.CreditInBaseCurrency,
+                l.DebitInBaseCurrency,
+                l.CurrencyId,
+                string.IsNullOrWhiteSpace(l.Description) ? $"معکوس {original.EntryNumber}" : $"معکوس — {l.Description}",
+                l.CashBoxId,
+                l.PartyId,
+                l.CostCenterId))
+            .ToList();
+
+        return await PostAsync(
+            reverseDate ?? DateTime.Now,
+            $"معکوس سند {original.EntryNumber}",
+            JournalSource.ManualReversal,
+            original.JournalEntryID,
+            original.BaseCurrencyId,
+            drafts,
+            userId,
+            cancellationToken);
+    }
+
+    private static void SoftDeleteEntryCore(JournalEntry entry, int? userId, DateTime now)
+    {
+        entry.IsDeleted = true;
+        entry.IsActive = false;
+        entry.DeletedAt = now;
+        entry.DeletedBy = userId;
+
+        foreach (var line in entry.Lines)
+        {
+            line.IsDeleted = true;
+            line.IsActive = false;
+            line.DeletedAt = now;
+            line.DeletedBy = userId;
+        }
     }
 
     private async Task EnsureFiscalYearOpenAsync(
@@ -189,11 +327,7 @@ public class JournalPostingService : IJournalPostingService
         JournalSource source,
         CancellationToken cancellationToken)
     {
-        // اختتام، معکوس اختتام و تخصیص/معکوس سرمایه باید روی سال بسته هم قابل ثبت باشند
-        if (source is JournalSource.YearEndClosing
-            or JournalSource.YearEndReversal
-            or JournalSource.EquityYearAllocation
-            or JournalSource.EquityYearAllocationReversal)
+        if (IsClosingSource(source))
         {
             return;
         }
@@ -212,6 +346,40 @@ public class JournalPostingService : IJournalPostingService
                 $"سال مالی {solar} بسته است؛ ثبت سند با تاریخ داخل این سال مجاز نیست.");
         }
     }
+
+    private async Task EnsureFiscalPeriodOpenAsync(
+        DateTime entryDate,
+        JournalSource source,
+        CancellationToken cancellationToken)
+    {
+        if (IsClosingSource(source))
+        {
+            return;
+        }
+
+        var solarYear = JalaliDateHelper.GetSolarYear(entryDate);
+        var month = JalaliDateHelper.GetSolarMonth(entryDate);
+
+        var closed = await _db.FiscalPeriods.AnyAsync(
+            p => p.IsDeleted != true
+                 && p.SolarYear == solarYear
+                 && p.Month == month
+                 && p.Status == FiscalYearStatus.Closed,
+            cancellationToken);
+
+        if (closed)
+        {
+            throw new InvalidOperationException(
+                $"دوره مالی {solarYear}/{month:D2} بسته است؛ ثبت سند در این ماه مجاز نیست.");
+        }
+    }
+
+    private static bool IsClosingSource(JournalSource source) =>
+        source is JournalSource.YearEndClosing
+            or JournalSource.YearEndReversal
+            or JournalSource.EquityYearAllocation
+            or JournalSource.EquityYearAllocationReversal
+            or JournalSource.ManualReversal;
 
     private async Task<string> NextEntryNumberAsync(CancellationToken cancellationToken)
     {

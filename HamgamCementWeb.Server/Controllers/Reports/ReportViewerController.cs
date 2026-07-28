@@ -102,8 +102,6 @@ public class ReportViewerController : Controller
             {
                 return BadRequest("بازه تاریخ نامعتبر است.");
             }
-
-            return BadRequest("این نوع روزنامچه هنوز پیاده‌سازی نشده است.");
         }
 
         HttpContext.Session.Remove(PurchaseInvoiceSessionKey);
@@ -280,6 +278,8 @@ public class ReportViewerController : Controller
             {
                 JournalReportType.Purchase => await _journalReports.BuildPurchaseJournalReportAsync(dateFrom, dateTo, cancellationToken),
                 JournalReportType.Sale => await _journalReports.BuildSaleJournalReportAsync(dateFrom, dateTo, cancellationToken),
+                JournalReportType.Revenue or JournalReportType.Expense or JournalReportType.Production or JournalReportType.General
+                    => await _journalReports.BuildOperationalJournalReportAsync(journalType, dateFrom, dateTo, cancellationToken),
                 _ => throw new InvalidOperationException("این نوع روزنامچه هنوز پیاده‌سازی نشده است."),
             };
 

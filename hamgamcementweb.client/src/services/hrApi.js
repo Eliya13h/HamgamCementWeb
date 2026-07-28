@@ -86,3 +86,11 @@ export async function createSalaryPayment(payload) {
   })
   return parseResponse(response)
 }
+
+export async function deleteSalaryPayment(id) {
+  const response = await fetch(`${SALARY_BASE}/${id}`, {
+    method: 'DELETE',
+    credentials: 'include',
+  })
+  return parseResponse(response)
+}

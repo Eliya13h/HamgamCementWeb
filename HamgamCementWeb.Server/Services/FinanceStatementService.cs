@@ -5,8 +5,22 @@ namespace HamgamCementWeb.Server.Services;
 
 public interface IFinanceStatementService
 {
-    Task<object> GetProfitAndLossAsync(DateTime? dateFrom, DateTime? dateTo, CancellationToken cancellationToken = default);
-    Task<object> GetBalanceSheetAsync(DateTime? asOf, CancellationToken cancellationToken = default);
+    Task<object> GetProfitAndLossAsync(
+        DateTime? dateFrom,
+        DateTime? dateTo,
+        DateTime? compareFrom = null,
+        DateTime? compareTo = null,
+        CancellationToken cancellationToken = default);
+
+    Task<object> GetBalanceSheetAsync(
+        DateTime? asOf,
+        DateTime? compareAsOf = null,
+        CancellationToken cancellationToken = default);
+
+    Task<object> GetTrialBalanceAsync(DateTime? asOf, CancellationToken cancellationToken = default);
+    Task<object> GetArAgingAsync(DateTime? asOf, CancellationToken cancellationToken = default);
+    Task<object> GetApAgingAsync(DateTime? asOf, CancellationToken cancellationToken = default);
+    Task<object> GetCashFlowAsync(DateTime? dateFrom, DateTime? dateTo, CancellationToken cancellationToken = default);
 }
 
 public class FinanceStatementService : IFinanceStatementService
@@ -20,6 +34,23 @@ public class FinanceStatementService : IFinanceStatementService
 
     // صورت سود و زیان چندارزی — مبالغ هر ارز جدا + جمع معادل پایه
     public async Task<object> GetProfitAndLossAsync(
+        DateTime? dateFrom,
+        DateTime? dateTo,
+        DateTime? compareFrom = null,
+        DateTime? compareTo = null,
+        CancellationToken cancellationToken = default)
+    {
+        var current = await GetProfitAndLossCoreAsync(dateFrom, dateTo, cancellationToken);
+        if (!compareFrom.HasValue && !compareTo.HasValue)
+        {
+            return current;
+        }
+
+        var compare = await GetProfitAndLossCoreAsync(compareFrom, compareTo, cancellationToken);
+        return new { current, compare };
+    }
+
+    private async Task<object> GetProfitAndLossCoreAsync(
         DateTime? dateFrom,
         DateTime? dateTo,
         CancellationToken cancellationToken = default)
@@ -119,6 +150,21 @@ public class FinanceStatementService : IFinanceStatementService
 
     // ترازنامه چندارزی — هر حساب با مانده‌های ارزی + معادل پایه؛ تراز فقط روی پایه
     public async Task<object> GetBalanceSheetAsync(
+        DateTime? asOf,
+        DateTime? compareAsOf = null,
+        CancellationToken cancellationToken = default)
+    {
+        var current = await GetBalanceSheetCoreAsync(asOf, cancellationToken);
+        if (!compareAsOf.HasValue)
+        {
+            return current;
+        }
+
+        var compare = await GetBalanceSheetCoreAsync(compareAsOf, cancellationToken);
+        return new { current, compare };
+    }
+
+    private async Task<object> GetBalanceSheetCoreAsync(
         DateTime? asOf,
         CancellationToken cancellationToken = default)
     {
@@ -268,6 +314,359 @@ public class FinanceStatementService : IFinanceStatementService
             equity = equity.Select(MapAccountGroup).ToList(),
         };
     }
+
+    // تراز آزمایشی تا تاریخ — جمع بدهکار/بستانکار ارز پایه برای حساب‌های قابل‌ثبت
+    public async Task<object> GetTrialBalanceAsync(
+        DateTime? asOf,
+        CancellationToken cancellationToken = default)
+    {
+        var asOfDate = (asOf ?? DateTime.Today).Date;
+        var asOfEnd = asOfDate.AddDays(1).AddTicks(-1);
+
+        await using var connection = (System.Data.Common.DbConnection)await _sql.OpenAsync(cancellationToken);
+
+        var rows = (await connection.QueryAsync<TrialBalanceRow>(
+            """
+            SELECT a.AccountID AS AccountId,
+                   a.Code,
+                   a.Name,
+                   CAST(a.AccountType AS int) AS AccountType,
+                   CAST(a.Nature AS int) AS Nature,
+                   CAST(a.Level AS int) AS Level,
+                   ISNULL(SUM(jl.DebitInBaseCurrency), 0) AS DebitInBase,
+                   ISNULL(SUM(jl.CreditInBaseCurrency), 0) AS CreditInBase
+            FROM Accounts a
+            INNER JOIN JournalLines jl ON jl.AccountId = a.AccountID AND ISNULL(jl.IsDeleted, 0) = 0
+            INNER JOIN JournalEntries je ON je.JournalEntryID = jl.JournalEntryId
+            WHERE ISNULL(a.IsDeleted, 0) = 0
+              AND a.IsPostable = 1
+              AND ISNULL(je.IsDeleted, 0) = 0
+              AND je.IsPosted = 1
+              AND je.EntryDate <= @AsOfEnd
+            GROUP BY a.AccountID, a.Code, a.Name, a.AccountType, a.Nature, a.Level
+            HAVING ABS(ISNULL(SUM(jl.DebitInBaseCurrency), 0)) >= 0.01
+                OR ABS(ISNULL(SUM(jl.CreditInBaseCurrency), 0)) >= 0.01
+            ORDER BY a.Code
+            """,
+            new { AsOfEnd = asOfEnd })).AsList();
+
+        var lines = rows.Select(r =>
+        {
+            var net = r.DebitInBase - r.CreditInBase;
+            var debitBalance = net > 0.005m ? net : 0m;
+            var creditBalance = net < -0.005m ? -net : 0m;
+            return new
+            {
+                accountId = r.AccountId,
+                code = r.Code,
+                name = r.Name,
+                accountType = r.AccountType,
+                nature = r.Nature,
+                level = r.Level,
+                debitTotal = r.DebitInBase,
+                creditTotal = r.CreditInBase,
+                debitBalance,
+                creditBalance,
+            };
+        }).ToList();
+
+        var totalDebit = lines.Sum(x => x.debitTotal);
+        var totalCredit = lines.Sum(x => x.creditTotal);
+        var totalDebitBalance = lines.Sum(x => x.debitBalance);
+        var totalCreditBalance = lines.Sum(x => x.creditBalance);
+
+        return new
+        {
+            asOf = JalaliDateHelper.FormatDate(asOfDate),
+            asOfLabel = JalaliDateHelper.FormatDateWithMonthName(asOfDate),
+            totals = new
+            {
+                debitTotal = totalDebit,
+                creditTotal = totalCredit,
+                debitBalance = totalDebitBalance,
+                creditBalance = totalCreditBalance,
+                isBalanced = Math.Abs(totalDebit - totalCredit) < 0.01m
+                             && Math.Abs(totalDebitBalance - totalCreditBalance) < 0.01m,
+            },
+            lines,
+        };
+    }
+
+    // سررسید دریافتنی — فاکتورهای فروش باز تا تاریخ
+    public async Task<object> GetArAgingAsync(
+        DateTime? asOf,
+        CancellationToken cancellationToken = default)
+    {
+        var asOfDate = (asOf ?? DateTime.Today).Date;
+
+        await using var connection = (System.Data.Common.DbConnection)await _sql.OpenAsync(cancellationToken);
+
+        var rows = (await connection.QueryAsync<AgingInvoiceRow>(
+            """
+            SELECT i.SaleInvoiceID AS InvoiceId,
+                   i.InvoiceNumber,
+                   i.CustomerId AS PartyId,
+                   c.Name AS PartyName,
+                   i.InvoiceDate,
+                   ins.DueDate,
+                   ins.Amount - ins.PaidAmount AS OpenAmount,
+                   CASE WHEN i.TotalAmount > 0
+                        THEN (ins.Amount - ins.PaidAmount) * (i.TotalAmountInBaseCurrency / i.TotalAmount)
+                        ELSE 0 END AS OpenAmountInBase
+            FROM SaleInvoices i
+            INNER JOIN Customers c ON c.CustomerID = i.CustomerId AND ISNULL(c.IsDeleted, 0) = 0
+            INNER JOIN InvoiceInstallments ins ON ins.InvoiceId = i.SaleInvoiceID
+              AND ins.InvoiceKind = @SaleInstallmentKind AND ISNULL(ins.IsDeleted, 0) = 0
+            WHERE ISNULL(i.IsDeleted, 0) = 0
+              AND i.IsPosted = 1
+              AND i.DocumentType = @InvoiceDocType
+              AND i.InvoiceDate <= @AsOfDate
+              AND ins.Amount - ins.PaidAmount > 0.01
+
+            UNION ALL
+
+            SELECT i.SaleInvoiceID AS InvoiceId,
+                   i.InvoiceNumber,
+                   i.CustomerId AS PartyId,
+                   c.Name AS PartyName,
+                   i.InvoiceDate,
+                   ISNULL(i.DueDate, i.InvoiceDate) AS DueDate,
+                   i.TotalAmount - i.PaidAmount AS OpenAmount,
+                   i.TotalAmountInBaseCurrency
+                     - CASE WHEN i.TotalAmount > 0
+                            THEN i.PaidAmount * (i.TotalAmountInBaseCurrency / i.TotalAmount)
+                            ELSE 0 END AS OpenAmountInBase
+            FROM SaleInvoices i
+            INNER JOIN Customers c ON c.CustomerID = i.CustomerId AND ISNULL(c.IsDeleted, 0) = 0
+            WHERE ISNULL(i.IsDeleted, 0) = 0
+              AND i.IsPosted = 1
+              AND i.DocumentType = @InvoiceDocType
+              AND i.InvoiceDate <= @AsOfDate
+              AND i.TotalAmount - i.PaidAmount > 0.01
+              AND NOT EXISTS (
+                  SELECT 1 FROM InvoiceInstallments ins
+                  WHERE ins.InvoiceId = i.SaleInvoiceID
+                    AND ins.InvoiceKind = @SaleInstallmentKind
+                    AND ISNULL(ins.IsDeleted, 0) = 0)
+            ORDER BY InvoiceDate, InvoiceNumber
+            """,
+            new
+            {
+                AsOfDate = asOfDate.AddDays(1).AddTicks(-1),
+                InvoiceDocType = (int)InvoiceDocumentType.Invoice,
+                SaleInstallmentKind = (int)InvoiceInstallmentKind.Sale,
+            })).AsList();
+
+        return BuildAgingResult(asOfDate, rows);
+    }
+
+    // سررسید پرداختنی — فاکتورهای خرید باز تا تاریخ
+    public async Task<object> GetApAgingAsync(
+        DateTime? asOf,
+        CancellationToken cancellationToken = default)
+    {
+        var asOfDate = (asOf ?? DateTime.Today).Date;
+
+        await using var connection = (System.Data.Common.DbConnection)await _sql.OpenAsync(cancellationToken);
+
+        var rows = (await connection.QueryAsync<AgingInvoiceRow>(
+            """
+            SELECT i.PurchaseInvoiceID AS InvoiceId,
+                   i.InvoiceNumber,
+                   i.SupplierId AS PartyId,
+                   s.Name AS PartyName,
+                   i.InvoiceDate,
+                   ins.DueDate,
+                   ins.Amount - ins.PaidAmount AS OpenAmount,
+                   CASE WHEN i.TotalAmount > 0
+                        THEN (ins.Amount - ins.PaidAmount) * (i.TotalAmountInBaseCurrency / i.TotalAmount)
+                        ELSE 0 END AS OpenAmountInBase
+            FROM PurchaseInvoices i
+            INNER JOIN Suppliers s ON s.SupplierID = i.SupplierId AND ISNULL(s.IsDeleted, 0) = 0
+            INNER JOIN InvoiceInstallments ins ON ins.InvoiceId = i.PurchaseInvoiceID
+              AND ins.InvoiceKind = @PurchaseInstallmentKind AND ISNULL(ins.IsDeleted, 0) = 0
+            WHERE ISNULL(i.IsDeleted, 0) = 0
+              AND i.IsPosted = 1
+              AND i.DocumentType = @InvoiceDocType
+              AND i.InvoiceDate <= @AsOfDate
+              AND ins.Amount - ins.PaidAmount > 0.01
+
+            UNION ALL
+
+            SELECT i.PurchaseInvoiceID AS InvoiceId,
+                   i.InvoiceNumber,
+                   i.SupplierId AS PartyId,
+                   s.Name AS PartyName,
+                   i.InvoiceDate,
+                   ISNULL(i.DueDate, i.InvoiceDate) AS DueDate,
+                   i.TotalAmount - i.PaidAmount AS OpenAmount,
+                   i.TotalAmountInBaseCurrency
+                     - CASE WHEN i.TotalAmount > 0
+                            THEN i.PaidAmount * (i.TotalAmountInBaseCurrency / i.TotalAmount)
+                            ELSE 0 END AS OpenAmountInBase
+            FROM PurchaseInvoices i
+            INNER JOIN Suppliers s ON s.SupplierID = i.SupplierId AND ISNULL(s.IsDeleted, 0) = 0
+            WHERE ISNULL(i.IsDeleted, 0) = 0
+              AND i.IsPosted = 1
+              AND i.DocumentType = @InvoiceDocType
+              AND i.InvoiceDate <= @AsOfDate
+              AND i.TotalAmount - i.PaidAmount > 0.01
+              AND NOT EXISTS (
+                  SELECT 1 FROM InvoiceInstallments ins
+                  WHERE ins.InvoiceId = i.PurchaseInvoiceID
+                    AND ins.InvoiceKind = @PurchaseInstallmentKind
+                    AND ISNULL(ins.IsDeleted, 0) = 0)
+            ORDER BY InvoiceDate, InvoiceNumber
+            """,
+            new
+            {
+                AsOfDate = asOfDate.AddDays(1).AddTicks(-1),
+                InvoiceDocType = (int)InvoiceDocumentType.Invoice,
+                PurchaseInstallmentKind = (int)InvoiceInstallmentKind.Purchase,
+            })).AsList();
+
+        return BuildAgingResult(asOfDate, rows);
+    }
+
+    // صورت جریان وجوه نقد بر مبنای تغییر خالص حساب‌های نقد و بانک در اسناد ثبت‌شده
+    public async Task<object> GetCashFlowAsync(
+        DateTime? dateFrom,
+        DateTime? dateTo,
+        CancellationToken cancellationToken = default)
+    {
+        var today = DateTime.Today;
+        var (yearStart, _) = JalaliDateHelper.GetSolarYearRange(JalaliDateHelper.GetSolarYear(today));
+        var start = (dateFrom ?? yearStart).Date;
+        var end = (dateTo ?? today).Date.AddDays(1).AddTicks(-1);
+        if (start > end)
+        {
+            throw new InvalidOperationException("تاریخ شروع نباید بعد از تاریخ پایان باشد.");
+        }
+
+        await using var connection = (System.Data.Common.DbConnection)await _sql.OpenAsync(cancellationToken);
+        var rows = (await connection.QueryAsync<CashFlowRow>(
+            """
+            WITH CashAccountTree AS (
+                SELECT AccountID
+                FROM Accounts
+                WHERE SystemCode IN (@CashBoxesCode, @BanksCode)
+                  AND ISNULL(IsDeleted, 0) = 0
+                UNION ALL
+                SELECT child.AccountID
+                FROM Accounts child
+                INNER JOIN CashAccountTree parent ON child.ParentAccountId = parent.AccountID
+                WHERE ISNULL(child.IsDeleted, 0) = 0
+            )
+            SELECT je.Source,
+                   ISNULL(SUM(jl.DebitInBaseCurrency - jl.CreditInBaseCurrency), 0) AS NetChangeInBase
+            FROM JournalLines jl
+            INNER JOIN JournalEntries je ON je.JournalEntryID = jl.JournalEntryId
+            INNER JOIN Accounts a ON a.AccountID = jl.AccountId
+            WHERE ISNULL(jl.IsDeleted, 0) = 0
+              AND ISNULL(je.IsDeleted, 0) = 0
+              AND je.IsPosted = 1
+              AND je.EntryDate >= @RangeStart
+              AND je.EntryDate <= @RangeEnd
+              AND (jl.CashBoxId IS NOT NULL OR a.AccountID IN (SELECT AccountID FROM CashAccountTree))
+            GROUP BY je.Source
+            """,
+            new
+            {
+                RangeStart = start,
+                RangeEnd = end,
+                CashBoxesCode = AccountSystemCode.CashBoxes,
+                BanksCode = AccountSystemCode.Banks,
+            })).AsList();
+
+        decimal operating = 0, investing = 0, financing = 0;
+        foreach (var row in rows)
+        {
+            var source = (JournalSource)row.Source;
+            if (source is JournalSource.FixedAssetAcquire or JournalSource.FixedAssetDispose)
+            {
+                investing += row.NetChangeInBase;
+            }
+            else if (source is JournalSource.EquityCapitalContribution
+                or JournalSource.EquityCapitalWithdrawal
+                or JournalSource.EquityProfitDistribution
+                or JournalSource.EquityOpeningBalance
+                or JournalSource.EquityYearAllocation
+                or JournalSource.EquityYearAllocationReversal)
+            {
+                financing += row.NetChangeInBase;
+            }
+            else
+            {
+                operating += row.NetChangeInBase;
+            }
+        }
+
+        return new
+        {
+            from = JalaliDateHelper.FormatDate(start),
+            to = JalaliDateHelper.FormatDate(end.Date),
+            fromLabel = JalaliDateHelper.FormatDateWithMonthName(start),
+            toLabel = JalaliDateHelper.FormatDateWithMonthName(end.Date),
+            operating,
+            investing,
+            financing,
+            netChange = operating + investing + financing,
+            bySource = rows.Select(x => new
+            {
+                source = x.Source,
+                sourceLabel = JournalSourceLabels.Label(x.Source),
+                netChangeInBase = x.NetChangeInBase,
+            }).ToList(),
+        };
+    }
+
+    private static object BuildAgingResult(DateTime asOfDate, IReadOnlyList<AgingInvoiceRow> rows)
+    {
+        var lines = rows.Select(r =>
+        {
+            var days = Math.Max(0, (asOfDate - r.DueDate.Date).Days);
+            var bucket = GetAgingBucket(days);
+            return new
+            {
+                invoiceId = r.InvoiceId,
+                invoiceNumber = r.InvoiceNumber,
+                partyId = r.PartyId,
+                partyName = r.PartyName,
+                invoiceDate = JalaliDateHelper.FormatDate(r.InvoiceDate),
+                dueDate = JalaliDateHelper.FormatDate(r.DueDate),
+                daysOutstanding = days,
+                bucket,
+                openAmount = r.OpenAmount,
+                openAmountInBase = r.OpenAmountInBase,
+            };
+        }).ToList();
+
+        decimal SumBucket(string bucket) =>
+            lines.Where(x => x.bucket == bucket).Sum(x => x.openAmountInBase);
+
+        return new
+        {
+            asOf = JalaliDateHelper.FormatDate(asOfDate),
+            asOfLabel = JalaliDateHelper.FormatDateWithMonthName(asOfDate),
+            totals = new
+            {
+                current0To30 = SumBucket("0-30"),
+                days31To60 = SumBucket("31-60"),
+                days61To90 = SumBucket("61-90"),
+                over90 = SumBucket("90+"),
+                total = lines.Sum(x => x.openAmountInBase),
+            },
+            lines,
+        };
+    }
+
+    private static string GetAgingBucket(int daysOutstanding) => daysOutstanding switch
+    {
+        <= 30 => "0-30",
+        <= 60 => "31-60",
+        <= 90 => "61-90",
+        _ => "90+",
+    };
 
     private static List<AccountGroup> BuildAccountGroups(
         IEnumerable<CurrencyBalanceRow> rows,
@@ -552,6 +951,36 @@ public class FinanceStatementService : IFinanceStatementService
         public decimal Credit { get; set; }
         public decimal DebitInBase { get; set; }
         public decimal CreditInBase { get; set; }
+    }
+
+    private sealed class TrialBalanceRow
+    {
+        public int AccountId { get; set; }
+        public string Code { get; set; } = string.Empty;
+        public string Name { get; set; } = string.Empty;
+        public int AccountType { get; set; }
+        public int Nature { get; set; }
+        public int Level { get; set; }
+        public decimal DebitInBase { get; set; }
+        public decimal CreditInBase { get; set; }
+    }
+
+    private sealed class AgingInvoiceRow
+    {
+        public int InvoiceId { get; set; }
+        public string InvoiceNumber { get; set; } = string.Empty;
+        public int PartyId { get; set; }
+        public string PartyName { get; set; } = string.Empty;
+        public DateTime InvoiceDate { get; set; }
+        public DateTime DueDate { get; set; }
+        public decimal OpenAmount { get; set; }
+        public decimal OpenAmountInBase { get; set; }
+    }
+
+    private sealed class CashFlowRow
+    {
+        public int Source { get; set; }
+        public decimal NetChangeInBase { get; set; }
     }
 
     private sealed record CurrencyAmount(

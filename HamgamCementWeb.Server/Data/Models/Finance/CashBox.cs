@@ -21,6 +21,13 @@ public class CashBox : BaseEntity
     // حساب تفصیلی متصل به این صندوق زیر معین صندوق‌ها
     public int AccountId { get; set; }
 
+    // صندوق تنخواه — شارژ از والد تا سقف
+    public bool IsPettyCash { get; set; }
+
+    // سقف مانده تنخواه به ارز پایه
+    [Column(TypeName = "decimal(18,4)")]
+    public decimal CeilingAmountInBase { get; set; }
+
     [MaxLength(1000)]
     public string? Description { get; set; }
 

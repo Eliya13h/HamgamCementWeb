@@ -48,6 +48,29 @@ public class SaleInvoice : BaseEntity
     [Column(TypeName = "decimal(18,4)")]
     public decimal TotalAmountInBaseCurrency { get; set; }
 
+    // جمع اقلام بدون مالیات (ارز فاکتور)
+    [Column(TypeName = "decimal(18,4)")]
+    public decimal SubTotalAmount { get; set; }
+
+    [Column(TypeName = "decimal(18,4)")]
+    public decimal SubTotalAmountInBaseCurrency { get; set; }
+
+    // درصد مالیات پیش‌نویس
+    [Column(TypeName = "decimal(18,4)")]
+    public decimal TaxPercent { get; set; }
+
+    [Column(TypeName = "decimal(18,4)")]
+    public decimal TaxAmount { get; set; }
+
+    [Column(TypeName = "decimal(18,4)")]
+    public decimal TaxAmountInBaseCurrency { get; set; }
+
+    // مهلت پرداخت به روز (برای محاسبه سررسید)
+    public int PaymentTermDays { get; set; }
+
+    // تاریخ سررسید فاکتور نسیه
+    public DateTime? DueDate { get; set; }
+
     // مبلغ دریافت‌شده از مشتری (ارز فاکتور)
     [Column(TypeName = "decimal(18,4)")]
     public decimal PaidAmount { get; set; }

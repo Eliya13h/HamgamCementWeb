@@ -84,6 +84,7 @@ export const navItems = [
     children: [
       { path: '/inventory/warehouses', label: 'انبارها' },
       { path: '/inventory/stock', label: 'موجودی' },
+      { path: '/inventory/opening', label: 'موجودی اول دوره' },
       { path: '/inventory/turnover', label: 'گردش کالا' },
       { path: '/inventory/transfers', label: 'انتقال بین انبار' },
       { path: '/inventory/stocktaking', label: 'سابقه انبارگردانی' },
@@ -96,6 +97,11 @@ export const navItems = [
     children: [
       { path: '/accounting/accounts', label: 'کدینگ حساب‌ها' },
       { path: '/accounting/journal-entries', label: 'اسناد دفتر' },
+      { path: '/accounting/settlements', label: 'دریافت و پرداخت' },
+      { path: '/accounting/cost-centers', label: 'مراکز هزینه' },
+      { path: '/accounting/doubtful-provisions', label: 'ذخیره مطالبات مشکوک' },
+      { path: '/accounting/recurring-journals', label: 'اسناد تکرارشونده' },
+      { path: '/accounting/currency-exchange', label: 'خرید و فروش ارز' },
       { path: '/accounting/equity', label: 'حقوق صاحبان سهام' },
       { path: '/accounting/fixed-assets', label: 'دارایی‌های ثابت' },
       { path: '/accounting/revenues', label: 'عواید' },
@@ -110,6 +116,8 @@ export const navItems = [
           { path: '/accounting/fixed-asset-categories', label: 'دسته‌بندی دارایی ثابت' },
         ],
       },
+      // میانبر به بخش سال مالی در تنظیمات — در درخت نقش‌ها تکرار نشود
+      { path: '/settings#fiscal-years', label: 'سال مالی', skipPermissionTree: true },
     ],
   },
   {
@@ -118,7 +126,9 @@ export const navItems = [
     icon: 'currencies',
     children: [
       { path: '/cash/boxes', label: 'تعریف صندوق' },
+      { path: '/cash/banks', label: 'بانک‌ها' },
       { path: '/cash/shifts', label: 'شیفت و تحویل' },
+      { path: '/cash/petty-cash', label: 'شارژ تنخواه' },
     ],
   },
   {
@@ -156,7 +166,8 @@ export function isNavGroup(item) {
 }
 
 export function isChildActive(pathname, children) {
-  return children.some(
-    (child) => pathname === child.path || pathname.startsWith(`${child.path}/`),
-  )
+  return children.some((child) => {
+    const path = String(child.path ?? '').split('#')[0]
+    return pathname === path || pathname.startsWith(`${path}/`)
+  })
 }

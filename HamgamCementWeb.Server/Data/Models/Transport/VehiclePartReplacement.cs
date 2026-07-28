@@ -26,6 +26,12 @@ namespace HamgamCementWeb.Server.Data.Models.Transport
         [Column(TypeName = "decimal(18,4)")]
         public decimal TotalCost { get; set; }
 
+        // لینک به رکورد مصرف حسابداری دوطرفه
+        public int? ExpenseId { get; set; }
+
+        // لینک به سند دفترروزنامه
+        public int? JournalEntryId { get; set; }
+
         public DateTime ReplacementDate { get; set; }
 
         // کیلومتر شمار در زمان تعویض

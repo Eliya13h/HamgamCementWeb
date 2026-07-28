@@ -321,6 +321,44 @@ namespace HamgamCementWeb.Server.Data
         // معکوس تخصیص سرمایه هنگام بازگشایی سال
         [Display(Name = "معکوس تخصیص سرمایه")]
         EquityYearAllocationReversal = 21,
+
+        // مانده اولیه مشتری (حساب دریافتنی)
+        [Display(Name = "مانده اولیه مشتری")]
+        CustomerOpeningBalance = 22,
+
+        // مانده اولیه تأمین‌کننده (حساب پرداختنی)
+        [Display(Name = "مانده اولیه تأمین‌کننده")]
+        SupplierOpeningBalance = 23,
+
+        // دریافت از مشتری / پرداخت به تأمین‌کننده مستقل از فاکتور
+        [Display(Name = "دریافت/پرداخت")]
+        PartySettlement = 24,
+
+        // موجودی اول دوره انبار
+        [Display(Name = "موجودی اول دوره")]
+        InventoryOpening = 25,
+
+        // خرید / فروش (تبدیل) ارز بین صندوق و بانک
+        [Display(Name = "خرید/فروش ارز")]
+        CurrencyExchange = 26,
+
+        // معکوس سند دستی Posted
+        [Display(Name = "معکوس سند دستی")]
+        ManualReversal = 27,
+
+        // ذخیره مطالبات مشکوک
+        [Display(Name = "ذخیره مطالبات مشکوک")]
+        DoubtfulDebtProvision = 28,
+    }
+
+    // نوع قسط فاکتور
+    public enum InvoiceInstallmentKind
+    {
+        [Display(Name = "فروش")]
+        Sale = 1,
+
+        [Display(Name = "خرید")]
+        Purchase = 2,
     }
 
     // نوع سند عملیاتی حقوق صاحبان سهام
@@ -399,6 +437,16 @@ namespace HamgamCementWeb.Server.Data
 
         [Display(Name = "بسته")]
         Closed = 2,
+    }
+
+    // نوع طرف تسویه دریافت/پرداخت
+    public enum PartySettlementPartyType
+    {
+        [Display(Name = "مشتری")]
+        Customer = 1,
+
+        [Display(Name = "تأمین‌کننده")]
+        Supplier = 2,
     }
 
 }

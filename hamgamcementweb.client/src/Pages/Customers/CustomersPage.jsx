@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import AmountField from '../../components/common/AmountField'
 import Icon from '../../components/common/Icon'
-import { useModalKeyboardShortcuts } from '../../hooks/useModalKeyboardShortcuts'
+import { useModalKeyboardShortcuts, usePageCreateShortcut } from '../../hooks/useModalKeyboardShortcuts'
 import DataTable from '../../lib/dataTableSetup'
 import { createServerSideTableOptions } from '../../lib/dataTableOptions'
 import { makeAmountCurrencyRender, makeSignedBalanceRender } from '../../lib/currencyFormat'
@@ -182,6 +182,12 @@ function CustomersPage() {
   useModalKeyboardShortcuts({
     open: Boolean(deleteRow),
     onClose: closeModals,
+  })
+
+  usePageCreateShortcut({
+    enabled: canCreate,
+    onNew: openCreate,
+    isBlocked: showCreate || Boolean(editRow) || Boolean(deleteRow),
   })
 
   const handleCreateSubmit = async (event) => {
@@ -513,7 +519,7 @@ function CustomersPage() {
                     <label className="form-label">موجودی اولیه</label>
                     <AmountField
                       symbol={baseCurrencySymbol}
-                      step="any"
+                      step={100}
                       value={createForm.initialBalance}
                       onChange={(value) =>
                         setCreateForm((prev) => ({
@@ -655,7 +661,7 @@ function CustomersPage() {
                     <label className="form-label">موجودی اولیه</label>
                     <AmountField
                       symbol={baseCurrencySymbol}
-                      step="any"
+                      step={100}
                       value={editForm.initialBalance}
                       onChange={(value) =>
                         setEditForm((prev) => ({

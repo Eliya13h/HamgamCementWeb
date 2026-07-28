@@ -155,6 +155,8 @@ public static class CashSchemaSeeder
                 parentCashBoxId: null,
                 userIds: [userId.Value],
                 description: "صندوق پیش‌فرض سیستم",
+                isPettyCash: false,
+                ceilingAmountInBase: 0,
                 createdBy: userId.Value,
                 cancellationToken);
             return;

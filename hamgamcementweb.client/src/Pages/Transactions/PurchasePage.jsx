@@ -9,6 +9,7 @@ import { useModalKeyboardShortcuts } from '../../hooks/useModalKeyboardShortcuts
 import { todayGregorianIso } from '../../lib/afghanSolarCalendar'
 import DataTable from '../../lib/dataTableSetup'
 import { fetchBaseCurrency, fetchCurrencyRates } from '../../services/currenciesApi'
+import { fetchGeneralSettings } from '../../services/settingsApi'
 import { usePageCrud } from '../../permissions/usePageCrud'
 import { fetchWarehouseOptions } from '../../services/inventoryApi'
 import {
@@ -32,6 +33,7 @@ import {
     renderInvoiceDocumentTypeBadge,
     sumTotals,
 } from '../../services/transactionsApi'
+import { invoiceInstallmentsApi } from '../../services/ledgerApi'
 import InvoiceReturnModal from '../../components/transactions/InvoiceReturnModal'
 import InvoiceFreightFields, {
     emptyFreight,
@@ -51,6 +53,10 @@ const emptyHeader = {
     currencyId: '',
     description: '',
     paidAmount: '',
+    paymentTermDays: '',
+    dueDate: '',
+    taxPercent: '',
+    taxAmount: '',
     ...emptyFreight,
 }
 
@@ -99,6 +105,10 @@ function PurchasePage() {
     const [freightWeightTouched, setFreightWeightTouched] = useState(false)
     const [lookupsReady, setLookupsReady] = useState(false)
     const lookupsPromiseRef = useRef(null)
+    const [installments, setInstallments] = useState([])
+    const [installmentCount, setInstallmentCount] = useState('1')
+    const [installmentsLoading, setInstallmentsLoading] = useState(false)
+    const [defaultTaxPercent, setDefaultTaxPercent] = useState('')
 
     const currencySymbolById = useMemo(
         () => Object.fromEntries(currencies.map((c) => [String(c.value), c.symbol ?? ''])),
@@ -161,6 +171,12 @@ function PurchasePage() {
         return () => {
             cancelled = true
         }
+    }, [])
+
+    useEffect(() => {
+        fetchGeneralSettings()
+            .then((settings) => setDefaultTaxPercent(String(settings.defaultTaxPercent ?? '')))
+            .catch(() => setDefaultTaxPercent(''))
     }, [])
 
     const ensureLookups = useCallback(() => {
@@ -262,7 +278,20 @@ function PurchasePage() {
             ),
         [lines, rateSnapshot, exchangeRate, meaurments, baseCurrencyId, header.currencyId],
     )
-    const totals = useMemo(() => sumTotals(computedLines), [computedLines])
+    const lineTotals = useMemo(() => sumTotals(computedLines), [computedLines])
+    const taxAmount = useMemo(
+        () => Math.round(lineTotals.total * (Number(header.taxPercent) || 0)) / 100,
+        [lineTotals.total, header.taxPercent],
+    )
+    const totals = useMemo(
+        () => ({
+            total: lineTotals.total + taxAmount,
+            totalBase:
+                lineTotals.totalBase +
+                Math.round(lineTotals.totalBase * (Number(header.taxPercent) || 0)) / 100,
+        }),
+        [lineTotals, header.taxPercent, taxAmount],
+    )
 
     const autoFreightWeightTon = useMemo(
         () => freightWeightTonFromLines(computedLines),
@@ -343,6 +372,8 @@ function PurchasePage() {
         setReferenceInvoiceNumber('')
         setPastReturns([])
         setReturnSource(null)
+        setInstallments([])
+        setInstallmentCount('1')
     }, [])
 
     const openCreate = useCallback(async () => {
@@ -375,12 +406,13 @@ function PurchasePage() {
             ...emptyHeader,
             invoiceDate: todayGregorianIso(),
             currencyId: defaultCurrencyId,
+            taxPercent: defaultTaxPercent,
         })
         setLines([{ ...emptyLine }])
         setEditId(null)
         setViewPosted(false)
         setShowForm(true)
-    }, [baseCurrencyId, ensureLookups])
+    }, [baseCurrencyId, ensureLookups, defaultTaxPercent])
 
     const openEdit = useCallback(async (row, readOnly = false) => {
         setFormError('')
@@ -408,6 +440,10 @@ function PurchasePage() {
                 currencyId: invoice.currencyId,
                 description: invoice.description ?? '',
                 paidAmount: invoice.paidAmount ?? invoice.totalAmount ?? '',
+                paymentTermDays: invoice.paymentTermDays ?? '',
+                dueDate: invoice.dueDate ? String(invoice.dueDate).slice(0, 10) : '',
+                taxPercent: invoice.taxPercent ?? '',
+                taxAmount: invoice.taxAmount ?? '',
                 freightMode: String(invoice.freightMode ?? 0),
                 freightRatePerTon: invoice.freightRatePerTon || '',
                 freightWeightTon: invoice.freightWeightTon || '',
@@ -444,6 +480,10 @@ function PurchasePage() {
                 }),
             )
             setEditId(invoice.purchaseInvoiceId)
+            invoiceInstallmentsApi
+                .list(2, invoice.purchaseInvoiceId)
+                .then((items) => setInstallments(items ?? []))
+                .catch(() => setInstallments([]))
             setDocumentType(invoice.documentType ?? INVOICE_DOCUMENT_TYPE.Invoice)
             setReferenceInvoiceNumber(invoice.referenceInvoiceNumber ?? '')
             setViewPosted(readOnly || invoice.isPosted)
@@ -500,6 +540,33 @@ function PurchasePage() {
             setExchangeRateTouched(false)
         }
         handleHeaderChange('currencyId', newCurrencyId)
+    }
+
+    const setDueDateFromTerm = () => {
+        if (header.dueDate || !header.invoiceDate || Number(header.paymentTermDays) <= 0) return
+        const date = new Date(`${header.invoiceDate}T00:00:00`)
+        if (Number.isNaN(date.getTime())) return
+        date.setDate(date.getDate() + Number(header.paymentTermDays))
+        handleHeaderChange('dueDate', date.toISOString().slice(0, 10))
+    }
+
+    const generateInstallments = async () => {
+        if (!editId || Number(installmentCount) < 1) return
+        setInstallmentsLoading(true)
+        setFormError('')
+        try {
+            const items = await invoiceInstallmentsApi.generate({
+                kind: 2,
+                invoiceId: editId,
+                count: Number(installmentCount),
+                firstDueDate: header.dueDate || null,
+            })
+            setInstallments(items ?? [])
+        } catch (error) {
+            setFormError(error.message)
+        } finally {
+            setInstallmentsLoading(false)
+        }
     }
 
     const handleExchangeRateChange = (value) => {
@@ -656,7 +723,7 @@ function PurchasePage() {
 
         try {
             const payload = buildPurchasePayload(
-                { ...header, paidAmount: effectivePaidAmount },
+                { ...header, paidAmount: effectivePaidAmount, taxAmount },
                 lines,
                 exchangeRate,
             )
@@ -922,6 +989,50 @@ function PurchasePage() {
                                                 </div>
                                             </div>
                                         )}
+                                    {editId && documentType === INVOICE_DOCUMENT_TYPE.Invoice && (
+                                        <div className="mb-3">
+                                            <h6 className="mb-2">اقساط</h6>
+                                            {!viewPosted && (
+                                                <div className="d-flex align-items-end gap-2 mb-2">
+                                                    <div>
+                                                        <label className="form-label small mb-1">تعداد</label>
+                                                        <input
+                                                            type="number"
+                                                            min="1"
+                                                            className="form-control form-control-sm"
+                                                            value={installmentCount}
+                                                            onChange={(e) => setInstallmentCount(e.target.value)}
+                                                        />
+                                                    </div>
+                                                    <button
+                                                        type="button"
+                                                        className="btn btn-sm btn-outline-primary"
+                                                        disabled={installmentsLoading}
+                                                        onClick={generateInstallments}
+                                                    >
+                                                        {installmentsLoading ? 'در حال ایجاد...' : 'ایجاد اقساط'}
+                                                    </button>
+                                                </div>
+                                            )}
+                                            {installments.length > 0 ? (
+                                                <div className="table-responsive">
+                                                    <table className="table table-sm table-bordered mb-0">
+                                                        <thead><tr><th>شماره</th><th>سررسید</th><th>مبلغ</th><th>مانده</th></tr></thead>
+                                                        <tbody>
+                                                            {installments.map((item, index) => (
+                                                                <tr key={item.invoiceInstallmentId ?? index}>
+                                                                    <td>{item.installmentNo ?? index + 1}</td>
+                                                                    <td>{formatJalaliDate(item.dueDate)}</td>
+                                                                    <td><AmountDisplay value={item.amount} symbol={invoiceCurrencySymbol} /></td>
+                                                                    <td><AmountDisplay value={item.remaining} symbol={invoiceCurrencySymbol} /></td>
+                                                                </tr>
+                                                            ))}
+                                                        </tbody>
+                                                    </table>
+                                                </div>
+                                            ) : <small className="text-muted">قسطی ایجاد نشده است.</small>}
+                                        </div>
+                                    )}
 
                                     <div className="row g-3 mb-3">
                                         <div className="col-md-3">
@@ -980,6 +1091,26 @@ function PurchasePage() {
                                             </select>
                                         </div>
                                         <div className="col-md-3">
+                                            <label className="form-label">مهلت پرداخت (روز)</label>
+                                            <input
+                                                type="number"
+                                                min="0"
+                                                className="form-control"
+                                                value={header.paymentTermDays}
+                                                disabled={viewPosted}
+                                                onChange={(e) => handleHeaderChange('paymentTermDays', e.target.value)}
+                                                onBlur={setDueDateFromTerm}
+                                            />
+                                        </div>
+                                        <div className="col-md-3">
+                                            <label className="form-label">تاریخ سررسید (شمسی)</label>
+                                            <JalaliDateField
+                                                value={header.dueDate}
+                                                onChange={(next) => handleHeaderChange('dueDate', next)}
+                                                disabled={viewPosted}
+                                            />
+                                        </div>
+                                        <div className="col-md-3">
                                             <label className="form-label">وضعیت</label>
                                             <select
                                                 className="form-select"
@@ -1023,6 +1154,37 @@ function PurchasePage() {
                                                     }
                                                 />
                                             )}
+                                        </div>
+                                        <div className="col-md-3">
+                                            <label className="form-label">جمع اقلام</label>
+                                            <AmountField
+                                                value={lineTotals.total}
+                                                onChange={() => { }}
+                                                symbol={invoiceCurrencySymbol}
+                                                readOnly
+                                            />
+                                        </div>
+                                        <div className="col-md-3">
+                                            <label className="form-label">مالیات (%)</label>
+                                            <input
+                                                type="number"
+                                                min="0"
+                                                max="100"
+                                                step="any"
+                                                className="form-control"
+                                                value={header.taxPercent}
+                                                disabled={viewPosted}
+                                                onChange={(e) => handleHeaderChange('taxPercent', e.target.value)}
+                                            />
+                                        </div>
+                                        <div className="col-md-3">
+                                            <label className="form-label">مبلغ مالیات</label>
+                                            <AmountField
+                                                value={taxAmount}
+                                                onChange={() => { }}
+                                                symbol={invoiceCurrencySymbol}
+                                                readOnly
+                                            />
                                         </div>
                                         <div className="col-md-3">
                                             <label className="form-label">کل فاکتور</label>

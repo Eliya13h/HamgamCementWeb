@@ -168,6 +168,11 @@ public sealed class PurchaseInvoiceReadService : IPurchaseInvoiceReadService
                 pi.BaseUnitsPerUnitAtTransaction,
                 pi.TotalAmount,
                 pi.TotalAmountInBaseCurrency,
+                pi.SubTotalAmount,
+                pi.TaxPercent,
+                pi.TaxAmount,
+                pi.PaymentTermDays,
+                pi.DueDate,
                 pi.PaidAmount,
                 CASE WHEN pi.IsCash = 1 THEN CAST(1 AS bit) ELSE CAST(0 AS bit) END AS IsCash,
                 CAST(pi.DocumentType AS int) AS DocumentType,
@@ -326,6 +331,11 @@ public sealed class PurchaseInvoiceDetailRow
     public decimal BaseUnitsPerUnitAtTransaction { get; set; }
     public decimal TotalAmount { get; set; }
     public decimal TotalAmountInBaseCurrency { get; set; }
+    public decimal SubTotalAmount { get; set; }
+    public decimal TaxPercent { get; set; }
+    public decimal TaxAmount { get; set; }
+    public int PaymentTermDays { get; set; }
+    public DateTime? DueDate { get; set; }
     public decimal PaidAmount { get; set; }
     public bool IsCash { get; set; }
     public int DocumentType { get; set; }

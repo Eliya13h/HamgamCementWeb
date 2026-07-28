@@ -1,7 +1,9 @@
 using System.ComponentModel.DataAnnotations;
 using HamgamCementWeb.Server.Authorization;
 using HamgamCementWeb.Server.Data;
+using HamgamCementWeb.Server.Data.Models.Finance;
 using HamgamCementWeb.Server.Data.Models.Transport;
+using HamgamCementWeb.Server.Services;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
@@ -16,8 +18,22 @@ namespace HamgamCementWeb.Server.Controllers.Transport;
 [Authorize]
 public class VehicleCareController : TransportControllerBase
 {
-    public VehicleCareController(AppDbContext db) : base(db)
+    private readonly IOperationalGlService _gl;
+    private readonly IFinanceCategoryService _financeCategories;
+    private readonly IJournalPostingService _journal;
+    private readonly ICashBoxService _cashBoxes;
+
+    public VehicleCareController(
+        AppDbContext db,
+        IOperationalGlService gl,
+        IFinanceCategoryService financeCategories,
+        IJournalPostingService journal,
+        ICashBoxService cashBoxes) : base(db)
     {
+        _gl = gl;
+        _financeCategories = financeCategories;
+        _journal = journal;
+        _cashBoxes = cashBoxes;
     }
 
     // ---------- تعمیرات و نگهداری ----------
@@ -73,6 +89,7 @@ public class VehicleCareController : TransportControllerBase
                 workshopName = m.WorkshopName,
                 nextServiceDate = m.NextServiceDate,
                 description = m.Description,
+                journalEntryId = m.JournalEntryId,
             })
             .ToListAsync(cancellationToken);
 
@@ -109,7 +126,8 @@ public class VehicleCareController : TransportControllerBase
             return ValidationProblem(ModelState);
         }
 
-        Db.VehicleMaintenances.Add(new VehicleMaintenance
+        var userId = ResolveCurrentUserId();
+        var maintenance = new VehicleMaintenance
         {
             VehicleId = request.VehicleId,
             Title = request.Title.Trim(),
@@ -122,12 +140,30 @@ public class VehicleCareController : TransportControllerBase
             IsActive = true,
             IsDeleted = false,
             CreatedAt = DateTime.Now,
-            CreatedBy = ResolveCurrentUserId(),
-        });
+            CreatedBy = userId,
+        };
 
+        Db.VehicleMaintenances.Add(maintenance);
         await Db.SaveChangesAsync(cancellationToken);
 
-        return Ok(new { message = "تعمیر/سرویس با موفقیت ثبت شد." });
+        if (maintenance.Cost > 0)
+        {
+            try
+            {
+                await PostMaintenanceExpenseAsync(maintenance, userId, cancellationToken);
+            }
+            catch (InvalidOperationException ex)
+            {
+                return BadRequest(new { message = ex.Message });
+            }
+        }
+
+        return Ok(new
+        {
+            message = "تعمیر/سرویس با موفقیت ثبت شد.",
+            vehicleMaintenanceId = maintenance.VehicleMaintenanceID,
+            journalEntryId = maintenance.JournalEntryId,
+        });
     }
 
     [HttpPut("maintenances/{id:int}")]
@@ -149,6 +185,9 @@ public class VehicleCareController : TransportControllerBase
             return NotFound(new { message = "رکورد تعمیر یافت نشد." });
         }
 
+        var userId = ResolveCurrentUserId();
+        var previousCost = entity.Cost;
+
         entity.VehicleId = request.VehicleId;
         entity.Title = request.Title.Trim();
         entity.MaintenanceDate = request.MaintenanceDate;
@@ -159,11 +198,32 @@ public class VehicleCareController : TransportControllerBase
         entity.Description = request.Description?.Trim();
         entity.IsUpdated = true;
         entity.UpdatedAt = DateTime.Now;
-        entity.UpdatedBy = ResolveCurrentUserId();
+        entity.UpdatedBy = userId;
+
+        if (previousCost > 0 && entity.ExpenseId is not null)
+        {
+            await ReverseMaintenanceExpenseAsync(entity, userId, cancellationToken);
+        }
+
+        if (entity.Cost > 0)
+        {
+            try
+            {
+                await PostMaintenanceExpenseAsync(entity, userId, cancellationToken);
+            }
+            catch (InvalidOperationException ex)
+            {
+                return BadRequest(new { message = ex.Message });
+            }
+        }
 
         await Db.SaveChangesAsync(cancellationToken);
 
-        return Ok(new { message = "تعمیر/سرویس با موفقیت ویرایش شد." });
+        return Ok(new
+        {
+            message = "تعمیر/سرویس با موفقیت ویرایش شد.",
+            journalEntryId = entity.JournalEntryId,
+        });
     }
 
     [HttpDelete("maintenances/{id:int}")]
@@ -177,10 +237,112 @@ public class VehicleCareController : TransportControllerBase
             return NotFound(new { message = "رکورد تعمیر یافت نشد." });
         }
 
+        var userId = ResolveCurrentUserId();
+        if (entity.ExpenseId is not null)
+        {
+            await ReverseMaintenanceExpenseAsync(entity, userId, cancellationToken);
+        }
+
         SoftDelete(entity);
         await Db.SaveChangesAsync(cancellationToken);
 
         return Ok(new { message = "رکورد تعمیر با موفقیت حذف شد." });
+    }
+
+    private async Task PostMaintenanceExpenseAsync(
+        VehicleMaintenance maintenance,
+        int? userId,
+        CancellationToken cancellationToken)
+    {
+        var categoryId = await _financeCategories.GetExpenseCategoryIdAsync(
+            FinanceCategoryCode.TransportExpense,
+            cancellationToken);
+        var baseCurrencyId = await ResolveBaseCurrencyIdAsync(cancellationToken);
+
+        var vehicleLabel = await Db.Vehicles
+            .AsNoTracking()
+            .Where(v => v.VehicleID == maintenance.VehicleId)
+            .Select(v => v.Code + " — " + v.PlateNumber)
+            .FirstOrDefaultAsync(cancellationToken) ?? string.Empty;
+
+        var title = string.IsNullOrWhiteSpace(vehicleLabel)
+            ? $"تعمیر وسیله — {maintenance.Title}"
+            : $"تعمیر {vehicleLabel} — {maintenance.Title}";
+
+        var expense = new Expense
+        {
+            Title = title,
+            ExpenseDate = maintenance.MaintenanceDate,
+            ExpenseCategoryId = categoryId,
+            Source = FinancialEntrySource.TransportExpense,
+            CurrencyId = baseCurrencyId,
+            BaseCurrencyId = baseCurrencyId,
+            BaseUnitsPerUnitAtTransaction = 1m,
+            Amount = maintenance.Cost,
+            AmountInBaseCurrency = maintenance.Cost,
+            Description = maintenance.Description,
+            IsActive = true,
+            IsDeleted = false,
+            CreatedAt = DateTime.Now,
+            CreatedBy = userId,
+        };
+
+        Db.Expenses.Add(expense);
+        await Db.SaveChangesAsync(cancellationToken);
+
+        var cashBoxId = await _cashBoxes.ResolveUserCashBoxIdAsync(userId, cancellationToken)
+            ?? throw new InvalidOperationException("برای ثبت هزینه تعمیر، صندوق کاربر الزامی است.");
+
+        var journal = await _gl.PostMiscExpenseAsync(expense, userId, cashBoxId, cancellationToken);
+        expense.JournalEntryId = journal.JournalEntryID;
+        maintenance.ExpenseId = expense.ExpenseID;
+        maintenance.JournalEntryId = journal.JournalEntryID;
+        await Db.SaveChangesAsync(cancellationToken);
+    }
+
+    private async Task ReverseMaintenanceExpenseAsync(
+        VehicleMaintenance maintenance,
+        int? userId,
+        CancellationToken cancellationToken)
+    {
+        if (maintenance.ExpenseId is not int expenseId)
+        {
+            return;
+        }
+
+        await _journal.ReverseBySourceAsync(JournalSource.Expense, expenseId, userId, cancellationToken: cancellationToken);
+
+        var expense = await Db.Expenses
+            .FirstOrDefaultAsync(e => e.ExpenseID == expenseId && e.IsDeleted != true, cancellationToken);
+        if (expense is not null)
+        {
+            expense.IsDeleted = true;
+            expense.IsActive = false;
+            expense.DeletedAt = DateTime.Now;
+            expense.DeletedBy = userId;
+        }
+
+        maintenance.ExpenseId = null;
+        maintenance.JournalEntryId = null;
+    }
+
+    private async Task<int> ResolveBaseCurrencyIdAsync(CancellationToken cancellationToken)
+    {
+        var baseId = await Db.Currencies
+            .Where(c => c.IsBaseCurrency && c.IsDeleted != true)
+            .Select(c => c.CurrencyID)
+            .FirstOrDefaultAsync(cancellationToken);
+
+        if (baseId != 0)
+        {
+            return baseId;
+        }
+
+        return await Db.Currencies
+            .Where(c => c.IsDeleted != true)
+            .OrderBy(c => c.CurrencyID)
+            .Select(c => c.CurrencyID)
+            .FirstAsync(cancellationToken);
     }
 
     // ---------- تعویض قطعات و لوازم مصرفی ----------
@@ -271,25 +433,44 @@ public class VehicleCareController : TransportControllerBase
             return ValidationProblem(ModelState);
         }
 
-        Db.VehiclePartReplacements.Add(new VehiclePartReplacement
+        var userId = ResolveCurrentUserId();
+        var totalCost = request.Quantity * request.UnitCost;
+
+        await using var tx = await Db.Database.BeginTransactionAsync(cancellationToken);
+        try
         {
-            VehicleId = request.VehicleId,
-            PartName = request.PartName.Trim(),
-            Quantity = request.Quantity,
-            UnitCost = request.UnitCost,
-            TotalCost = request.Quantity * request.UnitCost,
-            ReplacementDate = request.ReplacementDate,
-            OdometerKm = request.OdometerKm,
-            Description = request.Description?.Trim(),
-            IsActive = true,
-            IsDeleted = false,
-            CreatedAt = DateTime.Now,
-            CreatedBy = ResolveCurrentUserId(),
-        });
+            var entity = new VehiclePartReplacement
+            {
+                VehicleId = request.VehicleId,
+                PartName = request.PartName.Trim(),
+                Quantity = request.Quantity,
+                UnitCost = request.UnitCost,
+                TotalCost = totalCost,
+                ReplacementDate = request.ReplacementDate,
+                OdometerKm = request.OdometerKm,
+                Description = request.Description?.Trim(),
+                IsActive = true,
+                IsDeleted = false,
+                CreatedAt = DateTime.Now,
+                CreatedBy = userId,
+            };
 
-        await Db.SaveChangesAsync(cancellationToken);
+            Db.VehiclePartReplacements.Add(entity);
+            await Db.SaveChangesAsync(cancellationToken);
 
-        return Ok(new { message = "تعویض قطعه با موفقیت ثبت شد." });
+            if (totalCost > 0)
+            {
+                await PostPartExpenseAsync(entity, userId, cancellationToken);
+            }
+
+            await tx.CommitAsync(cancellationToken);
+            return Ok(new { message = "تعویض قطعه با موفقیت ثبت شد." });
+        }
+        catch (InvalidOperationException ex)
+        {
+            await tx.RollbackAsync(cancellationToken);
+            return BadRequest(new { message = ex.Message });
+        }
     }
 
     [HttpPut("parts/{id:int}")]
@@ -311,21 +492,40 @@ public class VehicleCareController : TransportControllerBase
             return NotFound(new { message = "رکورد قطعه یافت نشد." });
         }
 
-        entity.VehicleId = request.VehicleId;
-        entity.PartName = request.PartName.Trim();
-        entity.Quantity = request.Quantity;
-        entity.UnitCost = request.UnitCost;
-        entity.TotalCost = request.Quantity * request.UnitCost;
-        entity.ReplacementDate = request.ReplacementDate;
-        entity.OdometerKm = request.OdometerKm;
-        entity.Description = request.Description?.Trim();
-        entity.IsUpdated = true;
-        entity.UpdatedAt = DateTime.Now;
-        entity.UpdatedBy = ResolveCurrentUserId();
+        var userId = ResolveCurrentUserId();
+        var totalCost = request.Quantity * request.UnitCost;
 
-        await Db.SaveChangesAsync(cancellationToken);
+        await using var tx = await Db.Database.BeginTransactionAsync(cancellationToken);
+        try
+        {
+            await ReversePartExpenseAsync(entity, userId, cancellationToken);
 
-        return Ok(new { message = "تعویض قطعه با موفقیت ویرایش شد." });
+            entity.VehicleId = request.VehicleId;
+            entity.PartName = request.PartName.Trim();
+            entity.Quantity = request.Quantity;
+            entity.UnitCost = request.UnitCost;
+            entity.TotalCost = totalCost;
+            entity.ReplacementDate = request.ReplacementDate;
+            entity.OdometerKm = request.OdometerKm;
+            entity.Description = request.Description?.Trim();
+            entity.IsUpdated = true;
+            entity.UpdatedAt = DateTime.Now;
+            entity.UpdatedBy = userId;
+            await Db.SaveChangesAsync(cancellationToken);
+
+            if (totalCost > 0)
+            {
+                await PostPartExpenseAsync(entity, userId, cancellationToken);
+            }
+
+            await tx.CommitAsync(cancellationToken);
+            return Ok(new { message = "تعویض قطعه با موفقیت ویرایش شد." });
+        }
+        catch (InvalidOperationException ex)
+        {
+            await tx.RollbackAsync(cancellationToken);
+            return BadRequest(new { message = ex.Message });
+        }
     }
 
     [HttpDelete("parts/{id:int}")]
@@ -339,10 +539,98 @@ public class VehicleCareController : TransportControllerBase
             return NotFound(new { message = "رکورد قطعه یافت نشد." });
         }
 
-        SoftDelete(entity);
+        var userId = ResolveCurrentUserId();
+        await using var tx = await Db.Database.BeginTransactionAsync(cancellationToken);
+        try
+        {
+            await ReversePartExpenseAsync(entity, userId, cancellationToken);
+            SoftDelete(entity);
+            await Db.SaveChangesAsync(cancellationToken);
+            await tx.CommitAsync(cancellationToken);
+            return Ok(new { message = "رکورد قطعه با موفقیت حذف شد." });
+        }
+        catch (InvalidOperationException ex)
+        {
+            await tx.RollbackAsync(cancellationToken);
+            return BadRequest(new { message = ex.Message });
+        }
+    }
+
+    private async Task PostPartExpenseAsync(
+        VehiclePartReplacement part,
+        int? userId,
+        CancellationToken cancellationToken)
+    {
+        var categoryId = await _financeCategories.GetExpenseCategoryIdAsync(
+            FinanceCategoryCode.TransportExpense,
+            cancellationToken);
+        var baseCurrencyId = await ResolveBaseCurrencyIdAsync(cancellationToken);
+        var cashBoxId = await _cashBoxes.ResolveUserCashBoxIdAsync(userId, cancellationToken)
+            ?? throw new InvalidOperationException("برای ثبت هزینه تعویض قطعه، صندوق کاربر الزامی است.");
+
+        var vehicleLabel = await Db.Vehicles
+            .AsNoTracking()
+            .Where(v => v.VehicleID == part.VehicleId)
+            .Select(v => v.Code + " — " + v.PlateNumber)
+            .FirstOrDefaultAsync(cancellationToken) ?? string.Empty;
+
+        var title = string.IsNullOrWhiteSpace(vehicleLabel)
+            ? $"تعویض قطعه — {part.PartName}"
+            : $"تعویض قطعه {vehicleLabel} — {part.PartName}";
+
+        var expense = new Expense
+        {
+            Title = title,
+            ExpenseDate = part.ReplacementDate,
+            ExpenseCategoryId = categoryId,
+            Source = FinancialEntrySource.TransportExpense,
+            CurrencyId = baseCurrencyId,
+            BaseCurrencyId = baseCurrencyId,
+            BaseUnitsPerUnitAtTransaction = 1m,
+            Amount = part.TotalCost,
+            AmountInBaseCurrency = part.TotalCost,
+            Description = part.Description,
+            IsActive = true,
+            IsDeleted = false,
+            CreatedAt = DateTime.Now,
+            CreatedBy = userId,
+        };
+
+        Db.Expenses.Add(expense);
         await Db.SaveChangesAsync(cancellationToken);
 
-        return Ok(new { message = "رکورد قطعه با موفقیت حذف شد." });
+        var journal = await _gl.PostMiscExpenseAsync(expense, userId, cashBoxId, cancellationToken);
+        expense.JournalEntryId = journal.JournalEntryID;
+        part.ExpenseId = expense.ExpenseID;
+        part.JournalEntryId = journal.JournalEntryID;
+        await Db.SaveChangesAsync(cancellationToken);
+    }
+
+    private async Task ReversePartExpenseAsync(
+        VehiclePartReplacement part,
+        int? userId,
+        CancellationToken cancellationToken)
+    {
+        if (part.ExpenseId is not int expenseId)
+        {
+            return;
+        }
+
+        await _journal.ReverseBySourceAsync(JournalSource.Expense, expenseId, userId, cancellationToken: cancellationToken);
+
+        var expense = await Db.Expenses
+            .FirstOrDefaultAsync(e => e.ExpenseID == expenseId && e.IsDeleted != true, cancellationToken);
+        if (expense is not null)
+        {
+            expense.IsDeleted = true;
+            expense.IsActive = false;
+            expense.DeletedAt = DateTime.Now;
+            expense.DeletedBy = userId;
+            expense.JournalEntryId = null;
+        }
+
+        part.ExpenseId = null;
+        part.JournalEntryId = null;
     }
 
     private void SoftDelete(Data.Models.BaseEntity entity)

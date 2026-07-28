@@ -11,6 +11,7 @@ public interface IAccountLookupService
     Task<Account> EnsureCustomerAccountAsync(int customerId, string customerName, CancellationToken cancellationToken = default);
     Task<Account> EnsureSupplierAccountAsync(int supplierId, string supplierName, CancellationToken cancellationToken = default);
     Task<Account> EnsureCashBoxAccountAsync(string cashBoxCode, string cashBoxName, CancellationToken cancellationToken = default);
+    Task<Account> EnsureBankAccountAsync(string code, string name, CancellationToken cancellationToken = default);
     Task<Account> EnsureShareholderAccountAsync(int shareholderId, string shareholderName, CancellationToken cancellationToken = default);
     Task<int> ResolveInventoryAccountIdAsync(WarehouseType warehouseType, CancellationToken cancellationToken = default);
     Task<Account> ResolveRetainedEarningsPostableAsync(CancellationToken cancellationToken = default);
@@ -124,6 +125,49 @@ public class AccountLookupService : IAccountLookupService
         {
             Code = code,
             Name = cashBoxName,
+            Level = AccountLevel.Tafsili,
+            ParentAccountId = parent.AccountID,
+            AccountType = AccountType.Asset,
+            Nature = AccountNature.Debit,
+            IsPostable = true,
+            IsSystem = true,
+            SystemCode = systemCode,
+            IsActive = true,
+            IsDeleted = false,
+            CreatedAt = DateTime.Now,
+        };
+        _db.Accounts.Add(account);
+        await _db.SaveChangesAsync(cancellationToken);
+        return account;
+    }
+
+    public async Task<Account> EnsureBankAccountAsync(
+        string code,
+        string name,
+        CancellationToken cancellationToken = default)
+    {
+        // تفصیلی بانک زیر معین 112 — الگوی ثابت 112-XXXXX
+        var seq = int.TryParse(code, out var n) ? n : 0;
+        var glCode = seq > 0 ? $"112-{seq:D5}" : $"112-{code.Trim()}";
+        var systemCode = seq > 0 ? $"BANK_{seq:D5}" : $"BANK_{code.Trim()}";
+
+        var existing = await _db.Accounts
+            .FirstOrDefaultAsync(a => a.Code == glCode && a.IsDeleted != true, cancellationToken);
+        if (existing is not null)
+        {
+            return existing;
+        }
+
+        var parent = await GetBySystemCodeAsync(AccountSystemCode.Banks, cancellationToken);
+        if (parent.IsPostable)
+        {
+            parent.IsPostable = false;
+        }
+
+        var account = new Account
+        {
+            Code = glCode,
+            Name = name,
             Level = AccountLevel.Tafsili,
             ParentAccountId = parent.AccountID,
             AccountType = AccountType.Asset,

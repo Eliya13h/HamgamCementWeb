@@ -399,15 +399,41 @@
   font-size: 0.875rem;
 }
 
-.amount-field .amount-field-input[type='number'] {
-  -moz-appearance: auto;
-  appearance: auto;
+.amount-field .amount-field-spinners {
+  display: flex;
+  flex-direction: column;
+  flex-shrink: 0;
+  align-self: stretch;
+  width: 1.35rem;
+  border-inline-start: 1px solid var(--bs-border-color);
 }
 
-.amount-field .amount-field-input[type='number']::-webkit-inner-spin-button,
-.amount-field .amount-field-input[type='number']::-webkit-outer-spin-button {
-  opacity: 1;
-  height: auto;
+.amount-field .amount-field-spinner-btn {
+  flex: 1 1 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--bs-secondary-color);
+  font-size: 0.55rem;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.amount-field .amount-field-spinner-btn:hover {
+  background: var(--hc-bg-hover, rgba(255, 255, 255, 0.06));
+  color: var(--bs-body-color);
+}
+
+.amount-field .amount-field-spinner-btn:active {
+  background: var(--hc-bg-elevated, rgba(255, 255, 255, 0.1));
+}
+
+.amount-field .amount-field-spinner-btn + .amount-field-spinner-btn {
+  border-top: 1px solid var(--bs-border-color);
 }
 
 .users-table-wrapper .dt-search input {

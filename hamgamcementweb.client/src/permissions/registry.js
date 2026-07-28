@@ -5,7 +5,9 @@ import { PAGE_EXTRA_ACTIONS } from './pageActions'
 /** تبدیل مسیر به کلید صفحه: /people/customers → people.customers */
 export function pathToPageKey(path) {
   if (!path || path === '/') return 'dashboard'
-  return path.replace(/^\//, '').replace(/\//g, '.')
+  const clean = String(path).split('#')[0]
+  if (!clean || clean === '/') return 'dashboard'
+  return clean.replace(/^\//, '').replace(/\//g, '.')
 }
 
 function buildPageNode(path, label) {
@@ -25,6 +27,9 @@ function buildPageNode(path, label) {
 }
 
 function buildNavPageNodes(child) {
+  if (child.skipPermissionTree) {
+    return []
+  }
   if (child.permissionPages?.length) {
     return child.permissionPages.map((page) => buildPageNode(page.path, page.label))
   }

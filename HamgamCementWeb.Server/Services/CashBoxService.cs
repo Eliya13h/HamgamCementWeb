@@ -6,13 +6,29 @@ namespace HamgamCementWeb.Server.Services;
 
 public record CashAmountLine(int CurrencyId, decimal Amount);
 
+public record CashTransferLineInput(int CurrencyId, decimal Amount, decimal? AmountInBaseCurrency = null);
+
 public interface ICashBoxService
 {
     Task<int?> ResolveUserCashBoxIdAsync(int? userId, CancellationToken cancellationToken = default);
-    Task<CashBox> CreateAsync(string? code, string name, int? parentCashBoxId, IReadOnlyList<int> userIds, string? description, int? createdBy, CancellationToken cancellationToken = default);
-    Task UpdateAsync(int cashBoxId, string name, int? parentCashBoxId, IReadOnlyList<int> userIds, string? description, bool isActive, int? updatedBy, CancellationToken cancellationToken = default);
+    Task<CashBox> CreateAsync(string? code, string name, int? parentCashBoxId, IReadOnlyList<int> userIds, string? description, bool isPettyCash, decimal ceilingAmountInBase, int? createdBy, CancellationToken cancellationToken = default);
+    Task UpdateAsync(int cashBoxId, string name, int? parentCashBoxId, IReadOnlyList<int> userIds, string? description, bool isActive, bool isPettyCash, decimal ceilingAmountInBase, int? updatedBy, CancellationToken cancellationToken = default);
     Task<CashShift> OpenShiftAsync(int cashBoxId, int userId, IReadOnlyList<CashAmountLine> openingLines, string? notes, CancellationToken cancellationToken = default);
     Task<CashShift> CloseShiftAsync(int cashShiftId, int userId, IReadOnlyList<CashAmountLine> transferLines, string? notes, CancellationToken cancellationToken = default);
+    Task<CashTransfer> TransferAsync(
+        int fromCashBoxId,
+        int toCashBoxId,
+        DateTime transferDate,
+        string? description,
+        IReadOnlyList<CashTransferLineInput> lines,
+        int? userId,
+        CancellationToken cancellationToken = default);
+    Task<CashTransfer> RechargePettyCashAsync(
+        int pettyCashBoxId,
+        DateTime transferDate,
+        IReadOnlyList<CashTransferLineInput> lines,
+        int? userId,
+        CancellationToken cancellationToken = default);
 }
 
 public class CashBoxService : ICashBoxService
@@ -72,6 +88,8 @@ public class CashBoxService : ICashBoxService
         int? parentCashBoxId,
         IReadOnlyList<int> userIds,
         string? description,
+        bool isPettyCash,
+        decimal ceilingAmountInBase,
         int? createdBy,
         CancellationToken cancellationToken = default)
     {
@@ -100,6 +118,14 @@ public class CashBoxService : ICashBoxService
                 throw new InvalidOperationException("صندوق والد یافت نشد.");
             }
         }
+        if (isPettyCash && parentCashBoxId is null)
+        {
+            throw new InvalidOperationException("برای صندوق تنخواه، صندوق والد الزامی است.");
+        }
+        if (ceilingAmountInBase < 0)
+        {
+            throw new InvalidOperationException("سقف تنخواه نمی‌تواند منفی باشد.");
+        }
 
         var account = await _accounts.EnsureCashBoxAccountAsync(code, name, cancellationToken);
         var now = DateTime.Now;
@@ -110,6 +136,8 @@ public class CashBoxService : ICashBoxService
             ParentCashBoxId = parentCashBoxId,
             AccountId = account.AccountID,
             Description = description?.Trim(),
+            IsPettyCash = isPettyCash,
+            CeilingAmountInBase = ceilingAmountInBase,
             IsActive = true,
             IsDeleted = false,
             CreatedAt = now,
@@ -130,6 +158,8 @@ public class CashBoxService : ICashBoxService
         IReadOnlyList<int> userIds,
         string? description,
         bool isActive,
+        bool isPettyCash,
+        decimal ceilingAmountInBase,
         int? updatedBy,
         CancellationToken cancellationToken = default)
     {
@@ -151,11 +181,21 @@ public class CashBoxService : ICashBoxService
                 throw new InvalidOperationException("صندوق والد یافت نشد.");
             }
         }
+        if (isPettyCash && parentCashBoxId is null)
+        {
+            throw new InvalidOperationException("برای صندوق تنخواه، صندوق والد الزامی است.");
+        }
+        if (ceilingAmountInBase < 0)
+        {
+            throw new InvalidOperationException("سقف تنخواه نمی‌تواند منفی باشد.");
+        }
 
         box.Name = name.Trim();
         box.ParentCashBoxId = parentCashBoxId;
         box.Description = description?.Trim();
         box.IsActive = isActive;
+        box.IsPettyCash = isPettyCash;
+        box.CeilingAmountInBase = ceilingAmountInBase;
         box.IsUpdated = true;
         box.UpdatedAt = DateTime.Now;
         box.UpdatedBy = updatedBy;
@@ -355,6 +395,147 @@ public class CashBoxService : ICashBoxService
         shift.UpdatedBy = userId;
         await _db.SaveChangesAsync(cancellationToken);
         return shift;
+    }
+
+    public async Task<CashTransfer> TransferAsync(
+        int fromCashBoxId,
+        int toCashBoxId,
+        DateTime transferDate,
+        string? description,
+        IReadOnlyList<CashTransferLineInput> lines,
+        int? userId,
+        CancellationToken cancellationToken = default)
+    {
+        if (fromCashBoxId == toCashBoxId)
+        {
+            throw new InvalidOperationException("صندوق مبدأ و مقصد نمی‌توانند یکسان باشند.");
+        }
+
+        var fromBox = await _db.CashBoxes
+            .FirstOrDefaultAsync(c => c.CashBoxID == fromCashBoxId && c.IsDeleted != true && c.IsActive == true, cancellationToken)
+            ?? throw new InvalidOperationException("صندوق مبدأ یافت نشد یا غیرفعال است.");
+
+        var toBox = await _db.CashBoxes
+            .FirstOrDefaultAsync(c => c.CashBoxID == toCashBoxId && c.IsDeleted != true && c.IsActive == true, cancellationToken)
+            ?? throw new InvalidOperationException("صندوق مقصد یافت نشد یا غیرفعال است.");
+
+        if (lines is null || lines.Count == 0)
+        {
+            throw new InvalidOperationException("حداقل یک خط انتقال الزامی است.");
+        }
+
+        var date = transferDate == default ? DateTime.Now : transferDate;
+        var grouped = lines
+            .Where(l => l.CurrencyId > 0 && l.Amount > 0)
+            .GroupBy(l => l.CurrencyId)
+            .Select(g =>
+            {
+                var sumBase = g.Sum(x => x.AmountInBaseCurrency ?? 0);
+                return new CashTransferLineInput(
+                    g.Key,
+                    g.Sum(x => x.Amount),
+                    sumBase > 0 ? sumBase : null);
+            })
+            .ToList();
+
+        if (grouped.Count == 0)
+        {
+            throw new InvalidOperationException("خطوط انتقال نامعتبر است.");
+        }
+
+        foreach (var line in grouped)
+        {
+            await _balances.EnsureSufficientBalanceAsync(fromCashBoxId, line.CurrencyId, line.Amount, cancellationToken);
+        }
+
+        var now = DateTime.Now;
+        var transfer = new CashTransfer
+        {
+            FromCashBoxId = fromBox.CashBoxID,
+            ToCashBoxId = toBox.CashBoxID,
+            TransferDate = date,
+            AmountInBaseCurrency = 0,
+            Description = string.IsNullOrWhiteSpace(description)
+                ? $"انتقال آزاد — {fromBox.Name} به {toBox.Name}"
+                : description.Trim(),
+            IsActive = true,
+            IsDeleted = false,
+            CreatedAt = now,
+            CreatedBy = userId,
+        };
+
+        _db.CashTransfers.Add(transfer);
+        await _db.SaveChangesAsync(cancellationToken);
+
+        decimal totalBase = 0m;
+        foreach (var line in grouped)
+        {
+            decimal amountBase;
+            if (line.AmountInBaseCurrency is > 0)
+            {
+                amountBase = line.AmountInBaseCurrency.Value;
+            }
+            else
+            {
+                var snapshot = await _currencies.GetSnapshotAsync(line.CurrencyId, date, cancellationToken);
+                amountBase = _currencies.ConvertToBase(line.Amount, snapshot);
+            }
+
+            totalBase += amountBase;
+            _db.CashTransferLines.Add(new CashTransferLine
+            {
+                CashTransferId = transfer.CashTransferID,
+                CurrencyId = line.CurrencyId,
+                Amount = line.Amount,
+                AmountInBaseCurrency = amountBase,
+                IsActive = true,
+                IsDeleted = false,
+                CreatedAt = now,
+                CreatedBy = userId,
+            });
+        }
+
+        transfer.AmountInBaseCurrency = totalBase;
+        await _db.SaveChangesAsync(cancellationToken);
+        await _db.Entry(transfer).Collection(t => t.Lines).LoadAsync(cancellationToken);
+
+        var fromAccount = await _db.Accounts.FirstAsync(a => a.AccountID == fromBox.AccountId, cancellationToken);
+        var toAccount = await _db.Accounts.FirstAsync(a => a.AccountID == toBox.AccountId, cancellationToken);
+        var journal = await _gl.PostCashTransferAsync(transfer, fromAccount, toAccount, userId, cancellationToken);
+        transfer.JournalEntryId = journal.JournalEntryID;
+        await _db.SaveChangesAsync(cancellationToken);
+        return transfer;
+    }
+
+    public async Task<CashTransfer> RechargePettyCashAsync(
+        int pettyCashBoxId,
+        DateTime transferDate,
+        IReadOnlyList<CashTransferLineInput> lines,
+        int? userId,
+        CancellationToken cancellationToken = default)
+    {
+        var pettyCash = await _db.CashBoxes.AsNoTracking().FirstOrDefaultAsync(
+            c => c.CashBoxID == pettyCashBoxId && c.IsDeleted != true && c.IsActive == true,
+            cancellationToken) ?? throw new InvalidOperationException("صندوق تنخواه یافت نشد یا غیرفعال است.");
+        if (!pettyCash.IsPettyCash || pettyCash.ParentCashBoxId is not int parentId)
+        {
+            throw new InvalidOperationException("صندوق انتخاب‌شده تنخواه معتبر با والد مشخص نیست.");
+        }
+
+        var rechargeBase = 0m;
+        var date = transferDate == default ? DateTime.Now : transferDate;
+        foreach (var line in lines.Where(l => l.CurrencyId > 0 && l.Amount > 0))
+        {
+            rechargeBase += line.AmountInBaseCurrency
+                ?? _currencies.ConvertToBase(line.Amount, await _currencies.GetSnapshotAsync(line.CurrencyId, date, cancellationToken));
+        }
+        var currentBase = (await _balances.GetBalancesAsync(pettyCashBoxId, cancellationToken)).Sum(x => x.AmountInBase);
+        if (currentBase + rechargeBase > pettyCash.CeilingAmountInBase + 0.01m)
+        {
+            throw new InvalidOperationException("شارژ تنخواه از سقف مجاز عبور می‌کند.");
+        }
+
+        return await TransferAsync(parentId, pettyCashBoxId, date, $"شارژ تنخواه — {pettyCash.Name}", lines, userId, cancellationToken);
     }
 
     private async Task<string> GenerateNextCodeAsync(CancellationToken cancellationToken)

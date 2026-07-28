@@ -455,7 +455,7 @@ function SuppliersPage() {
                     <label className="form-label">موجودی اولیه</label>
                     <AmountField
                       symbol={baseCurrencySymbol}
-                      step="any"
+                      step={100}
                       value={createForm.initialBalance}
                       onChange={(value) =>
                         setCreateForm((prev) => ({
@@ -599,7 +599,7 @@ function SuppliersPage() {
                     <label className="form-label">موجودی اولیه</label>
                     <AmountField
                       symbol={baseCurrencySymbol}
-                      step="any"
+                      step={100}
                       value={editForm.initialBalance}
                       onChange={(value) =>
                         setEditForm((prev) => ({

@@ -85,6 +85,11 @@ public class SaleInvoiceController : InvoiceControllerBase
                 currencyName = i.Currency != null ? i.Currency.Name : string.Empty,
                 totalAmount = i.TotalAmount,
                 totalAmountInBaseCurrency = i.TotalAmountInBaseCurrency,
+                subTotalAmount = i.SubTotalAmount,
+                taxPercent = i.TaxPercent,
+                taxAmount = i.TaxAmount,
+                paymentTermDays = i.PaymentTermDays,
+                dueDate = i.DueDate,
                 paidAmount = i.PaidAmount,
                 totalCostInBaseCurrency = i.TotalCostInBaseCurrency,
                 totalProfitInBaseCurrency = i.TotalProfitInBaseCurrency,
@@ -355,6 +360,9 @@ public class SaleInvoiceController : InvoiceControllerBase
             InvoiceDate = request.InvoiceDate,
             Status = request.Status,
             CurrencyId = request.CurrencyId,
+            TaxPercent = request.TaxPercent,
+            PaymentTermDays = request.PaymentTermDays,
+            DueDate = request.DueDate,
             Description = request.Description?.Trim(),
             FreightMode = request.FreightMode,
             FreightRatePerTon = request.FreightRatePerTon,
@@ -473,6 +481,9 @@ public class SaleInvoiceController : InvoiceControllerBase
         invoice.InvoiceDate = request.InvoiceDate;
         invoice.Status = request.Status;
         invoice.CurrencyId = request.CurrencyId;
+        invoice.TaxPercent = request.TaxPercent;
+        invoice.PaymentTermDays = request.PaymentTermDays;
+        invoice.DueDate = request.DueDate;
         invoice.Description = request.Description?.Trim();
         invoice.FreightMode = request.FreightMode;
         invoice.FreightRatePerTon = request.FreightRatePerTon;
@@ -696,6 +707,14 @@ public class SaleInvoiceController : InvoiceControllerBase
         public string? Description { get; set; }
 
         public decimal PaidAmount { get; set; }
+
+        [Range(0, 100)]
+        public decimal TaxPercent { get; set; }
+
+        [Range(0, int.MaxValue)]
+        public int PaymentTermDays { get; set; }
+
+        public DateTime? DueDate { get; set; }
 
         public decimal? BaseUnitsPerUnit { get; set; }
 

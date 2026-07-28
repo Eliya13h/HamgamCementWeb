@@ -16,6 +16,8 @@ public static class ChartOfAccountsSeeder
             await EnsureFixedAssetAccountsAsync(db, cancellationToken);
             await EnsureEquityAccountsAsync(db, cancellationToken);
             await EnsureTransportRevenueAccountAsync(db, cancellationToken);
+            await EnsureFxAccountsAsync(db, cancellationToken);
+            await EnsureCompletenessAccountsAsync(db, cancellationToken);
             await MapCategoryAccountsAsync(db, cancellationToken);
             return;
         }
@@ -64,7 +66,7 @@ public static class ChartOfAccountsSeeder
         await db.SaveChangesAsync(cancellationToken);
 
         var cashBoxes = Add("111", "صندوق‌ها", AccountLevel.Moein, AccountType.Asset, AccountNature.Debit, cashBank, AccountSystemCode.CashBoxes);
-        var banks = Add("112", "بانک‌ها", AccountLevel.Moein, AccountType.Asset, AccountNature.Debit, cashBank, AccountSystemCode.Banks, postable: true);
+        var banks = Add("112", "بانک‌ها", AccountLevel.Moein, AccountType.Asset, AccountNature.Debit, cashBank, AccountSystemCode.Banks, postable: false);
         var ar = Add("121", "مشتریان", AccountLevel.Moein, AccountType.Asset, AccountNature.Debit, receivablesKol, AccountSystemCode.CustomersAr);
         var invRaw = Add("131", "مواد اولیه", AccountLevel.Moein, AccountType.Asset, AccountNature.Debit, inventoryKol, AccountSystemCode.InventoryRaw, postable: true);
         var invSemi = Add("132", "نیمه‌ساخته", AccountLevel.Moein, AccountType.Asset, AccountNature.Debit, inventoryKol, AccountSystemCode.InventorySemi, postable: true);
@@ -117,6 +119,7 @@ public static class ChartOfAccountsSeeder
         Add("421", "سایر درآمدها", AccountLevel.Moein, AccountType.Revenue, AccountNature.Credit, otherRevKol, AccountSystemCode.OtherRevenue, postable: true);
         Add("422", "سود فروش دارایی ثابت", AccountLevel.Moein, AccountType.Revenue, AccountNature.Credit, otherRevKol, AccountSystemCode.FixedAssetDisposalGain, postable: true);
         Add("423", "درآمد حمل‌ونقل", AccountLevel.Moein, AccountType.Revenue, AccountNature.Credit, otherRevKol, AccountSystemCode.TransportRevenue, postable: true);
+        Add("424", "سود تسعیر ارز", AccountLevel.Moein, AccountType.Revenue, AccountNature.Credit, otherRevKol, AccountSystemCode.FxGain, postable: true);
         await db.SaveChangesAsync(cancellationToken);
 
         // گروه ۵ بهای تمام‌شده
@@ -150,17 +153,73 @@ public static class ChartOfAccountsSeeder
         Add("616", "حقوق و دستمزد کارکنان", AccountLevel.Moein, AccountType.Expense, AccountNature.Debit, opexKol, AccountSystemCode.SalaryExpense, postable: true);
         Add("617", "هزینه استهلاک دارایی ثابت", AccountLevel.Moein, AccountType.Expense, AccountNature.Debit, opexKol, AccountSystemCode.DepreciationExpense, postable: true);
         Add("692", "زیان فروش دارایی ثابت", AccountLevel.Moein, AccountType.Expense, AccountNature.Debit, miscKol, AccountSystemCode.FixedAssetDisposalLoss, postable: true);
+        Add("693", "زیان تسعیر ارز", AccountLevel.Moein, AccountType.Expense, AccountNature.Debit, miscKol, AccountSystemCode.FxLoss, postable: true);
         await db.SaveChangesAsync(cancellationToken);
 
-        // معین‌های والد برای تفصیلی اشخاص/صندوق باید IsPostable=false بمانند
+        // معین‌های والد برای تفصیلی اشخاص/صندوق/بانک باید IsPostable=false بمانند
         cashBoxes.IsPostable = false;
+        banks.IsPostable = false;
         ar.IsPostable = false;
         ap.IsPostable = false;
         await db.SaveChangesAsync(cancellationToken);
 
         await MapCategoryAccountsAsync(db, cancellationToken);
+        await EnsureCompletenessAccountsAsync(db, cancellationToken);
 
         _ = (opex, transport, misc, banks, invRaw, invSemi, invFg);
+    }
+
+    // حساب‌های مالیات، کسورات حقوق و ذخیره مطالبات برای تمامی پایگاه‌های داده
+    private static async Task EnsureCompletenessAccountsAsync(AppDbContext db, CancellationToken cancellationToken)
+    {
+        var otherCurrentAssets = await db.Accounts.FirstOrDefaultAsync(
+            a => (a.SystemCode == AccountSystemCode.OtherCurrentAssets || a.Code == "14")
+                 && a.IsDeleted != true, cancellationToken);
+        var otherLiabilities = await db.Accounts.FirstOrDefaultAsync(
+            a => (a.SystemCode == AccountSystemCode.OtherLiabilities || a.Code == "22")
+                 && a.IsDeleted != true, cancellationToken);
+        var operatingExpenses = await db.Accounts.FirstOrDefaultAsync(
+            a => a.Code == "61" && a.Level == AccountLevel.Kol && a.IsDeleted != true, cancellationToken);
+
+        async Task Ensure(
+            string code, string name, string systemCode, Account? parent,
+            AccountType type, AccountNature nature)
+        {
+            if (parent is null || await db.Accounts.AnyAsync(
+                    a => (a.SystemCode == systemCode || a.Code == code) && a.IsDeleted != true,
+                    cancellationToken))
+            {
+                return;
+            }
+
+            db.Accounts.Add(new Account
+            {
+                Code = code,
+                Name = name,
+                Level = AccountLevel.Moein,
+                ParentAccountId = parent.AccountID,
+                AccountType = type,
+                Nature = nature,
+                IsPostable = true,
+                IsSystem = true,
+                SystemCode = systemCode,
+                IsActive = true,
+                IsDeleted = false,
+                CreatedAt = DateTime.Now,
+            });
+        }
+
+        await Ensure("142", "مالیات دریافتنی", AccountSystemCode.TaxReceivable,
+            otherCurrentAssets, AccountType.Asset, AccountNature.Debit);
+        await Ensure("223", "مالیات پرداختنی", AccountSystemCode.TaxPayable,
+            otherLiabilities, AccountType.Liability, AccountNature.Credit);
+        await Ensure("224", "کسورات حقوق پرداختنی", AccountSystemCode.SalaryDeductions,
+            otherLiabilities, AccountType.Liability, AccountNature.Credit);
+        await Ensure("225", "ذخیره مطالبات مشکوک‌الوصول", AccountSystemCode.DoubtfulDebtAllowance,
+            otherLiabilities, AccountType.Liability, AccountNature.Credit);
+        await Ensure("618", "هزینه مطالبات مشکوک‌الوصول", AccountSystemCode.DoubtfulDebtExpense,
+            operatingExpenses, AccountType.Expense, AccountNature.Debit);
+        await db.SaveChangesAsync(cancellationToken);
     }
 
     // برای دیتابیس‌هایی که قبلاً کدینگ دارند — حساب‌های هزینه تولید را در صورت نبود اضافه می‌کند
@@ -351,6 +410,72 @@ public static class ChartOfAccountsSeeder
             IsDeleted = false,
             CreatedAt = DateTime.Now,
         });
+        await db.SaveChangesAsync(cancellationToken);
+    }
+
+    // حساب‌های سود/زیان تسعیر ارز برای دیتابیس‌های از قبل seedشده
+    private static async Task EnsureFxAccountsAsync(AppDbContext db, CancellationToken cancellationToken)
+    {
+        var otherRevKol = await db.Accounts
+            .FirstOrDefaultAsync(
+                a => a.Code == "42" && a.Level == AccountLevel.Kol && a.IsDeleted != true,
+                cancellationToken);
+        if (otherRevKol is not null)
+        {
+            var gainExists = await db.Accounts.AnyAsync(
+                a => (a.SystemCode == AccountSystemCode.FxGain || a.Code == "424")
+                     && a.IsDeleted != true,
+                cancellationToken);
+            if (!gainExists)
+            {
+                db.Accounts.Add(new Account
+                {
+                    Code = "424",
+                    Name = "سود تسعیر ارز",
+                    Level = AccountLevel.Moein,
+                    ParentAccountId = otherRevKol.AccountID,
+                    AccountType = AccountType.Revenue,
+                    Nature = AccountNature.Credit,
+                    IsPostable = true,
+                    IsSystem = true,
+                    SystemCode = AccountSystemCode.FxGain,
+                    IsActive = true,
+                    IsDeleted = false,
+                    CreatedAt = DateTime.Now,
+                });
+            }
+        }
+
+        var miscKol = await db.Accounts
+            .FirstOrDefaultAsync(
+                a => a.Code == "69" && a.Level == AccountLevel.Kol && a.IsDeleted != true,
+                cancellationToken);
+        if (miscKol is not null)
+        {
+            var lossExists = await db.Accounts.AnyAsync(
+                a => (a.SystemCode == AccountSystemCode.FxLoss || a.Code == "693")
+                     && a.IsDeleted != true,
+                cancellationToken);
+            if (!lossExists)
+            {
+                db.Accounts.Add(new Account
+                {
+                    Code = "693",
+                    Name = "زیان تسعیر ارز",
+                    Level = AccountLevel.Moein,
+                    ParentAccountId = miscKol.AccountID,
+                    AccountType = AccountType.Expense,
+                    Nature = AccountNature.Debit,
+                    IsPostable = true,
+                    IsSystem = true,
+                    SystemCode = AccountSystemCode.FxLoss,
+                    IsActive = true,
+                    IsDeleted = false,
+                    CreatedAt = DateTime.Now,
+                });
+            }
+        }
+
         await db.SaveChangesAsync(cancellationToken);
     }
 

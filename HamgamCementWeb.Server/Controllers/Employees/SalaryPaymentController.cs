@@ -292,12 +292,27 @@ public class SalaryPaymentController : ControllerBase
         _db.SalaryPayments.Add(payment);
         await _db.SaveChangesAsync(cancellationToken);
 
-        // ثبت سند دفتر: بدهکار هزینه حقوق / بستانکار صندوق یا بانک
+        // ثبت سند دفتر: بدهکار ناخالص حقوق / بستانکار کسورات و خالص پرداختی
         var salaryAccount = await _accounts.GetBySystemCodeAsync(AccountSystemCode.SalaryExpense, cancellationToken);
+        var deductionsAccount = await _accounts.GetBySystemCodeAsync(AccountSystemCode.SalaryDeductions, cancellationToken);
         var creditAccountId = await ResolveCreditAccountIdAsync(cashBoxId, cancellationToken);
 
         var employeeName = $"{employee.Name} {employee.Family}".Trim();
         var title = $"حقوق {employeeName} — {request.Year}/{request.Month:D2}";
+
+        var gross = RoundMoney(payment.BaseSalary + payment.OvertimeAmount + payment.BenefitAmount);
+        var deductions = RoundMoney(payment.LateDeduction + payment.AbsenceDeduction + payment.OtherDeduction);
+        var lines = new List<JournalLineDraft>
+        {
+            new(salaryAccount.AccountID, gross, 0, gross, 0, baseCurrencyId, title),
+            new(creditAccountId, 0, net, 0, net, baseCurrencyId, title, CashBoxId: cashBoxId),
+        };
+        if (deductions > 0)
+        {
+            lines.Add(new JournalLineDraft(
+                deductionsAccount.AccountID, 0, deductions, 0, deductions, baseCurrencyId,
+                $"کسورات حقوق — {employeeName}"));
+        }
 
         var journal = await _journal.PostAsync(
             paymentDate,
@@ -305,17 +320,7 @@ public class SalaryPaymentController : ControllerBase
             JournalSource.SalaryPayment,
             payment.SalaryPaymentID,
             baseCurrencyId,
-            [
-                new JournalLineDraft(
-                    salaryAccount.AccountID,
-                    net, 0, net, 0, baseCurrencyId,
-                    title),
-                new JournalLineDraft(
-                    creditAccountId,
-                    0, net, 0, net, baseCurrencyId,
-                    title,
-                    CashBoxId: cashBoxId),
-            ],
+            lines,
             userId,
             cancellationToken);
 
@@ -332,6 +337,36 @@ public class SalaryPaymentController : ControllerBase
         });
     }
 
+    [HttpDelete("{id:int}")]
+    public async Task<IActionResult> Delete(int id, CancellationToken cancellationToken)
+    {
+        var payment = await _db.SalaryPayments
+            .FirstOrDefaultAsync(s => s.SalaryPaymentID == id && s.IsDeleted != true, cancellationToken);
+
+        if (payment is null)
+        {
+            return NotFound(new { message = "پرداخت حقوق یافت نشد." });
+        }
+
+        var userId = ResolveCurrentUserId();
+
+        await _journal.ReverseBySourceAsync(
+            JournalSource.SalaryPayment,
+            payment.SalaryPaymentID,
+            userId,
+            cancellationToken: cancellationToken);
+
+        payment.IsDeleted = true;
+        payment.IsActive = false;
+        payment.DeletedAt = DateTime.Now;
+        payment.DeletedBy = userId;
+        payment.JournalEntryId = null;
+
+        await _db.SaveChangesAsync(cancellationToken);
+
+        return Ok(new { message = "پرداخت حقوق با موفقیت حذف شد." });
+    }
+
     private async Task<int> ResolveCreditAccountIdAsync(int? cashBoxId, CancellationToken cancellationToken)
     {
         if (cashBoxId is int id)
@@ -345,8 +380,7 @@ public class SalaryPaymentController : ControllerBase
             }
         }
 
-        var banks = await _accounts.GetBySystemCodeAsync(AccountSystemCode.Banks, cancellationToken);
-        return banks.AccountID;
+        throw new InvalidOperationException("صندوق برای پرداخت حقوق الزامی است.");
     }
 
     private async Task<int> ResolveBaseCurrencyIdAsync(CancellationToken cancellationToken)

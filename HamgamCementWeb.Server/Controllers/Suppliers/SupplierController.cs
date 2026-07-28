@@ -21,11 +21,16 @@ public class SupplierController : ControllerBase
 
     private readonly AppDbContext _db;
     private readonly ISupplierReadService _reads;
+    private readonly IPartyOpeningBalanceService _opening;
 
-    public SupplierController(AppDbContext db, ISupplierReadService reads)
+    public SupplierController(
+        AppDbContext db,
+        ISupplierReadService reads,
+        IPartyOpeningBalanceService opening)
     {
         _db = db;
         _reads = reads;
+        _opening = opening;
     }
 
     [HttpGet("list")]
@@ -193,29 +198,84 @@ public class SupplierController : ControllerBase
             return ValidationProblem(ModelState);
         }
 
-        var supplier = new Supplier
+        await using var tx = await _db.Database.BeginTransactionAsync(cancellationToken);
+        try
         {
-            Title = request.Title,
-            Name = request.Name.Trim(),
-            PhoneNumber = request.PhoneNumber.Trim(),
-            Address = request.Address.Trim(),
-            City = request.City.Trim(),
-            Country = request.Country.Trim(),
-            InitialBalance = request.InitialBalance,
-            SupplierType = request.SupplierType,
-            CreatedBy = ResolveCurrentUserId(),
-            CreatedAt = DateTime.Now,
-            IsActive = request.IsActive,
-            IsDeleted = false,
-        };
+            var supplier = new Supplier
+            {
+                Title = request.Title,
+                Name = request.Name.Trim(),
+                PhoneNumber = request.PhoneNumber.Trim(),
+                Address = request.Address.Trim(),
+                City = request.City.Trim(),
+                Country = request.Country.Trim(),
+                InitialBalance = request.InitialBalance,
+                SupplierType = request.SupplierType,
+                CreatedBy = ResolveCurrentUserId(),
+                CreatedAt = DateTime.Now,
+                IsActive = request.IsActive,
+                IsDeleted = false,
+            };
 
-        _db.Suppliers.Add(supplier);
-        await _db.SaveChangesAsync(cancellationToken);
+            _db.Suppliers.Add(supplier);
+            await _db.SaveChangesAsync(cancellationToken);
 
-        return CreatedAtAction(
-            nameof(Update),
-            new { id = supplier.SupplierID },
-            new { message = "تأمین‌کننده با موفقیت ایجاد شد." });
+            if (supplier.InitialBalance > 0)
+            {
+                await _opening.PostSupplierOpeningAsync(
+                    supplier.SupplierID,
+                    supplier.Name,
+                    supplier.InitialBalance,
+                    DateTime.Today,
+                    ResolveCurrentUserId(),
+                    cancellationToken);
+            }
+
+            await tx.CommitAsync(cancellationToken);
+
+            return CreatedAtAction(
+                nameof(Update),
+                new { id = supplier.SupplierID },
+                new { message = "تأمین‌کننده با موفقیت ایجاد شد.", supplierId = supplier.SupplierID });
+        }
+        catch (InvalidOperationException ex)
+        {
+            await tx.RollbackAsync(cancellationToken);
+            return BadRequest(new { message = ex.Message });
+        }
+    }
+
+    // ثبت صریح مانده اولیه تأمین‌کننده در دفترروزنامه
+    [HttpPost("{id:int}/opening-balance")]
+    [HasPermission("people.suppliers.edit")]
+    public async Task<IActionResult> PostOpeningBalance(int id, CancellationToken cancellationToken)
+    {
+        var supplier = await _db.Suppliers
+            .FirstOrDefaultAsync(s => s.SupplierID == id && s.IsDeleted != true, cancellationToken);
+        if (supplier is null)
+        {
+            return NotFound(new { message = "تأمین‌کننده یافت نشد." });
+        }
+
+        try
+        {
+            var journal = await _opening.PostSupplierOpeningAsync(
+                supplier.SupplierID,
+                supplier.Name,
+                supplier.InitialBalance,
+                DateTime.Today,
+                ResolveCurrentUserId(),
+                cancellationToken);
+            return Ok(new
+            {
+                message = "مانده اولیه تأمین‌کننده در دفتر ثبت شد.",
+                journalEntryId = journal.JournalEntryID,
+            });
+        }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(new { message = ex.Message });
+        }
     }
 
     [HttpPut("{id:int}")]
@@ -238,22 +298,44 @@ public class SupplierController : ControllerBase
             return NotFound(new { message = "تأمین‌کننده یافت نشد." });
         }
 
-        supplier.Title = request.Title;
-        supplier.Name = request.Name.Trim();
-        supplier.PhoneNumber = request.PhoneNumber.Trim();
-        supplier.Address = request.Address.Trim();
-        supplier.City = request.City.Trim();
-        supplier.Country = request.Country.Trim();
-        supplier.InitialBalance = request.InitialBalance;
-        supplier.SupplierType = request.SupplierType;
-        supplier.IsActive = request.IsActive;
-        supplier.UpdatedAt = DateTime.Now;
-        supplier.IsUpdated = true;
-        supplier.UpdatedBy = ResolveCurrentUserId();
+        var balanceChanged = supplier.InitialBalance != request.InitialBalance;
+        var userId = ResolveCurrentUserId();
 
-        await _db.SaveChangesAsync(cancellationToken);
+        await using var tx = await _db.Database.BeginTransactionAsync(cancellationToken);
+        try
+        {
+            supplier.Title = request.Title;
+            supplier.Name = request.Name.Trim();
+            supplier.PhoneNumber = request.PhoneNumber.Trim();
+            supplier.Address = request.Address.Trim();
+            supplier.City = request.City.Trim();
+            supplier.Country = request.Country.Trim();
+            supplier.InitialBalance = request.InitialBalance;
+            supplier.SupplierType = request.SupplierType;
+            supplier.IsActive = request.IsActive;
+            supplier.UpdatedAt = DateTime.Now;
+            supplier.IsUpdated = true;
+            supplier.UpdatedBy = userId;
+            await _db.SaveChangesAsync(cancellationToken);
 
-        return Ok(new { message = "تأمین‌کننده با موفقیت ویرایش شد." });
+            if (balanceChanged)
+            {
+                await _opening.SyncSupplierOpeningAsync(
+                    supplier.SupplierID,
+                    supplier.Name,
+                    supplier.InitialBalance,
+                    userId,
+                    cancellationToken);
+            }
+
+            await tx.CommitAsync(cancellationToken);
+            return Ok(new { message = "تأمین‌کننده با موفقیت ویرایش شد." });
+        }
+        catch (InvalidOperationException ex)
+        {
+            await tx.RollbackAsync(cancellationToken);
+            return BadRequest(new { message = ex.Message });
+        }
     }
 
     [HttpDelete("{id:int}")]
@@ -273,6 +355,11 @@ public class SupplierController : ControllerBase
             return BadRequest(new { message = "فقط تأمین‌کنندگان با وضعیت تسویه قابل حذف هستند." });
         }
 
+        if (await _opening.HasSupplierGlActivityAsync(id, cancellationToken))
+        {
+            return Conflict(new { message = "تأمین‌کننده گردش حسابداری دارد و قابل حذف نیست." });
+        }
+
         var supplier = await _db.Suppliers
             .FirstOrDefaultAsync(s => s.SupplierID == id && s.IsDeleted != true, cancellationToken);
 
@@ -281,14 +368,26 @@ public class SupplierController : ControllerBase
             return NotFound(new { message = "تأمین‌کننده یافت نشد." });
         }
 
-        supplier.IsDeleted = true;
-        supplier.IsActive = false;
-        supplier.DeletedAt = DateTime.Now;
-        supplier.DeletedBy = ResolveCurrentUserId();
+        var userId = ResolveCurrentUserId();
+        await using var tx = await _db.Database.BeginTransactionAsync(cancellationToken);
+        try
+        {
+            await _opening.ReverseSupplierOpeningAsync(id, userId, cancellationToken);
 
-        await _db.SaveChangesAsync(cancellationToken);
+            supplier.IsDeleted = true;
+            supplier.IsActive = false;
+            supplier.DeletedAt = DateTime.Now;
+            supplier.DeletedBy = userId;
+            await _db.SaveChangesAsync(cancellationToken);
+            await tx.CommitAsync(cancellationToken);
 
-        return Ok(new { message = "تأمین‌کننده با موفقیت حذف شد." });
+            return Ok(new { message = "تأمین‌کننده با موفقیت حذف شد." });
+        }
+        catch (InvalidOperationException ex)
+        {
+            await tx.RollbackAsync(cancellationToken);
+            return BadRequest(new { message = ex.Message });
+        }
     }
 
     private async Task<bool> CanViewDeletedAsync(CancellationToken cancellationToken)
