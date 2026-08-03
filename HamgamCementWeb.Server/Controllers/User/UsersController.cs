@@ -59,6 +59,7 @@ public class UsersController : ControllerBase
                 u.UserName.Contains(searchValue) ||
                 u.FullName.Contains(searchValue) ||
                 u.Email.Contains(searchValue) ||
+                (u.CardNumber != null && u.CardNumber.Contains(searchValue)) ||
                 u.Role.Name.Contains(searchValue));
         }
 
@@ -74,6 +75,7 @@ public class UsersController : ControllerBase
                 UserName = u.UserName,
                 FullName = u.FullName,
                 Email = u.Email,
+                CardNumber = u.CardNumber ?? string.Empty,
                 RoleId = u.RoleId,
                 RoleName = u.Role.Name,
                 HasFullAccess = u.HasFullAccess,
@@ -100,6 +102,7 @@ public class UsersController : ControllerBase
                 r.UserName,
                 r.FullName,
                 r.Email,
+                r.CardNumber,
                 r.RoleId,
                 r.RoleName,
                 r.HasFullAccess,
@@ -191,6 +194,7 @@ public class UsersController : ControllerBase
             UserName = normalizedUserName,
             FullName = request.FullName.Trim(),
             Email = normalizedEmail,
+            CardNumber = (request.CardNumber ?? string.Empty).Trim(),
             Title = request.Title,
             RoleId = role.RoleID,
             EmployeeId = employee.EmployeeID,
@@ -469,6 +473,12 @@ public class UsersController : ControllerBase
                 nameof(AppUser.Email) => descending
                     ? ordered!.ThenByDescending(u => u.Email)
                     : ordered!.ThenBy(u => u.Email),
+                nameof(AppUser.CardNumber) when ordered is null => descending
+                    ? query.OrderByDescending(u => u.CardNumber)
+                    : query.OrderBy(u => u.CardNumber),
+                nameof(AppUser.CardNumber) => descending
+                    ? ordered!.ThenByDescending(u => u.CardNumber)
+                    : ordered!.ThenBy(u => u.CardNumber),
                 nameof(AppUser.IsActive) when ordered is null => descending
                     ? query.OrderByDescending(u => u.IsActive)
                     : query.OrderBy(u => u.IsActive),
@@ -556,6 +566,7 @@ public class UsersController : ControllerBase
         public string UserName { get; set; } = string.Empty;
         public string FullName { get; set; } = string.Empty;
         public string Email { get; set; } = string.Empty;
+        public string CardNumber { get; set; } = string.Empty;
         public int RoleId { get; set; }
         public string RoleName { get; set; } = string.Empty;
         public bool HasFullAccess { get; set; }
@@ -578,6 +589,9 @@ public class UsersController : ControllerBase
         [EmailAddress(ErrorMessage = "فرمت ایمیل معتبر نیست.")]
         [MaxLength(200)]
         public string Email { get; set; } = string.Empty;
+
+        [MaxLength(50, ErrorMessage = "شماره کارت حداکثر ۵۰ کاراکتر است.")]
+        public string? CardNumber { get; set; }
 
         [Range(1, int.MaxValue, ErrorMessage = "شناسه نقش معتبر نیست.")]
         public int RoleId { get; set; }
@@ -623,6 +637,9 @@ public class UsersController : ControllerBase
         [EmailAddress(ErrorMessage = "فرمت ایمیل معتبر نیست.")]
         [MaxLength(200)]
         public string Email { get; set; } = string.Empty;
+
+        [MaxLength(50, ErrorMessage = "شماره کارت حداکثر ۵۰ کاراکتر است.")]
+        public string? CardNumber { get; set; }
 
         [Range(1, int.MaxValue, ErrorMessage = "شناسه نقش معتبر نیست.")]
         public int RoleId { get; set; }

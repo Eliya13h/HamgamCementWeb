@@ -19,6 +19,10 @@ namespace HamgamCementWeb.Server.Data.Models.People
 
         public string AvatarUrl { get; set; } = string.Empty;
 
+        // شماره کارت کاربر (حضور/شناسایی)
+        [MaxLength(50)]
+        public string CardNumber { get; set; } = string.Empty;
+
         public int EmployeeId { get; set; }
 
         [ForeignKey(nameof(EmployeeId))]

@@ -1,5 +1,6 @@
 import { useCallback, useMemo, useRef, useState } from 'react'
 import Icon from '../../components/common/Icon'
+import { useModalKeyboardShortcuts } from '../../hooks/useModalKeyboardShortcuts'
 import DataTable from '../../lib/dataTableSetup'
 import { inventoryStocksApi } from '../../services/inventoryApi'
 import { dataTableLanguage, formatAmount, formatJalaliDate } from '../Transport/CrudTablePage'
@@ -42,6 +43,13 @@ function InventoryStockPage() {
       setLoadError(error.message)
     }
   }, [])
+
+  const closeLots = useCallback(() => setLots(null), [])
+
+  useModalKeyboardShortcuts({
+    open: Boolean(lots),
+    onClose: closeLots,
+  })
 
   const tableOptions = useMemo(
     () => ({
@@ -149,7 +157,7 @@ function InventoryStockPage() {
             <div className="modal-content">
               <div className="modal-header">
                 <h5 className="modal-title">لات‌های موجود — {lotsTitle}</h5>
-                <button type="button" className="btn-close" onClick={() => setLots(null)} />
+                <button type="button" className="btn-close" onClick={closeLots} />
               </div>
               <div className="modal-body">
                 {lots.length === 0 ? (

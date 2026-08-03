@@ -1,8 +1,15 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import Icon from '../../components/common/Icon'
 import JalaliDateField from '../../components/common/JalaliDateField'
+import {
+  useModalAutoFocus,
+  useModalKeyboardShortcuts,
+  usePageCreateShortcut,
+} from '../../hooks/useModalKeyboardShortcuts'
+import { showAppToast } from '../../lib/appToast'
 import DataTable from '../../lib/dataTableSetup'
 import { createServerSideTableOptions, formatAmount } from '../../lib/dataTableOptions'
+import { persianValidity, validateFormPersian } from '../../lib/persianFormValidity'
 import { usePageCrud } from '../../permissions/usePageCrud'
 import {
   bankAccountsApi,
@@ -37,6 +44,7 @@ const emptyForm = () => ({
 function PartySettlementsPage() {
   const { canCreate, canDelete } = usePageCrud('/accounting/settlements')
   const tableRef = useRef(null)
+  const formRef = useRef(null)
   const [loadError, setLoadError] = useState('')
   const [formError, setFormError] = useState('')
   const [message, setMessage] = useState('')
@@ -111,7 +119,7 @@ function PartySettlementsPage() {
     tableRef.current?.dt()?.ajax.reload(null, false)
   }, [])
 
-  const openCreate = () => {
+  const openCreate = useCallback(() => {
     setFormError('')
     setMessage('')
     const base = currencies.find((c) => c.isBaseCurrency)
@@ -120,17 +128,25 @@ function PartySettlementsPage() {
       currencyId: base ? String(base.value) : '',
     })
     setShowForm(true)
-  }
+  }, [currencies])
 
-  const closeModals = () => {
+  const closeModals = useCallback(() => {
     setShowForm(false)
     setDeleteRow(null)
     setFormError('')
     setSubmitting(false)
-  }
+  }, [])
 
   const handleSubmit = async (event) => {
     event.preventDefault()
+    const formEl = event.currentTarget
+    const message = validateFormPersian(formEl)
+    if (message) {
+      showAppToast(message)
+      formEl.reportValidity()
+      return
+    }
+
     setSubmitting(true)
     setFormError('')
     setMessage('')
@@ -192,6 +208,32 @@ function PartySettlementsPage() {
       setSubmitting(false)
     }
   }
+
+  const triggerSave = useCallback(() => {
+    if (!submitting) {
+      formRef.current?.requestSubmit()
+    }
+  }, [submitting])
+
+  useModalKeyboardShortcuts({
+    open: showForm,
+    onClose: closeModals,
+    onSave: triggerSave,
+    formRef,
+  })
+
+  useModalKeyboardShortcuts({
+    open: Boolean(deleteRow),
+    onClose: closeModals,
+  })
+
+  usePageCreateShortcut({
+    enabled: canCreate,
+    onNew: openCreate,
+    isBlocked: showForm || Boolean(deleteRow),
+  })
+
+  useModalAutoFocus({ open: showForm, formRef })
 
   const tableOptions = useMemo(
     () =>
@@ -284,6 +326,7 @@ function PartySettlementsPage() {
             <button
               type="button"
               className="btn btn-sm btn-accent btn-users-new d-inline-flex align-items-center gap-2"
+              title="ثبت دریافت/پرداخت (Ctrl+N)"
               onClick={openCreate}
             >
               <Icon name="plus" />
@@ -339,7 +382,12 @@ function PartySettlementsPage() {
             data-bs-focus="false"
           >
             <div className="modal-dialog modal-dialog-centered modal-dialog-scrollable modal-lg">
-              <form className="modal-content" onSubmit={handleSubmit}>
+              <form
+                ref={formRef}
+                className="modal-content"
+                noValidate
+                onSubmit={handleSubmit}
+              >
                 <div className="modal-header">
                   <h5 className="modal-title">ثبت دریافت / پرداخت</h5>
                   <button
@@ -370,6 +418,7 @@ function PartySettlementsPage() {
                             installmentId: '',
                           }))
                         }
+                        {...persianValidity('لطفاً نوع طرف حساب را انتخاب کنید.')}
                       >
                         <option value={PARTY_CUSTOMER}>مشتری (دریافت)</option>
                         <option value={PARTY_SUPPLIER}>
@@ -389,6 +438,7 @@ function PartySettlementsPage() {
                             partyId: e.target.value,
                           }))
                         }
+                        {...persianValidity('لطفاً طرف حساب را انتخاب کنید.')}
                       >
                         <option value="">انتخاب کنید</option>
                         {partyOptions.map((p) => (
@@ -409,6 +459,7 @@ function PartySettlementsPage() {
                           }))
                         }
                         required
+                        requiredMessage="لطفاً تاریخ را انتخاب کنید."
                       />
                     </div>
                     <div className="col-md-4">
@@ -423,6 +474,7 @@ function PartySettlementsPage() {
                             currencyId: e.target.value,
                           }))
                         }
+                        {...persianValidity('لطفاً ارز را انتخاب کنید.')}
                       >
                         <option value="">انتخاب کنید</option>
                         {currencies.map((c) => (
@@ -447,6 +499,7 @@ function PartySettlementsPage() {
                             amount: e.target.value,
                           }))
                         }
+                        {...persianValidity('لطفاً مبلغ را وارد کنید.')}
                       />
                     </div>
                     <div className="col-md-4">
@@ -480,6 +533,7 @@ function PartySettlementsPage() {
                               cashBoxId: e.target.value,
                             }))
                           }
+                          {...persianValidity('لطفاً صندوق را انتخاب کنید.')}
                         >
                           <option value="">انتخاب کنید</option>
                           {cashBoxes.map((b) => (
@@ -502,6 +556,7 @@ function PartySettlementsPage() {
                               bankAccountId: e.target.value,
                             }))
                           }
+                          {...persianValidity('لطفاً حساب بانکی را انتخاب کنید.')}
                         >
                           <option value="">انتخاب کنید</option>
                           {banks.map((b) => (

@@ -1,7 +1,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import Icon from '../../components/common/Icon'
 import JalaliDateField from '../../components/common/JalaliDateField'
+import {
+  useModalKeyboardShortcuts,
+  usePageCreateShortcut,
+  useModalAutoFocus,
+} from '../../hooks/useModalKeyboardShortcuts'
+import { showAppToast } from '../../lib/appToast'
 import DataTable from '../../lib/dataTableSetup'
+import { persianValidity, validateFormPersian } from '../../lib/persianFormValidity'
 import { usePageCrud } from '../../permissions/usePageCrud'
 import { dataTableLanguage, formatAmount, formatJalaliDate } from './CrudTablePage'
 import {
@@ -33,6 +40,7 @@ const emptyLine = {
 
 function TransportInvoicesPage() {
   const tableRef = useRef(null)
+  const formRef = useRef(null)
   const { canCreate, canEdit, canDelete } = usePageCrud('/transport/invoices')
   const [loadError, setLoadError] = useState('')
   const [showForm, setShowForm] = useState(false)
@@ -125,6 +133,14 @@ function TransportInvoicesPage() {
 
   const handleSubmit = async (event) => {
     event.preventDefault()
+    const formEl = event.currentTarget
+    const message = validateFormPersian(formEl)
+    if (message) {
+      showAppToast(message)
+      formEl.reportValidity()
+      return
+    }
+
     setSubmitting(true)
     setFormError('')
 
@@ -172,6 +188,30 @@ function TransportInvoicesPage() {
       setSubmitting(false)
     }
   }
+
+  const triggerSave = useCallback(() => {
+    if (!submitting) formRef.current?.requestSubmit()
+  }, [submitting])
+
+  useModalKeyboardShortcuts({
+    open: showForm,
+    onClose: closeModals,
+    onSave: triggerSave,
+    formRef,
+  })
+
+  useModalKeyboardShortcuts({
+    open: Boolean(deleteRow),
+    onClose: closeModals,
+  })
+
+  usePageCreateShortcut({
+    enabled: canCreate,
+    onNew: openCreate,
+    isBlocked: showForm || Boolean(deleteRow),
+  })
+
+  useModalAutoFocus({ open: showForm, formRef })
 
   const tableOptions = useMemo(
     () => ({
@@ -286,7 +326,7 @@ function TransportInvoicesPage() {
             <button
               type="button"
               className="btn btn-sm btn-accent btn-users-new d-inline-flex align-items-center gap-2"
-              title="فاکتور جدید"
+              title="فاکتور جدید (Ctrl+N)"
               onClick={openCreate}
             >
               <Icon name="plus" />
@@ -336,7 +376,7 @@ function TransportInvoicesPage() {
             data-bs-focus="false"
           >
             <div className="modal-dialog modal-dialog-centered modal-dialog-scrollable modal-xl">
-              <form className="modal-content" onSubmit={handleSubmit}>
+              <form ref={formRef} className="modal-content" onSubmit={handleSubmit} noValidate>
                 <div className="modal-header">
                   <h5 className="modal-title">
                     {editId ? 'ویرایش فاکتور مصارف' : 'فاکتور مصارف جدید'}
@@ -372,6 +412,7 @@ function TransportInvoicesPage() {
                         className="form-select"
                         value={header.vehicleId}
                         required
+                        {...persianValidity('لطفاً وسیله نقلیه را انتخاب کنید.')}
                         onChange={(e) => handleHeaderChange('vehicleId', e.target.value)}
                       >
                         <option value="">انتخاب کنید...</option>
@@ -449,6 +490,7 @@ function TransportInvoicesPage() {
                                 className="form-select form-select-sm"
                                 value={line.expensesCategoryId}
                                 required
+                                {...persianValidity('لطفاً دسته‌بندی را انتخاب کنید.')}
                                 onChange={(e) =>
                                   handleLineChange(index, 'expensesCategoryId', e.target.value)
                                 }
@@ -467,6 +509,7 @@ function TransportInvoicesPage() {
                                 className="form-control form-control-sm"
                                 value={line.title}
                                 required
+                                {...persianValidity('لطفاً عنوان را وارد کنید.')}
                                 onChange={(e) =>
                                   handleLineChange(index, 'title', e.target.value)
                                 }
@@ -480,6 +523,7 @@ function TransportInvoicesPage() {
                                 className="form-control form-control-sm"
                                 value={line.amount}
                                 required
+                                {...persianValidity('لطفاً مبلغ را وارد کنید.')}
                                 onChange={(e) =>
                                   handleLineChange(index, 'amount', e.target.value)
                                 }

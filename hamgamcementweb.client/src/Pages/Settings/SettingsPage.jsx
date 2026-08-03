@@ -1,9 +1,15 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { useLocation } from 'react-router-dom'
 import Icon from '../../components/common/Icon'
 import { useAuth } from '../../context/AuthContext'
+import {
+  useModalKeyboardShortcuts,
+  useModalAutoFocus,
+} from '../../hooks/useModalKeyboardShortcuts'
+import { showAppToast } from '../../lib/appToast'
 import { formatJalaliDate } from '../../lib/afghanSolarCalendar'
 import { formatAmount } from '../../lib/dataTableOptions'
+import { persianValidity, validateFormPersian } from '../../lib/persianFormValidity'
 import { usePageCrud } from '../../permissions/usePageCrud'
 import {
   closeFiscalYear,
@@ -48,6 +54,7 @@ function SettingsPage() {
   const { canEdit } = usePageCrud('/settings')
   const { user } = useAuth()
   const location = useLocation()
+  const fiscalFormRef = useRef(null)
   const [form, setForm] = useState(emptyForm)
   const [logoPreviewSrc, setLogoPreviewSrc] = useState('')
   const [logoFileName, setLogoFileName] = useState('')
@@ -293,7 +300,7 @@ function SettingsPage() {
     })
   }
 
-  const closeModal = () => setModal(emptyModal)
+  const closeModal = useCallback(() => setModal(emptyModal), [])
 
   const submitModal = async (event) => {
     event.preventDefault()
@@ -301,8 +308,18 @@ function SettingsPage() {
       return
     }
 
+    const formEl = event.currentTarget
+    const message = validateFormPersian(formEl)
+    if (message) {
+      showAppToast(message)
+      formEl.reportValidity()
+      return
+    }
+
     if (!modal.password.trim()) {
-      setModal((prev) => ({ ...prev, error: 'رمز عبور الزامی است.' }))
+      const err = 'رمز عبور الزامی است.'
+      setModal((prev) => ({ ...prev, error: err }))
+      showAppToast(err)
       return
     }
 
@@ -321,6 +338,24 @@ function SettingsPage() {
       setModal((prev) => ({ ...prev, loading: false, error: error.message }))
     }
   }
+
+  const triggerFiscalSave = useCallback(() => {
+    if (modal.loading) return
+    if (modal.mode === 'close' || modal.mode === 'reopen') {
+      fiscalFormRef.current?.requestSubmit()
+    }
+  }, [modal.loading, modal.mode])
+
+  const fiscalFormOpen = modal.mode === 'close' || modal.mode === 'reopen'
+
+  useModalKeyboardShortcuts({
+    open: Boolean(modal.mode),
+    onClose: closeModal,
+    onSave: fiscalFormOpen ? triggerFiscalSave : undefined,
+    formRef: fiscalFormOpen ? fiscalFormRef : undefined,
+  })
+
+  useModalAutoFocus({ open: fiscalFormOpen, formRef: fiscalFormRef })
 
   const updateFiscalPeriodStatus = async (period, action) => {
     try {
@@ -747,7 +782,7 @@ function SettingsPage() {
                 <button type="button" className="btn-close" aria-label="بستن" onClick={closeModal} />
               </div>
 
-              <form onSubmit={submitModal}>
+              <form ref={fiscalFormRef} onSubmit={submitModal} noValidate>
                 <div className="modal-body">
                   {modal.error && <div className="alert alert-danger py-2">{modal.error}</div>}
 
@@ -807,6 +842,7 @@ function SettingsPage() {
                         }
                         disabled={modal.loading}
                         required
+                        {...persianValidity('لطفاً رمز عبور را وارد کنید.')}
                       />
                       <div className="form-text">برای تأیید هویت مجدد، رمز ورود فعلی را وارد کنید.</div>
                     </div>

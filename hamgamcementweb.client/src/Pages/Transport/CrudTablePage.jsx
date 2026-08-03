@@ -1,8 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import Icon from '../../components/common/Icon'
 import JalaliDateField from '../../components/common/JalaliDateField'
-import { useModalKeyboardShortcuts } from '../../hooks/useModalKeyboardShortcuts'
+import {
+  useModalAutoFocus,
+  useModalKeyboardShortcuts,
+  usePageCreateShortcut,
+} from '../../hooks/useModalKeyboardShortcuts'
 import { formatJalaliDate } from '../../lib/afghanSolarCalendar'
+import { showAppToast } from '../../lib/appToast'
 import DataTable from '../../lib/dataTableSetup'
 import {
   amountRender,
@@ -10,6 +15,7 @@ import {
   dataTableLanguage,
   formatAmount,
 } from '../../lib/dataTableOptions'
+import { persianValidity, validateFormPersian } from '../../lib/persianFormValidity'
 import { usePageCrud } from '../../permissions/usePageCrud'
 
 export { dataTableLanguage, formatAmount }
@@ -101,6 +107,14 @@ function formToPayload(fields, form) {
   return payload
 }
 
+function fieldRequiredMessage(field) {
+  if (field.requiredMessage) return field.requiredMessage
+  if (field.type === 'select' || field.type === 'jalali-date') {
+    return `لطفاً ${field.label} را انتخاب کنید.`
+  }
+  return `لطفاً ${field.label} را وارد کنید.`
+}
+
 function FieldInput({ field, value, onChange, optionsMap, readOnly }) {
   if (field.type === 'readonly' || readOnly) {
     return (
@@ -114,11 +128,19 @@ function FieldInput({ field, value, onChange, optionsMap, readOnly }) {
     )
   }
 
+  const validityProps = field.required
+    ? persianValidity(fieldRequiredMessage(field))
+    : {}
+
   const common = {
     className: field.type === 'select' ? 'form-select' : 'form-control',
     value: value ?? '',
     required: field.required,
-    onChange: (e) => onChange(field.name, e.target.value),
+    ...validityProps,
+    onChange: (e) => {
+      e.target.setCustomValidity('')
+      onChange(field.name, e.target.value)
+    },
   }
 
   switch (field.type) {
@@ -186,6 +208,7 @@ function FieldInput({ field, value, onChange, optionsMap, readOnly }) {
           value={value}
           onChange={(next) => onChange(field.name, next)}
           required={field.required}
+          requiredMessage={field.required ? fieldRequiredMessage(field) : undefined}
           placeholder={field.placeholder}
         />
       )
@@ -287,8 +310,9 @@ function CrudTablePage({
     setSubmitting(false)
   }, [])
 
-  const modalOpen = showCreate || editRow || deleteRow
-  const canSaveForm = showCreate || editRow
+  const modalOpen = showCreate || Boolean(editRow) || Boolean(deleteRow)
+  const formModalOpen = showCreate || Boolean(editRow)
+  const canCreateAction = !permissionsEnabled || canCreate
 
   const triggerSave = useCallback(() => {
     if (!submitting) {
@@ -297,10 +321,24 @@ function CrudTablePage({
   }, [submitting])
 
   useModalKeyboardShortcuts({
-    open: modalOpen,
+    open: formModalOpen,
     onClose: closeModals,
-    onSave: canSaveForm ? triggerSave : undefined,
+    onSave: triggerSave,
+    formRef,
   })
+
+  useModalKeyboardShortcuts({
+    open: Boolean(deleteRow),
+    onClose: closeModals,
+  })
+
+  usePageCreateShortcut({
+    enabled: canCreateAction,
+    onNew: openCreate,
+    isBlocked: modalOpen,
+  })
+
+  useModalAutoFocus({ open: formModalOpen, formRef })
 
   const handleFieldChange = useCallback(
     (name, value) => {
@@ -329,6 +367,14 @@ function CrudTablePage({
 
   const handleSubmit = async (event) => {
     event.preventDefault()
+    const formEl = event.currentTarget
+    const message = validateFormPersian(formEl)
+    if (message) {
+      showAppToast(message)
+      formEl.reportValidity()
+      return
+    }
+
     setSubmitting(true)
     setFormError('')
 
@@ -454,7 +500,7 @@ function CrudTablePage({
             <button
               type="button"
               className="btn btn-sm btn-accent btn-users-new d-inline-flex align-items-center gap-2"
-              title={createLabel ?? 'ایجاد'}
+              title={`${createLabel ?? 'ایجاد'} (Ctrl+N)`}
               onClick={openCreate}
             >
               <Icon name="plus" />
@@ -511,7 +557,7 @@ function CrudTablePage({
             data-bs-focus="false"
           >
             <div className="modal-dialog modal-dialog-centered modal-dialog-scrollable modal-lg">
-              <form className="modal-content" ref={formRef} onSubmit={handleSubmit}>
+              <form className="modal-content" ref={formRef} onSubmit={handleSubmit} noValidate>
                 <div className="modal-header">
                   <h5 className="modal-title">{formModalTitle}</h5>
                   <button
@@ -550,7 +596,7 @@ function CrudTablePage({
                         </div>
                       ) : (
                         <div className={`col-md-${field.col ?? 12}`} key={field.name}>
-                          <label className="form-label">{field.label}</label>
+                          <label className="form-label mb-1">{field.label}</label>
                           <FieldInput
                             field={field}
                             value={form[field.name]}

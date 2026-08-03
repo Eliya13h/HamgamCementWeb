@@ -1,3 +1,5 @@
+import { PERSIAN_VALIDATION } from '../../lib/persianFormValidity'
+
 /** فیلد عددی با پیشوند (مثلاً سمبل واحد اندازه‌گیری) */
 function PrefixNumberField({
   prefix = '',
@@ -7,6 +9,7 @@ function PrefixNumberField({
   max,
   step = 'any',
   required = false,
+  requiredMessage = PERSIAN_VALIDATION.required,
   disabled = false,
   inputClassName = '',
   className = '',
@@ -30,6 +33,17 @@ function PrefixNumberField({
           onChange={(e) => onChange(e.target.value)}
           required={required}
           disabled={disabled}
+          {...(required
+            ? {
+                'data-required-message': requiredMessage,
+                onInvalid: (event) => {
+                  event.target.setCustomValidity(requiredMessage)
+                },
+                onInput: (event) => {
+                  event.target.setCustomValidity('')
+                },
+              }
+            : {})}
         />
       </div>
     </div>

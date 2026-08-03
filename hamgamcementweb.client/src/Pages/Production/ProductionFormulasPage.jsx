@@ -7,6 +7,7 @@ import { tipProps, useBootstrapTooltips } from '../../hooks/useBootstrapTooltips
 import {
   useModalKeyboardShortcuts,
   usePageCreateShortcut,
+  useModalAutoFocus,
 } from '../../hooks/useModalKeyboardShortcuts'
 import { showAppToast } from '../../lib/appToast'
 import { persianValidity, validateFormPersian } from '../../lib/persianFormValidity'
@@ -566,6 +567,8 @@ function ProductionFormulasPage() {
     isBlocked: showForm || Boolean(deleteRow),
   })
 
+  useModalAutoFocus({ open: showForm, formRef })
+
   const costTotal = useMemo(
     () => form.costLines.reduce((sum, line) => sum + (Number(line.amount) || 0), 0),
     [form.costLines],
@@ -669,7 +672,7 @@ function ProductionFormulasPage() {
               type="button"
               className="btn btn-primary d-inline-flex align-items-center gap-2"
               onClick={openCreate}
-              {...tipProps('میانبر: Ctrl + Space')}
+              {...tipProps('میانبر: Ctrl+N / Ctrl+Space')}
             >
               <Icon name="plus" />
               <span>فرمول جدید</span>

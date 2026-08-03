@@ -1,6 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import Icon from '../../components/common/Icon'
+import {
+  useModalKeyboardShortcuts,
+  usePageCreateShortcut,
+  useModalAutoFocus,
+} from '../../hooks/useModalKeyboardShortcuts'
+import { showAppToast } from '../../lib/appToast'
 import DataTable from '../../lib/dataTableSetup'
+import { persianValidity, validateFormPersian } from '../../lib/persianFormValidity'
 import { usePageCrud } from '../../permissions/usePageCrud'
 import {
   createCurrency,
@@ -54,6 +61,9 @@ function formatDate(value) {
 
 function CurrenciesListPage() {
   const tableRef = useRef(null)
+  const createFormRef = useRef(null)
+  const editFormRef = useRef(null)
+  const rateFormRef = useRef(null)
   const { canCreate, canEdit, canDelete, can } = usePageCrud('/currencies/list')
   const [loadError, setLoadError] = useState('')
   const [baseCurrency, setBaseCurrency] = useState(null)
@@ -144,8 +154,61 @@ function CurrenciesListPage() {
     setSubmitting(false)
   }
 
+  const triggerCreateSave = useCallback(() => {
+    if (!submitting) createFormRef.current?.requestSubmit()
+  }, [submitting])
+
+  const triggerEditSave = useCallback(() => {
+    if (!submitting) editFormRef.current?.requestSubmit()
+  }, [submitting])
+
+  const triggerRateSave = useCallback(() => {
+    if (!submitting) rateFormRef.current?.requestSubmit()
+  }, [submitting])
+
+  useModalKeyboardShortcuts({
+    open: showCreate,
+    onClose: closeModals,
+    onSave: triggerCreateSave,
+    formRef: createFormRef,
+  })
+  useModalKeyboardShortcuts({
+    open: Boolean(editRow),
+    onClose: closeModals,
+    onSave: triggerEditSave,
+    formRef: editFormRef,
+  })
+  useModalKeyboardShortcuts({
+    open: Boolean(rateRow),
+    onClose: closeModals,
+    onSave: triggerRateSave,
+    formRef: rateFormRef,
+  })
+  useModalKeyboardShortcuts({ open: Boolean(deleteRow), onClose: closeModals })
+  useModalKeyboardShortcuts({ open: Boolean(setBaseRow), onClose: closeModals })
+  usePageCreateShortcut({
+    enabled: canCreate,
+    onNew: openCreate,
+    isBlocked:
+      showCreate ||
+      Boolean(editRow) ||
+      Boolean(deleteRow) ||
+      Boolean(rateRow) ||
+      Boolean(setBaseRow),
+  })
+  useModalAutoFocus({ open: showCreate, formRef: createFormRef })
+  useModalAutoFocus({ open: Boolean(editRow), formRef: editFormRef })
+  useModalAutoFocus({ open: Boolean(rateRow), formRef: rateFormRef })
+
   const handleCreateSubmit = async (event) => {
     event.preventDefault()
+    const formEl = event.currentTarget
+    const message = validateFormPersian(formEl)
+    if (message) {
+      showAppToast(message)
+      formEl.reportValidity()
+      return
+    }
     setSubmitting(true)
     setFormError('')
 
@@ -177,6 +240,13 @@ function CurrenciesListPage() {
 
   const handleEditSubmit = async (event) => {
     event.preventDefault()
+    const formEl = event.currentTarget
+    const message = validateFormPersian(formEl)
+    if (message) {
+      showAppToast(message)
+      formEl.reportValidity()
+      return
+    }
     if (!editRow) return
 
     setSubmitting(true)
@@ -203,6 +273,13 @@ function CurrenciesListPage() {
 
   const handleRateSubmit = async (event) => {
     event.preventDefault()
+    const formEl = event.currentTarget
+    const message = validateFormPersian(formEl)
+    if (message) {
+      showAppToast(message)
+      formEl.reportValidity()
+      return
+    }
     if (!rateRow) return
 
     setSubmitting(true)
@@ -411,7 +488,7 @@ function CurrenciesListPage() {
             <button
               type="button"
               className="btn btn-sm btn-accent btn-users-new d-inline-flex align-items-center gap-2"
-              title="ارز جدید"
+              title="ارز جدید (Ctrl+N)"
               onClick={openCreate}
             >
               <Icon name="plus" />
@@ -456,50 +533,65 @@ function CurrenciesListPage() {
         <>
           <div className="modal-backdrop show users-modal-backdrop" onClick={closeModals} />
           <div className="modal show d-block users-modal" tabIndex="-1" role="dialog">
-            <div className="modal-dialog modal-dialog-centered modal-dialog-scrollable">
-              <form className="modal-content" onSubmit={handleCreateSubmit}>
+            <div className="modal-dialog modal-dialog-centered modal-dialog-scrollable modal-lg">
+              <form
+                ref={createFormRef}
+                className="modal-content"
+                onSubmit={handleCreateSubmit}
+                noValidate
+              >
                 <div className="modal-header">
                   <h5 className="modal-title">ارز جدید</h5>
                   <button type="button" className="btn-close" aria-label="بستن" onClick={closeModals} />
                 </div>
                 <div className="modal-body">
                   {formError && <div className="alert alert-danger py-2">{formError}</div>}
-                  <div className="row g-3 mb-3">
+                  <div className="row g-3">
                     <div className="col-md-6">
-                      <label className="form-label">نام</label>
+                      <label className="form-label mb-1">نام</label>
                       <input
                         type="text"
                         className="form-control"
                         value={createForm.name}
-                        onChange={(e) => setCreateForm((p) => ({ ...p, name: e.target.value }))}
                         required
+                        {...persianValidity('لطفاً نام ارز را وارد کنید.')}
+                        onChange={(e) => {
+                          e.target.setCustomValidity('')
+                          setCreateForm((p) => ({ ...p, name: e.target.value }))
+                        }}
                       />
                     </div>
                     <div className="col-md-6">
-                      <label className="form-label">نماد</label>
+                      <label className="form-label mb-1">نماد</label>
                       <input
                         type="text"
                         className="form-control"
                         value={createForm.symbol}
-                        onChange={(e) => setCreateForm((p) => ({ ...p, symbol: e.target.value }))}
                         required
+                        {...persianValidity('لطفاً نماد ارز را وارد کنید.')}
+                        onChange={(e) => {
+                          e.target.setCustomValidity('')
+                          setCreateForm((p) => ({ ...p, symbol: e.target.value }))
+                        }}
                       />
                     </div>
-                  </div>
-                  <div className="row g-3 mb-3">
                     <div className="col-md-6">
-                      <label className="form-label">کد (ISO)</label>
+                      <label className="form-label mb-1">کد (ISO)</label>
                       <input
                         type="text"
                         className="form-control text-uppercase"
                         maxLength={3}
                         value={createForm.currencyCode}
-                        onChange={(e) => setCreateForm((p) => ({ ...p, currencyCode: e.target.value }))}
                         required
+                        {...persianValidity('لطفاً کد ارز را وارد کنید.')}
+                        onChange={(e) => {
+                          e.target.setCustomValidity('')
+                          setCreateForm((p) => ({ ...p, currencyCode: e.target.value }))
+                        }}
                       />
                     </div>
                     <div className="col-md-6">
-                      <label className="form-label">تعداد اعشار</label>
+                      <label className="form-label mb-1">تعداد اعشار</label>
                       <input
                         type="number"
                         min={0}
@@ -509,71 +601,75 @@ function CurrenciesListPage() {
                         onChange={(e) => setCreateForm((p) => ({ ...p, decimalPlaces: e.target.value }))}
                       />
                     </div>
-                  </div>
-                  <div className="mb-3">
-                    <label className="form-label">توضیحات</label>
-                    <input
-                      type="text"
-                      className="form-control"
-                      value={createForm.description}
-                      onChange={(e) => setCreateForm((p) => ({ ...p, description: e.target.value }))}
-                    />
-                  </div>
-                  {!hasBaseCurrency && (
-                    <div className="form-check form-switch mb-3">
+                    <div className="col-12">
+                      <label className="form-label mb-1">توضیحات</label>
                       <input
-                        className="form-check-input"
-                        type="checkbox"
-                        id="create-currency-is-base"
-                        checked={createForm.isBaseCurrency}
-                        onChange={(e) =>
-                          setCreateForm((p) => ({ ...p, isBaseCurrency: e.target.checked }))
-                        }
+                        type="text"
+                        className="form-control"
+                        value={createForm.description}
+                        onChange={(e) => setCreateForm((p) => ({ ...p, description: e.target.value }))}
                       />
-                      <label className="form-check-label" htmlFor="create-currency-is-base">
-                        ارز پایه سیستم
-                      </label>
                     </div>
-                  )}
-                  {!createForm.isBaseCurrency && hasBaseCurrency && (
-                    <>
-                      <div className="mb-3">
-                        <label className="form-label">نرخ اولیه ({rateHint})</label>
-                        <input
-                          type="number"
-                          step="any"
-                          min="0"
-                          className="form-control"
-                          value={createForm.baseUnitsPerUnit}
-                          onChange={(e) =>
-                            setCreateForm((p) => ({ ...p, baseUnitsPerUnit: e.target.value }))
-                          }
-                        />
+                    {!hasBaseCurrency && (
+                      <div className="col-12">
+                        <div className="form-check form-switch">
+                          <input
+                            className="form-check-input"
+                            type="checkbox"
+                            id="create-currency-is-base"
+                            checked={createForm.isBaseCurrency}
+                            onChange={(e) =>
+                              setCreateForm((p) => ({ ...p, isBaseCurrency: e.target.checked }))
+                            }
+                          />
+                          <label className="form-check-label" htmlFor="create-currency-is-base">
+                            ارز پایه سیستم
+                          </label>
+                        </div>
                       </div>
-                      <div className="mb-3">
-                        <label className="form-label">دلیل تغییر</label>
+                    )}
+                    {!createForm.isBaseCurrency && hasBaseCurrency && (
+                      <>
+                        <div className="col-md-6">
+                          <label className="form-label mb-1">نرخ اولیه ({rateHint})</label>
+                          <input
+                            type="number"
+                            step="any"
+                            min="0"
+                            className="form-control"
+                            value={createForm.baseUnitsPerUnit}
+                            onChange={(e) =>
+                              setCreateForm((p) => ({ ...p, baseUnitsPerUnit: e.target.value }))
+                            }
+                          />
+                        </div>
+                        <div className="col-md-6">
+                          <label className="form-label mb-1">دلیل تغییر</label>
+                          <input
+                            type="text"
+                            className="form-control"
+                            value={createForm.changeReason}
+                            onChange={(e) =>
+                              setCreateForm((p) => ({ ...p, changeReason: e.target.value }))
+                            }
+                          />
+                        </div>
+                      </>
+                    )}
+                    <div className="col-12">
+                      <div className="form-check form-switch">
                         <input
-                          type="text"
-                          className="form-control"
-                          value={createForm.changeReason}
-                          onChange={(e) =>
-                            setCreateForm((p) => ({ ...p, changeReason: e.target.value }))
-                          }
+                          className="form-check-input"
+                          type="checkbox"
+                          id="create-currency-is-active"
+                          checked={createForm.isActive}
+                          onChange={(e) => setCreateForm((p) => ({ ...p, isActive: e.target.checked }))}
                         />
+                        <label className="form-check-label" htmlFor="create-currency-is-active">
+                          فعال
+                        </label>
                       </div>
-                    </>
-                  )}
-                  <div className="form-check form-switch">
-                    <input
-                      className="form-check-input"
-                      type="checkbox"
-                      id="create-currency-is-active"
-                      checked={createForm.isActive}
-                      onChange={(e) => setCreateForm((p) => ({ ...p, isActive: e.target.checked }))}
-                    />
-                    <label className="form-check-label" htmlFor="create-currency-is-active">
-                      فعال
-                    </label>
+                    </div>
                   </div>
                 </div>
                 <div className="modal-footer">
@@ -594,50 +690,65 @@ function CurrenciesListPage() {
         <>
           <div className="modal-backdrop show users-modal-backdrop" onClick={closeModals} />
           <div className="modal show d-block users-modal" tabIndex="-1" role="dialog">
-            <div className="modal-dialog modal-dialog-centered modal-dialog-scrollable">
-              <form className="modal-content" onSubmit={handleEditSubmit}>
+            <div className="modal-dialog modal-dialog-centered modal-dialog-scrollable modal-lg">
+              <form
+                ref={editFormRef}
+                className="modal-content"
+                onSubmit={handleEditSubmit}
+                noValidate
+              >
                 <div className="modal-header">
                   <h5 className="modal-title">ویرایش ارز</h5>
                   <button type="button" className="btn-close" aria-label="بستن" onClick={closeModals} />
                 </div>
                 <div className="modal-body">
                   {formError && <div className="alert alert-danger py-2">{formError}</div>}
-                  <div className="row g-3 mb-3">
+                  <div className="row g-3">
                     <div className="col-md-6">
-                      <label className="form-label">نام</label>
+                      <label className="form-label mb-1">نام</label>
                       <input
                         type="text"
                         className="form-control"
                         value={editForm.name}
-                        onChange={(e) => setEditForm((p) => ({ ...p, name: e.target.value }))}
                         required
+                        {...persianValidity('لطفاً نام ارز را وارد کنید.')}
+                        onChange={(e) => {
+                          e.target.setCustomValidity('')
+                          setEditForm((p) => ({ ...p, name: e.target.value }))
+                        }}
                       />
                     </div>
                     <div className="col-md-6">
-                      <label className="form-label">نماد</label>
+                      <label className="form-label mb-1">نماد</label>
                       <input
                         type="text"
                         className="form-control"
                         value={editForm.symbol}
-                        onChange={(e) => setEditForm((p) => ({ ...p, symbol: e.target.value }))}
                         required
+                        {...persianValidity('لطفاً نماد ارز را وارد کنید.')}
+                        onChange={(e) => {
+                          e.target.setCustomValidity('')
+                          setEditForm((p) => ({ ...p, symbol: e.target.value }))
+                        }}
                       />
                     </div>
-                  </div>
-                  <div className="row g-3 mb-3">
                     <div className="col-md-6">
-                      <label className="form-label">کد (ISO)</label>
+                      <label className="form-label mb-1">کد (ISO)</label>
                       <input
                         type="text"
                         className="form-control text-uppercase"
                         maxLength={3}
                         value={editForm.currencyCode}
-                        onChange={(e) => setEditForm((p) => ({ ...p, currencyCode: e.target.value }))}
                         required
+                        {...persianValidity('لطفاً کد ارز را وارد کنید.')}
+                        onChange={(e) => {
+                          e.target.setCustomValidity('')
+                          setEditForm((p) => ({ ...p, currencyCode: e.target.value }))
+                        }}
                       />
                     </div>
                     <div className="col-md-6">
-                      <label className="form-label">تعداد اعشار</label>
+                      <label className="form-label mb-1">تعداد اعشار</label>
                       <input
                         type="number"
                         min={0}
@@ -647,30 +758,34 @@ function CurrenciesListPage() {
                         onChange={(e) => setEditForm((p) => ({ ...p, decimalPlaces: e.target.value }))}
                       />
                     </div>
-                  </div>
-                  <div className="mb-3">
-                    <label className="form-label">توضیحات</label>
-                    <input
-                      type="text"
-                      className="form-control"
-                      value={editForm.description}
-                      onChange={(e) => setEditForm((p) => ({ ...p, description: e.target.value }))}
-                    />
-                  </div>
-                  {editForm.isBaseCurrency && (
-                    <p className="text-muted small">این ارز، ارز پایه سیستم است.</p>
-                  )}
-                  <div className="form-check form-switch">
-                    <input
-                      className="form-check-input"
-                      type="checkbox"
-                      id="edit-currency-is-active"
-                      checked={editForm.isActive}
-                      onChange={(e) => setEditForm((p) => ({ ...p, isActive: e.target.checked }))}
-                    />
-                    <label className="form-check-label" htmlFor="edit-currency-is-active">
-                      فعال
-                    </label>
+                    <div className="col-12">
+                      <label className="form-label mb-1">توضیحات</label>
+                      <input
+                        type="text"
+                        className="form-control"
+                        value={editForm.description}
+                        onChange={(e) => setEditForm((p) => ({ ...p, description: e.target.value }))}
+                      />
+                    </div>
+                    {editForm.isBaseCurrency && (
+                      <div className="col-12">
+                        <p className="text-muted small mb-0">این ارز، ارز پایه سیستم است.</p>
+                      </div>
+                    )}
+                    <div className="col-12">
+                      <div className="form-check form-switch">
+                        <input
+                          className="form-check-input"
+                          type="checkbox"
+                          id="edit-currency-is-active"
+                          checked={editForm.isActive}
+                          onChange={(e) => setEditForm((p) => ({ ...p, isActive: e.target.checked }))}
+                        />
+                        <label className="form-check-label" htmlFor="edit-currency-is-active">
+                          فعال
+                        </label>
+                      </div>
+                    </div>
                   </div>
                 </div>
                 <div className="modal-footer">
@@ -692,7 +807,12 @@ function CurrenciesListPage() {
           <div className="modal-backdrop show users-modal-backdrop" onClick={closeModals} />
           <div className="modal show d-block users-modal" tabIndex="-1" role="dialog">
             <div className="modal-dialog modal-dialog-centered modal-dialog-scrollable">
-              <form className="modal-content" onSubmit={handleRateSubmit}>
+              <form
+                ref={rateFormRef}
+                className="modal-content"
+                onSubmit={handleRateSubmit}
+                noValidate
+              >
                 <div className="modal-header">
                   <h5 className="modal-title">ثبت نرخ — {rateRow.name}</h5>
                   <button type="button" className="btn-close" aria-label="بستن" onClick={closeModals} />
@@ -708,30 +828,34 @@ function CurrenciesListPage() {
                       )}
                     </p>
                   )}
-                  <div className="mb-3">
-                    <label className="form-label">نرخ جدید</label>
-                    <input
-                      type="number"
-                      step="any"
-                      min="0"
-                      className="form-control"
-                      value={rateForm.baseUnitsPerUnit}
-                      onChange={(e) =>
-                        setRateForm((p) => ({ ...p, baseUnitsPerUnit: e.target.value }))
-                      }
-                      required
-                    />
-                  </div>
-                  <div className="mb-3">
-                    <label className="form-label">دلیل تغییر</label>
-                    <input
-                      type="text"
-                      className="form-control"
-                      value={rateForm.changeReason}
-                      onChange={(e) =>
-                        setRateForm((p) => ({ ...p, changeReason: e.target.value }))
-                      }
-                    />
+                  <div className="row g-3">
+                    <div className="col-12">
+                      <label className="form-label mb-1">نرخ جدید</label>
+                      <input
+                        type="number"
+                        step="any"
+                        min="0"
+                        className="form-control"
+                        value={rateForm.baseUnitsPerUnit}
+                        required
+                        {...persianValidity('لطفاً نرخ جدید را وارد کنید.')}
+                        onChange={(e) => {
+                          e.target.setCustomValidity('')
+                          setRateForm((p) => ({ ...p, baseUnitsPerUnit: e.target.value }))
+                        }}
+                      />
+                    </div>
+                    <div className="col-12">
+                      <label className="form-label mb-1">دلیل تغییر</label>
+                      <input
+                        type="text"
+                        className="form-control"
+                        value={rateForm.changeReason}
+                        onChange={(e) =>
+                          setRateForm((p) => ({ ...p, changeReason: e.target.value }))
+                        }
+                      />
+                    </div>
                   </div>
                 </div>
                 <div className="modal-footer">

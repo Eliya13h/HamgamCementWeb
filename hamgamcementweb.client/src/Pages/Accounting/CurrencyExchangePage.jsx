@@ -1,8 +1,15 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import Icon from '../../components/common/Icon'
 import JalaliDateField from '../../components/common/JalaliDateField'
+import {
+  useModalAutoFocus,
+  useModalKeyboardShortcuts,
+  usePageCreateShortcut,
+} from '../../hooks/useModalKeyboardShortcuts'
+import { showAppToast } from '../../lib/appToast'
 import DataTable from '../../lib/dataTableSetup'
 import { createServerSideTableOptions, formatAmount } from '../../lib/dataTableOptions'
+import { persianValidity, validateFormPersian } from '../../lib/persianFormValidity'
 import { usePageCrud } from '../../permissions/usePageCrud'
 import { fetchCurrencyRates } from '../../services/currenciesApi'
 import {
@@ -58,6 +65,7 @@ function systemCrossRate(fromCurrencyId, toCurrencyId, baseCurrencyId, ratesMap)
 function CurrencyExchangePage() {
   const { canCreate, canDelete } = usePageCrud('/accounting/currency-exchange')
   const tableRef = useRef(null)
+  const formRef = useRef(null)
   const [loadError, setLoadError] = useState('')
   const [formError, setFormError] = useState('')
   const [message, setMessage] = useState('')
@@ -187,7 +195,7 @@ function CurrencyExchangePage() {
     tableRef.current?.dt()?.ajax.reload(null, false)
   }, [])
 
-  const openCreate = () => {
+  const openCreate = useCallback(() => {
     setFormError('')
     setMessage('')
     setRateTouched(false)
@@ -202,15 +210,15 @@ function CurrencyExchangePage() {
     }
     setForm(applySystemRate(initial))
     setShowForm(true)
-  }
+  }, [applySystemRate, cashBoxes, currencies])
 
-  const closeModals = () => {
+  const closeModals = useCallback(() => {
     setShowForm(false)
     setDeleteRow(null)
     setFormError('')
     setSubmitting(false)
     setRateTouched(false)
-  }
+  }, [])
 
   const handleFromAmountChange = (value) => {
     setForm((prev) => {
@@ -262,6 +270,14 @@ function CurrencyExchangePage() {
 
   const handleSubmit = async (event) => {
     event.preventDefault()
+    const formEl = event.currentTarget
+    const message = validateFormPersian(formEl)
+    if (message) {
+      showAppToast(message)
+      formEl.reportValidity()
+      return
+    }
+
     setSubmitting(true)
     setFormError('')
     setMessage('')
@@ -342,6 +358,32 @@ function CurrencyExchangePage() {
       setSubmitting(false)
     }
   }
+
+  const triggerSave = useCallback(() => {
+    if (!submitting) {
+      formRef.current?.requestSubmit()
+    }
+  }, [submitting])
+
+  useModalKeyboardShortcuts({
+    open: showForm,
+    onClose: closeModals,
+    onSave: triggerSave,
+    formRef,
+  })
+
+  useModalKeyboardShortcuts({
+    open: Boolean(deleteRow),
+    onClose: closeModals,
+  })
+
+  usePageCreateShortcut({
+    enabled: canCreate,
+    onNew: openCreate,
+    isBlocked: showForm || Boolean(deleteRow),
+  })
+
+  useModalAutoFocus({ open: showForm, formRef })
 
   const tableOptions = useMemo(
     () =>
@@ -444,6 +486,7 @@ function CurrencyExchangePage() {
             <button
               type="button"
               className="btn btn-sm btn-accent btn-users-new d-inline-flex align-items-center gap-2"
+              title="ثبت تبدیل ارز (Ctrl+N)"
               onClick={openCreate}
             >
               <Icon name="plus" />
@@ -500,7 +543,12 @@ function CurrencyExchangePage() {
             data-bs-focus="false"
           >
             <div className="modal-dialog modal-dialog-centered modal-dialog-scrollable modal-lg">
-              <form className="modal-content" onSubmit={handleSubmit}>
+              <form
+                ref={formRef}
+                className="modal-content"
+                noValidate
+                onSubmit={handleSubmit}
+              >
                 <div className="modal-header">
                   <h5 className="modal-title">ثبت خرید / فروش ارز</h5>
                   <button
@@ -524,6 +572,7 @@ function CurrencyExchangePage() {
                           setForm((prev) => ({ ...prev, exchangeDate: value }))
                         }}
                         required
+                        requiredMessage="لطفاً تاریخ را انتخاب کنید."
                       />
                     </div>
                     <div className="col-md-8 d-flex align-items-end">
@@ -558,6 +607,7 @@ function CurrencyExchangePage() {
                         onChange={(e) =>
                           handleCurrencyChange('fromCurrencyId', e.target.value)
                         }
+                        {...persianValidity('لطفاً ارز مبدأ را انتخاب کنید.')}
                       >
                         <option value="">انتخاب کنید</option>
                         {currencies.map((c) => (
@@ -576,6 +626,7 @@ function CurrencyExchangePage() {
                         onChange={(e) =>
                           handleCurrencyChange('toCurrencyId', e.target.value)
                         }
+                        {...persianValidity('لطفاً ارز مقصد را انتخاب کنید.')}
                       >
                         <option value="">انتخاب کنید</option>
                         {currencies.map((c) => (
@@ -596,6 +647,7 @@ function CurrencyExchangePage() {
                         value={form.fromAmount}
                         required
                         onChange={(e) => handleFromAmountChange(e.target.value)}
+                        {...persianValidity('لطفاً مبلغ مبدأ را وارد کنید.')}
                       />
                     </div>
                     <div className="col-md-4">
@@ -617,6 +669,7 @@ function CurrencyExchangePage() {
                         value={form.dealRate}
                         required
                         onChange={(e) => handleDealRateChange(e.target.value)}
+                        {...persianValidity('لطفاً نرخ تبدیل را وارد کنید.')}
                       />
                       <div className="form-text">
                         چند واحد {toCode || 'مقصد'} به‌ازای ۱ واحد{' '}
@@ -633,6 +686,7 @@ function CurrencyExchangePage() {
                         value={form.toAmount}
                         required
                         onChange={(e) => handleToAmountChange(e.target.value)}
+                        {...persianValidity('لطفاً مبلغ مقصد را وارد کنید.')}
                       />
                       <div className="form-text">
                         در صورت نیاز قابل ویرایش است
@@ -673,6 +727,7 @@ function CurrencyExchangePage() {
                               fromCashBoxId: e.target.value,
                             }))
                           }
+                          {...persianValidity('لطفاً صندوق مبدأ را انتخاب کنید.')}
                         >
                           <option value="">انتخاب کنید</option>
                           {cashBoxes.map((b) => (
@@ -692,6 +747,7 @@ function CurrencyExchangePage() {
                               fromBankAccountId: e.target.value,
                             }))
                           }
+                          {...persianValidity('لطفاً بانک مبدأ را انتخاب کنید.')}
                         >
                           <option value="">انتخاب کنید</option>
                           {banks.map((b) => (
@@ -733,6 +789,7 @@ function CurrencyExchangePage() {
                               toCashBoxId: e.target.value,
                             }))
                           }
+                          {...persianValidity('لطفاً صندوق مقصد را انتخاب کنید.')}
                         >
                           <option value="">انتخاب کنید</option>
                           {cashBoxes.map((b) => (
@@ -752,6 +809,7 @@ function CurrencyExchangePage() {
                               toBankAccountId: e.target.value,
                             }))
                           }
+                          {...persianValidity('لطفاً بانک مقصد را انتخاب کنید.')}
                         >
                           <option value="">انتخاب کنید</option>
                           {banks.map((b) => (

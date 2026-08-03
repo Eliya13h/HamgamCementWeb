@@ -1,4 +1,10 @@
-import { useCallback, useState } from 'react'
+import { useCallback, useRef, useState } from 'react'
+import {
+  useModalKeyboardShortcuts,
+  useModalAutoFocus,
+} from '../../hooks/useModalKeyboardShortcuts'
+import { showAppToast } from '../../lib/appToast'
+import { persianValidity, validateFormPersian } from '../../lib/persianFormValidity'
 import CrudTablePage, { formatJalaliDate } from '../Transport/CrudTablePage'
 import { fetchCurrencyOptions } from '../../services/transportApi'
 import { fetchSupplierOptions } from '../../services/transactionsApi'
@@ -117,6 +123,7 @@ const fields = [
 ]
 
 function FixedAssetsPage() {
+  const disposeFormRef = useRef(null)
   const [busy, setBusy] = useState(false)
   const [message, setMessage] = useState('')
   const [error, setError] = useState('')
@@ -126,6 +133,10 @@ function FixedAssetsPage() {
     () => new Date().toISOString().slice(0, 10),
   )
   const [reloadKey, setReloadKey] = useState(0)
+
+  const closeDispose = useCallback(() => {
+    setDisposeRow(null)
+  }, [])
 
   const runDepreciation = useCallback(async () => {
     if (busy) return
@@ -146,25 +157,53 @@ function FixedAssetsPage() {
     }
   }, [busy])
 
-  const submitDispose = useCallback(async () => {
-    if (!disposeRow || busy) return
-    setBusy(true)
-    setError('')
-    setMessage('')
-    try {
-      const result = await fixedAssetsApi.dispose(disposeRow.fixedAssetId, {
-        disposalDate: disposeDate,
-        disposalAmount: Number(disposeAmount) || 0,
-      })
-      setMessage(result.message ?? 'فروش/اسقاط ثبت شد.')
-      setDisposeRow(null)
-      setReloadKey((k) => k + 1)
-    } catch (err) {
-      setError(err.message)
-    } finally {
-      setBusy(false)
-    }
-  }, [busy, disposeRow, disposeAmount, disposeDate])
+  const submitDispose = useCallback(
+    async (event) => {
+      event?.preventDefault?.()
+      if (!disposeRow || busy) return
+
+      const formEl = disposeFormRef.current
+      if (formEl) {
+        const validationMessage = validateFormPersian(formEl)
+        if (validationMessage) {
+          showAppToast(validationMessage)
+          formEl.reportValidity()
+          return
+        }
+      }
+
+      setBusy(true)
+      setError('')
+      setMessage('')
+      try {
+        const result = await fixedAssetsApi.dispose(disposeRow.fixedAssetId, {
+          disposalDate: disposeDate,
+          disposalAmount: Number(disposeAmount) || 0,
+        })
+        setMessage(result.message ?? 'فروش/اسقاط ثبت شد.')
+        setDisposeRow(null)
+        setReloadKey((k) => k + 1)
+      } catch (err) {
+        setError(err.message)
+      } finally {
+        setBusy(false)
+      }
+    },
+    [busy, disposeRow, disposeAmount, disposeDate],
+  )
+
+  const triggerDisposeSave = useCallback(() => {
+    if (!busy) disposeFormRef.current?.requestSubmit()
+  }, [busy])
+
+  useModalKeyboardShortcuts({
+    open: Boolean(disposeRow),
+    onClose: closeDispose,
+    onSave: triggerDisposeSave,
+    formRef: disposeFormRef,
+  })
+
+  useModalAutoFocus({ open: Boolean(disposeRow), formRef: disposeFormRef })
 
   return (
     <div className="users-page">
@@ -224,60 +263,79 @@ function FixedAssetsPage() {
       </div>
 
       {disposeRow && (
-        <div className="modal fade show d-block" tabIndex={-1} role="dialog">
-          <div className="modal-dialog modal-dialog-centered">
-            <div className="modal-content">
-              <div className="modal-header">
-                <h5 className="modal-title">فروش / اسقاط — {disposeRow.name}</h5>
-                <button
-                  type="button"
-                  className="btn-close"
-                  onClick={() => setDisposeRow(null)}
-                />
-              </div>
-              <div className="modal-body">
-                <div className="mb-3">
-                  <label className="form-label">تاریخ</label>
-                  <input
-                    type="date"
-                    className="form-control"
-                    value={disposeDate}
-                    onChange={(e) => setDisposeDate(e.target.value)}
+        <>
+          <div
+            className="modal-backdrop show users-modal-backdrop"
+            onClick={closeDispose}
+          />
+          <div
+            className="modal show d-block users-modal"
+            tabIndex={-1}
+            role="dialog"
+            data-bs-focus="false"
+          >
+            <div className="modal-dialog modal-dialog-centered">
+              <form
+                ref={disposeFormRef}
+                className="modal-content"
+                onSubmit={submitDispose}
+                noValidate
+              >
+                <div className="modal-header">
+                  <h5 className="modal-title">فروش / اسقاط — {disposeRow.name}</h5>
+                  <button
+                    type="button"
+                    className="btn-close"
+                    aria-label="بستن"
+                    onClick={closeDispose}
                   />
                 </div>
-                <div className="mb-0">
-                  <label className="form-label">مبلغ فروش (۰ = اسقاط بدون درآمد)</label>
-                  <input
-                    type="number"
-                    className="form-control"
-                    min="0"
-                    step="any"
-                    value={disposeAmount}
-                    onChange={(e) => setDisposeAmount(e.target.value)}
-                  />
+                <div className="modal-body">
+                  <div className="mb-3">
+                    <label className="form-label">تاریخ</label>
+                    <input
+                      type="date"
+                      className="form-control"
+                      value={disposeDate}
+                      required
+                      {...persianValidity('لطفاً تاریخ را وارد کنید.')}
+                      onChange={(e) => setDisposeDate(e.target.value)}
+                    />
+                  </div>
+                  <div className="mb-0">
+                    <label className="form-label">مبلغ فروش (۰ = اسقاط بدون درآمد)</label>
+                    <input
+                      type="number"
+                      className="form-control"
+                      min="0"
+                      step="any"
+                      value={disposeAmount}
+                      required
+                      {...persianValidity('لطفاً مبلغ فروش را وارد کنید.')}
+                      onChange={(e) => setDisposeAmount(e.target.value)}
+                    />
+                  </div>
                 </div>
-              </div>
-              <div className="modal-footer">
-                <button
-                  type="button"
-                  className="btn btn-light"
-                  onClick={() => setDisposeRow(null)}
-                >
-                  انصراف
-                </button>
-                <button
-                  type="button"
-                  className="btn btn-accent"
-                  disabled={busy}
-                  onClick={submitDispose}
-                >
-                  ثبت
-                </button>
-              </div>
+                <div className="modal-footer">
+                  <button
+                    type="button"
+                    className="btn btn-light"
+                    onClick={closeDispose}
+                  >
+                    انصراف
+                  </button>
+                  <button
+                    type="submit"
+                    className="btn btn-accent"
+                    disabled={busy}
+                  >
+                    ثبت
+                  </button>
+                </div>
+              </form>
             </div>
           </div>
-          <div className="modal-backdrop fade show" />
-        </div>
+        </>
       )}
     </div>
   )

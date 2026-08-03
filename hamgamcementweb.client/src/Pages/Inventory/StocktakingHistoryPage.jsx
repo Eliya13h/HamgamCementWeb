@@ -1,7 +1,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import Icon from '../../components/common/Icon'
 import JalaliDateField from '../../components/common/JalaliDateField'
+import {
+  useModalKeyboardShortcuts,
+  usePageCreateShortcut,
+  useModalAutoFocus,
+} from '../../hooks/useModalKeyboardShortcuts'
+import { showAppToast } from '../../lib/appToast'
 import DataTable from '../../lib/dataTableSetup'
+import { persianValidity, validateFormPersian } from '../../lib/persianFormValidity'
 import { usePageCrud } from '../../permissions/usePageCrud'
 import { fetchMeaurmentOptions, fetchProductOptions } from '../../services/productsApi'
 import {
@@ -40,6 +47,7 @@ const emptyLine = { productId: '', countedQuantity: '', countedMeaurmentId: '', 
 function StocktakingHistoryPage() {
   const { canCreate, canEdit } = usePageCrud('/inventory/stocktaking')
   const tableRef = useRef(null)
+  const formRef = useRef(null)
   const [loadError, setLoadError] = useState('')
   const [showCreate, setShowCreate] = useState(false)
   const [detail, setDetail] = useState(null)
@@ -83,8 +91,9 @@ function StocktakingHistoryPage() {
     tableRef.current?.dt()?.ajax.reload(null, false)
   }, [])
 
-  const openCreate = () => {
+  const openCreate = useCallback(() => {
     setFormError('')
+    setDetail(null)
     setForm({
       warehouseId: '',
       stocktakingDate: new Date().toISOString().slice(0, 10),
@@ -97,17 +106,18 @@ function StocktakingHistoryPage() {
       ],
     })
     setShowCreate(true)
-  }
+  }, [meaurmentOptions])
 
-  const closeModals = () => {
+  const closeModals = useCallback(() => {
     setShowCreate(false)
     setDetail(null)
     setFormError('')
     setSubmitting(false)
-  }
+  }, [])
 
   const openDetail = async (row) => {
     setFormError('')
+    setShowCreate(false)
     try {
       const data = await stocktakingsApi.getById(row.stocktakingId)
       setDetail(data)
@@ -116,7 +126,7 @@ function StocktakingHistoryPage() {
     }
   }
 
-  const handleConfirm = async (stocktakingId) => {
+  const handleConfirm = useCallback(async (stocktakingId) => {
     setSubmitting(true)
     setFormError('')
     try {
@@ -127,7 +137,38 @@ function StocktakingHistoryPage() {
       setFormError(error.message)
       setSubmitting(false)
     }
-  }
+  }, [closeModals, reloadTable])
+
+  const triggerCreateSave = useCallback(() => {
+    if (!submitting) formRef.current?.requestSubmit()
+  }, [submitting])
+
+  const triggerConfirm = useCallback(() => {
+    if (!submitting && detail?.status === 'Draft' && canEdit) {
+      handleConfirm(detail.stocktakingId)
+    }
+  }, [submitting, detail, canEdit, handleConfirm])
+
+  useModalKeyboardShortcuts({
+    open: showCreate,
+    onClose: closeModals,
+    onSave: triggerCreateSave,
+    formRef,
+  })
+
+  useModalKeyboardShortcuts({
+    open: Boolean(detail),
+    onClose: closeModals,
+    onSave: detail?.status === 'Draft' && canEdit ? triggerConfirm : undefined,
+  })
+
+  usePageCreateShortcut({
+    enabled: canCreate,
+    onNew: openCreate,
+    isBlocked: showCreate || Boolean(detail),
+  })
+
+  useModalAutoFocus({ open: showCreate, formRef })
 
   const updateLine = (index, patch) => {
     setForm((prev) => {
@@ -156,6 +197,14 @@ function StocktakingHistoryPage() {
 
   const handleSubmit = async (event) => {
     event.preventDefault()
+    const formEl = event.currentTarget
+    const message = validateFormPersian(formEl)
+    if (message) {
+      showAppToast(message)
+      formEl.reportValidity()
+      return
+    }
+
     setSubmitting(true)
     setFormError('')
 
@@ -269,6 +318,7 @@ function StocktakingHistoryPage() {
             <button
               type="button"
               className="btn btn-sm btn-accent btn-users-new d-inline-flex align-items-center gap-2"
+              title="انبارگردانی جدید (Ctrl+N)"
               onClick={openCreate}
             >
               <Icon name="plus" />
@@ -310,7 +360,7 @@ function StocktakingHistoryPage() {
           <div className="modal-backdrop show users-modal-backdrop" onClick={closeModals} />
           <div className="modal show d-block users-modal" tabIndex="-1" role="dialog">
             <div className="modal-dialog modal-dialog-centered modal-dialog-scrollable modal-xl">
-              <form className="modal-content" onSubmit={handleSubmit}>
+              <form ref={formRef} className="modal-content" onSubmit={handleSubmit} noValidate>
                 <div className="modal-header">
                   <h5 className="modal-title">انبارگردانی جدید</h5>
                   <button
@@ -331,6 +381,7 @@ function StocktakingHistoryPage() {
                         className="form-select"
                         value={form.warehouseId}
                         required
+                        {...persianValidity('لطفاً انبار را انتخاب کنید.')}
                         onChange={(e) =>
                           setForm({ ...form, warehouseId: e.target.value })
                         }
@@ -392,6 +443,7 @@ function StocktakingHistoryPage() {
                                 className="form-select form-select-sm"
                                 value={line.productId}
                                 required
+                                {...persianValidity('لطفاً محصول را انتخاب کنید.')}
                                 onChange={(e) =>
                                   updateLine(index, { productId: e.target.value })
                                 }
@@ -410,6 +462,7 @@ function StocktakingHistoryPage() {
                                 className="form-control form-control-sm"
                                 step="any"
                                 required
+                                {...persianValidity('لطفاً مقدار شمارش را وارد کنید.')}
                                 value={line.countedQuantity}
                                 onChange={(e) =>
                                   updateLine(index, {
@@ -423,6 +476,7 @@ function StocktakingHistoryPage() {
                                 className="form-select form-select-sm"
                                 value={line.countedMeaurmentId}
                                 required
+                                {...persianValidity('لطفاً واحد را انتخاب کنید.')}
                                 onChange={(e) =>
                                   updateLine(index, {
                                     countedMeaurmentId: e.target.value,

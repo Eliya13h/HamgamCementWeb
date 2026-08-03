@@ -1,6 +1,11 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import AmountDisplay from '../../components/common/AmountDisplay'
 import JalaliDateField from '../../components/common/JalaliDateField'
+import {
+  useModalKeyboardShortcuts,
+  useModalAutoFocus,
+} from '../../hooks/useModalKeyboardShortcuts'
+import { showAppToast } from '../../lib/appToast'
 import {
   currentJalaliYearMonth,
   formatJalaliDate,
@@ -8,6 +13,7 @@ import {
   todayGregorianIso,
   toLatinIsoDate,
 } from '../../lib/afghanSolarCalendar'
+import { persianValidity, validateFormPersian } from '../../lib/persianFormValidity'
 import {
   accountsApi,
   fetchAccountLedger,
@@ -26,6 +32,7 @@ const emptyForm = {
 }
 
 function AccountsPage() {
+  const formRef = useRef(null)
   const [rows, setRows] = useState([])
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(true)
@@ -148,8 +155,46 @@ function AccountsPage() {
     }
   }
 
+  const openLedger = (row) => {
+    setLedgerAccount(row)
+    setLedgerFrom(yearStart)
+    setLedgerTo(todayGregorianIso())
+    setLedgerData(null)
+    setLedgerError('')
+  }
+
+  const closeLedger = () => {
+    setLedgerAccount(null)
+    setLedgerData(null)
+    setLedgerError('')
+    setLedgerLoading(false)
+  }
+
+  const triggerFormSave = useCallback(() => {
+    if (!submitting) formRef.current?.requestSubmit()
+  }, [submitting])
+
+  useModalKeyboardShortcuts({
+    open: Boolean(formMode),
+    onClose: closeForm,
+    onSave: triggerFormSave,
+    formRef,
+  })
+  useModalKeyboardShortcuts({
+    open: Boolean(ledgerAccount),
+    onClose: closeLedger,
+  })
+  useModalAutoFocus({ open: Boolean(formMode), formRef })
+
   const handleSubmit = async (event) => {
     event.preventDefault()
+    const formEl = event.currentTarget
+    const message = validateFormPersian(formEl)
+    if (message) {
+      showAppToast(message)
+      formEl.reportValidity()
+      return
+    }
     setFormError('')
     if (!form.name.trim()) {
       setFormError('نام حساب الزامی است.')
@@ -193,21 +238,6 @@ function AccountsPage() {
     } finally {
       setSubmitting(false)
     }
-  }
-
-  const openLedger = (row) => {
-    setLedgerAccount(row)
-    setLedgerFrom(yearStart)
-    setLedgerTo(todayGregorianIso())
-    setLedgerData(null)
-    setLedgerError('')
-  }
-
-  const closeLedger = () => {
-    setLedgerAccount(null)
-    setLedgerData(null)
-    setLedgerError('')
-    setLedgerLoading(false)
   }
 
   const loadLedger = useCallback(async () => {
@@ -346,47 +376,51 @@ function AccountsPage() {
             role="dialog"
             aria-modal="true"
           >
-            <div className="modal-dialog modal-dialog-centered">
-              <div className="modal-content">
-                <form onSubmit={handleSubmit}>
-                  <div className="modal-header border-0 pb-0">
-                    <h5 className="modal-title">
-                      {formMode === 'create'
-                        ? 'افزودن زیرحساب'
-                        : isSystemEdit
-                          ? 'ویرایش حساب سیستمی'
-                          : 'ویرایش حساب'}
-                    </h5>
-                    <button
-                      type="button"
-                      className="btn-close"
-                      aria-label="بستن"
-                      onClick={closeForm}
-                    />
-                  </div>
-                  <div className="modal-body">
-                    {formError ? (
-                      <div className="alert alert-danger py-2">{formError}</div>
-                    ) : null}
-                    {isSystemEdit ? (
-                      <div className="alert alert-info py-2">
-                        برای حساب سیستمی فقط نام و شرح قابل ویرایش است.
-                      </div>
-                    ) : null}
+            <div className="modal-dialog modal-dialog-centered modal-lg">
+              <form ref={formRef} className="modal-content" onSubmit={handleSubmit} noValidate>
+                <div className="modal-header border-0 pb-0">
+                  <h5 className="modal-title">
+                    {formMode === 'create'
+                      ? 'افزودن زیرحساب'
+                      : isSystemEdit
+                        ? 'ویرایش حساب سیستمی'
+                        : 'ویرایش حساب'}
+                  </h5>
+                  <button
+                    type="button"
+                    className="btn-close"
+                    aria-label="بستن"
+                    onClick={closeForm}
+                  />
+                </div>
+                <div className="modal-body">
+                  {formError ? (
+                    <div className="alert alert-danger py-2">{formError}</div>
+                  ) : null}
+                  {isSystemEdit ? (
+                    <div className="alert alert-info py-2">
+                      برای حساب سیستمی فقط نام و شرح قابل ویرایش است.
+                    </div>
+                  ) : null}
 
-                    <div className="mb-3">
-                      <label className="form-label">حساب والد</label>
+                  <div className="row g-3">
+                    <div className="col-12">
+                      <label className="form-label mb-1">حساب والد</label>
                       <select
                         className="form-select"
                         value={form.parentAccountId}
                         disabled={formMode === 'edit'}
-                        onChange={(e) =>
+                        required={formMode === 'create'}
+                        {...(formMode === 'create'
+                          ? persianValidity('لطفاً حساب والد را انتخاب کنید.')
+                          : {})}
+                        onChange={(e) => {
+                          e.target.setCustomValidity('')
                           setForm((prev) => ({
                             ...prev,
                             parentAccountId: e.target.value,
                           }))
-                        }
-                        required={formMode === 'create'}
+                        }}
                       >
                         <option value="">انتخاب کنید...</option>
                         {parentOptions.map((opt) => (
@@ -397,21 +431,23 @@ function AccountsPage() {
                       </select>
                     </div>
 
-                    <div className="mb-3">
-                      <label className="form-label">نام</label>
+                    <div className="col-md-6">
+                      <label className="form-label mb-1">نام</label>
                       <input
                         type="text"
                         className="form-control"
                         value={form.name}
-                        onChange={(e) =>
-                          setForm((prev) => ({ ...prev, name: e.target.value }))
-                        }
                         required
+                        {...persianValidity('لطفاً نام حساب را وارد کنید.')}
+                        onChange={(e) => {
+                          e.target.setCustomValidity('')
+                          setForm((prev) => ({ ...prev, name: e.target.value }))
+                        }}
                       />
                     </div>
 
-                    <div className="mb-3">
-                      <label className="form-label">کد (اختیاری)</label>
+                    <div className="col-md-6">
+                      <label className="form-label mb-1">کد (اختیاری)</label>
                       <input
                         type="text"
                         className="form-control"
@@ -424,8 +460,8 @@ function AccountsPage() {
                       />
                     </div>
 
-                    <div className="mb-3">
-                      <label className="form-label">شرح</label>
+                    <div className="col-12">
+                      <label className="form-label mb-1">شرح</label>
                       <textarea
                         className="form-control"
                         rows={2}
@@ -439,44 +475,46 @@ function AccountsPage() {
                       />
                     </div>
 
-                    <div className="form-check">
-                      <input
-                        id="account-is-postable"
-                        type="checkbox"
-                        className="form-check-input"
-                        checked={form.isPostable}
-                        disabled={isSystemEdit}
-                        onChange={(e) =>
-                          setForm((prev) => ({
-                            ...prev,
-                            isPostable: e.target.checked,
-                          }))
-                        }
-                      />
-                      <label className="form-check-label" htmlFor="account-is-postable">
-                        قابل ثبت (پست‌پذیر)
-                      </label>
+                    <div className="col-12">
+                      <div className="form-check">
+                        <input
+                          id="account-is-postable"
+                          type="checkbox"
+                          className="form-check-input"
+                          checked={form.isPostable}
+                          disabled={isSystemEdit}
+                          onChange={(e) =>
+                            setForm((prev) => ({
+                              ...prev,
+                              isPostable: e.target.checked,
+                            }))
+                          }
+                        />
+                        <label className="form-check-label" htmlFor="account-is-postable">
+                          قابل ثبت (پست‌پذیر)
+                        </label>
+                      </div>
                     </div>
                   </div>
-                  <div className="modal-footer border-0 pt-0">
-                    <button
-                      type="button"
-                      className="btn btn-outline-secondary"
-                      onClick={closeForm}
-                      disabled={submitting}
-                    >
-                      انصراف
-                    </button>
-                    <button
-                      type="submit"
-                      className="btn btn-primary"
-                      disabled={submitting}
-                    >
-                      {submitting ? 'در حال ذخیره...' : 'ذخیره'}
-                    </button>
-                  </div>
-                </form>
-              </div>
+                </div>
+                <div className="modal-footer border-0 pt-0">
+                  <button
+                    type="button"
+                    className="btn btn-outline-secondary"
+                    onClick={closeForm}
+                    disabled={submitting}
+                  >
+                    انصراف
+                  </button>
+                  <button
+                    type="submit"
+                    className="btn btn-primary"
+                    disabled={submitting}
+                  >
+                    {submitting ? 'در حال ذخیره...' : 'ذخیره'}
+                  </button>
+                </div>
+              </form>
             </div>
           </div>
         </>

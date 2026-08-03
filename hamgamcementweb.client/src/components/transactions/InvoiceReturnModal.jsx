@@ -1,9 +1,14 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import AmountDisplay from '../common/AmountDisplay'
 import AmountField from '../common/AmountField'
 import JalaliDateField from '../common/JalaliDateField'
 import PrefixNumberField from '../common/PrefixNumberField'
-import { useModalKeyboardShortcuts } from '../../hooks/useModalKeyboardShortcuts'
+import {
+  useModalAutoFocus,
+  useModalKeyboardShortcuts,
+} from '../../hooks/useModalKeyboardShortcuts'
+import { showAppToast } from '../../lib/appToast'
+import { persianValidity, validateFormPersian } from '../../lib/persianFormValidity'
 import { todayGregorianIso } from '../../lib/afghanSolarCalendar'
 import { fetchBaseCurrency, fetchCurrencyRates } from '../../services/currenciesApi'
 import { fetchMeaurmentOptions } from '../../services/productsApi'
@@ -52,6 +57,7 @@ function InvoiceReturnModal({
   onSuccess,
   api,
 }) {
+  const formRef = useRef(null)
   const [loading, setLoading] = useState(false)
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState('')
@@ -325,6 +331,14 @@ function InvoiceReturnModal({
     event.preventDefault()
     setError('')
 
+    const formEl = event.currentTarget
+    const message = validateFormPersian(formEl)
+    if (message) {
+      showAppToast(message)
+      formEl.reportValidity()
+      return
+    }
+
     const items = selectedLines.map((line) => ({
       referenceItemId: line.referenceItemId,
       quantity: Number(line.returnQty),
@@ -370,14 +384,20 @@ function InvoiceReturnModal({
     }
   }
 
+  const triggerSave = useCallback(() => {
+    if (!submitting && !loading) {
+      formRef.current?.requestSubmit()
+    }
+  }, [submitting, loading])
+
   useModalKeyboardShortcuts({
     open,
     onClose,
-    onSave: () => {
-      const form = document.getElementById('invoice-return-form')
-      form?.requestSubmit()
-    },
+    onSave: triggerSave,
+    formRef,
   })
+
+  useModalAutoFocus({ open, formRef })
 
   if (!open) return null
 
@@ -388,7 +408,13 @@ function InvoiceReturnModal({
       <div className="modal-backdrop show users-modal-backdrop" onClick={onClose} />
       <div className="modal show d-block users-modal" tabIndex="-1" data-bs-focus="false">
         <div className="modal-dialog modal-dialog-centered modal-dialog-scrollable modal-xl">
-          <form id="invoice-return-form" className="modal-content" onSubmit={handleSubmit}>
+          <form
+            id="invoice-return-form"
+            ref={formRef}
+            className="modal-content"
+            noValidate
+            onSubmit={handleSubmit}
+          >
             <div className="modal-header">
               <h5 className="modal-title">{title}</h5>
               <button type="button" className="btn-close" aria-label="بستن" onClick={onClose} />
@@ -399,7 +425,12 @@ function InvoiceReturnModal({
               <div className="row g-3 mb-3">
                 <div className="col-md-3">
                   <label className="form-label">تاریخ برگشت (شمسی)</label>
-                  <JalaliDateField value={invoiceDate} onChange={setInvoiceDate} required />
+                  <JalaliDateField
+                    value={invoiceDate}
+                    onChange={setInvoiceDate}
+                    required
+                    requiredMessage="لطفاً تاریخ برگشت را انتخاب کنید."
+                  />
                 </div>
                 <div className="col-md-3">
                   <label className="form-label">ارز برگشت</label>
@@ -409,6 +440,7 @@ function InvoiceReturnModal({
                     required
                     disabled={loading}
                     onChange={(e) => handleCurrencyChange(e.target.value)}
+                    {...persianValidity('لطفاً ارز برگشت را انتخاب کنید.')}
                   >
                     <option value="">انتخاب کنید...</option>
                     {currencies.map((o) => (
@@ -435,6 +467,7 @@ function InvoiceReturnModal({
                       required
                       disabled={loading}
                       onChange={(e) => handleExchangeRateChange(e.target.value)}
+                      {...persianValidity('لطفاً نرخ ارز را وارد کنید.')}
                     />
                   ) : (
                     <input

@@ -12,6 +12,7 @@ import { persianValidity, validateFormPersian } from '../../lib/persianFormValid
 import {
   useModalKeyboardShortcuts,
   usePageCreateShortcut,
+  useModalAutoFocus,
 } from '../../hooks/useModalKeyboardShortcuts'
 import { usePageCrud } from '../../permissions/usePageCrud'
 import { todayGregorianIso } from '../../lib/afghanSolarCalendar'
@@ -586,6 +587,8 @@ function DailyProductionPage() {
     isBlocked: showForm || Boolean(deleteRow) || Boolean(postPreview) || Boolean(traceData),
   })
 
+  useModalAutoFocus({ open: showForm, formRef })
+
   return (
     <div className="content-card card border-0 production-page">
       <div className="card-body p-4">
@@ -599,7 +602,7 @@ function DailyProductionPage() {
               type="button"
               className="btn btn-primary d-inline-flex align-items-center gap-2"
               onClick={openCreate}
-              title="سند جدید (Ctrl+Space)"
+              title="سند جدید (Ctrl+N / Ctrl+Space)"
             >
               <Icon name="plus" />
               <span>سند جدید</span>

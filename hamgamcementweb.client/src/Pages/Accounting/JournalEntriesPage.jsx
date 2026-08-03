@@ -1,5 +1,11 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useMemo, useRef, useState } from 'react'
 import JalaliDateField from '../../components/common/JalaliDateField'
+import {
+  useModalAutoFocus,
+  useModalKeyboardShortcuts,
+  usePageCreateShortcut,
+} from '../../hooks/useModalKeyboardShortcuts'
+import { showAppToast } from '../../lib/appToast'
 import DataTable from '../../lib/dataTableSetup'
 import {
   createServerSideTableOptions,
@@ -10,6 +16,7 @@ import {
   todayGregorianIso,
   toLatinIsoDate,
 } from '../../lib/afghanSolarCalendar'
+import { persianValidity, validateFormPersian } from '../../lib/persianFormValidity'
 import {
   attachmentsApi,
   costCentersApi,
@@ -30,6 +37,7 @@ function emptyLine() {
 
 function JournalEntriesPage() {
   const tableRef = useRef(null)
+  const createFormRef = useRef(null)
   const [loadError, setLoadError] = useState('')
   const [selected, setSelected] = useState(null)
   const [detailError, setDetailError] = useState('')
@@ -237,6 +245,14 @@ function JournalEntriesPage() {
 
   const handleCreateSubmit = async (event) => {
     event.preventDefault()
+    const formEl = event.currentTarget
+    const message = validateFormPersian(formEl)
+    if (message) {
+      showAppToast(message)
+      formEl.reportValidity()
+      return
+    }
+
     const validationError = validateCreate()
     if (validationError) {
       setCreateError(validationError)
@@ -341,14 +357,31 @@ function JournalEntriesPage() {
 
   const showModal = detailLoading || selected || detailError
 
-  useEffect(() => {
-    if (!showCreate) return undefined
-    const onKey = (e) => {
-      if (e.key === 'Escape') closeCreate()
+  const triggerCreateSave = useCallback(() => {
+    if (!submitting && !accountsLoading) {
+      createFormRef.current?.requestSubmit()
     }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [showCreate])
+  }, [submitting, accountsLoading])
+
+  useModalKeyboardShortcuts({
+    open: showCreate,
+    onClose: closeCreate,
+    onSave: triggerCreateSave,
+    formRef: createFormRef,
+  })
+
+  useModalKeyboardShortcuts({
+    open: Boolean(showModal),
+    onClose: closeDetail,
+  })
+
+  usePageCreateShortcut({
+    enabled: true,
+    onNew: openCreate,
+    isBlocked: showCreate || Boolean(showModal),
+  })
+
+  useModalAutoFocus({ open: showCreate, formRef: createFormRef })
 
   return (
     <div className="users-page">
@@ -358,6 +391,7 @@ function JournalEntriesPage() {
           <button
             type="button"
             className="btn btn-sm btn-accent btn-users-new"
+            title="سند دستی جدید (Ctrl+N)"
             onClick={openCreate}
           >
             سند دستی جدید
@@ -406,7 +440,7 @@ function JournalEntriesPage() {
           >
             <div className="modal-dialog modal-dialog-centered modal-dialog-scrollable modal-xl">
               <div className="modal-content">
-                <form onSubmit={handleCreateSubmit}>
+                <form ref={createFormRef} noValidate onSubmit={handleCreateSubmit}>
                   <div className="modal-header border-0 pb-0">
                     <h5
                       className="modal-title"
@@ -438,6 +472,7 @@ function JournalEntriesPage() {
                             }))
                           }
                           required
+                          requiredMessage="لطفاً تاریخ سند را انتخاب کنید."
                         />
                       </div>
                       <div className="col-md-8">
@@ -499,6 +534,7 @@ function JournalEntriesPage() {
                                     })
                                   }
                                   required
+                                  {...persianValidity('لطفاً حساب را انتخاب کنید.')}
                                 >
                                   <option value="">انتخاب حساب...</option>
                                   {postableAccounts.map((acc) => (

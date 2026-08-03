@@ -145,12 +145,16 @@ body.sidebar-drawer-open {
   flex-direction: column;
   height: 100%;
   min-width: 0;
-  overflow: hidden;
+  /* بدون این، آیتم گرید با overflow:visible به اندازهٔ محتوا رشد می‌کند و اسکرول قطع می‌شود */
+  min-height: 0;
+  /* visible تا دراپ‌داون هدر (نوتیف/پروفایل) بریده نشود؛ اسکرول فقط روی content */
+  overflow: visible;
 }
 
 .dashboard-content {
   flex: 1;
   min-height: 0;
+  min-width: 0;
   padding: 1rem 1.25rem 1.5rem;
   background: var(--hc-bg);
 }
@@ -441,7 +445,9 @@ body.sidebar-drawer-open {
   padding-inline: 1rem;
   background: var(--hc-bg-elevated);
   border-bottom: 1px solid var(--hc-border);
+  position: relative;
   z-index: 1030;
+  overflow: visible;
   box-sizing: border-box;
 }
 
@@ -494,6 +500,20 @@ body.sidebar-drawer-open {
 
 .header-actions {
   margin-inline-start: auto;
+}
+
+/* دراپ‌داون هدر بدون Popper: تراز به لبهٔ داخلی دکمه‌ها (چپ در RTL) تا از صفحه نزند بیرون */
+.header-actions .dropdown {
+  position: relative;
+}
+
+.header-actions .dropdown-menu {
+  position: absolute;
+  top: calc(100% + 0.35rem);
+  inset-inline-end: 0;
+  inset-inline-start: auto;
+  margin: 0;
+  z-index: 1050;
 }
 
 .btn-sidebar-trigger i {
@@ -568,6 +588,12 @@ body.sidebar-drawer-open {
 .user-chevron {
   font-size: 0.75rem;
   color: var(--hc-text-muted);
+  transition: transform 0.2s ease;
+  display: inline-block;
+}
+
+.user-chevron.is-open {
+  transform: rotate(180deg);
 }
 
 /* ── Content cards ── */
@@ -783,6 +809,17 @@ body.sidebar-drawer-open {
   align-items: flex-start;
 }
 
+.activity-item.is-unread {
+  margin-inline: -0.5rem;
+  padding: 0.5rem;
+  border-radius: var(--hc-radius);
+  background: var(--hc-accent-soft);
+}
+
+.activity-item.is-unread .activity-title {
+  font-weight: 700;
+}
+
 .activity-dot {
   width: 10px;
   height: 10px;
@@ -905,6 +942,34 @@ body.sidebar-drawer-open {
   border-bottom: 1px solid var(--hc-border-subtle);
 }
 
+.header-notif-item.is-unread {
+  background: var(--hc-accent-soft);
+}
+
+.header-notif-body {
+  min-width: 0;
+  flex: 1;
+}
+
+.header-notif-title-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.5rem;
+  margin-bottom: 0.15rem;
+}
+
+.header-notif-new {
+  flex-shrink: 0;
+  font-size: 0.65rem;
+  font-weight: 700;
+  line-height: 1.4;
+  padding: 0.1rem 0.4rem;
+  border-radius: 999px;
+  background: var(--hc-accent);
+  color: #fff;
+}
+
 .header-notif-severity {
   width: 8px;
   height: 8px;
@@ -930,7 +995,10 @@ body.sidebar-drawer-open {
   display: block;
   font-size: 0.8125rem;
   color: var(--hc-text);
-  margin-bottom: 0.15rem;
+}
+
+.header-notif-item.is-unread .header-notif-title {
+  font-weight: 700;
 }
 
 .header-notif-message {

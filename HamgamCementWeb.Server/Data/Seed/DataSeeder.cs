@@ -39,6 +39,7 @@ public static class DataSeeder
         var financeCategories = scope.ServiceProvider.GetRequiredService<IFinanceCategoryService>();
         await financeCategories.EnsureSystemCategoriesAsync(cancellationToken);
         await ChartOfAccountsSeeder.EnsureAsync(db, cancellationToken);
+        await UsersSchemaSeeder.EnsureAsync(db, cancellationToken);
         await ProductionSchemaSeeder.EnsureAsync(db, cancellationToken);
         await ProductSchemaSeeder.EnsureAsync(db, cancellationToken);
         await InventorySchemaSeeder.EnsureAsync(db, cancellationToken);

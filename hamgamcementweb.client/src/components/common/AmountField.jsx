@@ -1,6 +1,7 @@
 import { useCallback, useRef, useState } from 'react'
 import { formatAmount } from '../../lib/dataTableOptions'
 import { parseFormattedAmount } from '../../lib/currencyFormat'
+import { PERSIAN_VALIDATION } from '../../lib/persianFormValidity'
 
 function resolveStep(step) {
   if (step === 'any' || step === undefined || step === null || step === '') return 1
@@ -53,6 +54,7 @@ function AmountField({
   className = '',
   inputClassName = '',
   required = false,
+  requiredMessage = PERSIAN_VALIDATION.required,
   disabled = false,
   readOnly = false,
   id,
@@ -152,6 +154,17 @@ function AmountField({
           readOnly={readOnly}
           placeholder={placeholder}
           autoComplete="off"
+          {...(required
+            ? {
+                'data-required-message': requiredMessage,
+                onInvalid: (event) => {
+                  event.target.setCustomValidity(requiredMessage)
+                },
+                onInput: (event) => {
+                  event.target.setCustomValidity('')
+                },
+              }
+            : {})}
         />
         {!readOnly && !disabled && (
           <div className="amount-field-spinners" aria-hidden="true">

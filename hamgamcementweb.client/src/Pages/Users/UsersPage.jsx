@@ -1,6 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import Icon from '../../components/common/Icon'
+import {
+  useModalKeyboardShortcuts,
+  usePageCreateShortcut,
+  useModalAutoFocus,
+} from '../../hooks/useModalKeyboardShortcuts'
+import { showAppToast } from '../../lib/appToast'
 import DataTable from '../../lib/dataTableSetup'
+import { persianValidity, validateFormPersian } from '../../lib/persianFormValidity'
 import { usePageCrud } from '../../permissions/usePageCrud'
 import {
   changeUserPassword,
@@ -35,8 +42,58 @@ const dataTableLanguage = {
   },
 }
 
+function PasswordField({
+  id,
+  label,
+  value,
+  onChange,
+  required = false,
+  minLength,
+  validityMessage,
+  autoComplete = 'new-password',
+}) {
+  const [visible, setVisible] = useState(false)
+
+  return (
+    <div>
+      <label className="form-label mb-1" htmlFor={id}>
+        {label}
+      </label>
+      <div className="password-field-wrap">
+        <input
+          id={id}
+          type={visible ? 'text' : 'password'}
+          className="form-control"
+          value={value}
+          required={required}
+          minLength={minLength}
+          autoComplete={autoComplete}
+          dir="ltr"
+          {...(validityMessage ? persianValidity(validityMessage) : {})}
+          onChange={(e) => {
+            e.target.setCustomValidity('')
+            onChange(e.target.value)
+          }}
+        />
+        <button
+          type="button"
+          className="password-toggle-btn"
+          onClick={() => setVisible((prev) => !prev)}
+          aria-label={visible ? 'مخفی کردن رمز عبور' : 'نمایش رمز عبور'}
+          tabIndex={-1}
+        >
+          <Icon name={visible ? 'eye-slash' : 'eye'} />
+        </button>
+      </div>
+    </div>
+  )
+}
+
 function UsersPage() {
   const tableRef = useRef(null)
+  const createFormRef = useRef(null)
+  const editFormRef = useRef(null)
+  const passwordFormRef = useRef(null)
   const { canCreate, canEdit, canDelete, can } = usePageCrud('/users/list')
   const [roles, setRoles] = useState([])
   const [employees, setEmployees] = useState([])
@@ -136,8 +193,56 @@ function UsersPage() {
     setSubmitting(false)
   }
 
+  const triggerCreateSave = useCallback(() => {
+    if (!submitting) createFormRef.current?.requestSubmit()
+  }, [submitting])
+
+  const triggerEditSave = useCallback(() => {
+    if (!submitting) editFormRef.current?.requestSubmit()
+  }, [submitting])
+
+  const triggerPasswordSave = useCallback(() => {
+    if (!submitting) passwordFormRef.current?.requestSubmit()
+  }, [submitting])
+
+  useModalKeyboardShortcuts({
+    open: showCreateUser,
+    onClose: closeModals,
+    onSave: triggerCreateSave,
+    formRef: createFormRef,
+  })
+  useModalKeyboardShortcuts({
+    open: Boolean(editUser),
+    onClose: closeModals,
+    onSave: triggerEditSave,
+    formRef: editFormRef,
+  })
+  useModalKeyboardShortcuts({
+    open: Boolean(passwordUser),
+    onClose: closeModals,
+    onSave: triggerPasswordSave,
+    formRef: passwordFormRef,
+  })
+  useModalKeyboardShortcuts({ open: Boolean(deleteUserRow), onClose: closeModals })
+  usePageCreateShortcut({
+    enabled: canCreate,
+    onNew: openCreate,
+    isBlocked:
+      showCreateUser || Boolean(editUser) || Boolean(passwordUser) || Boolean(deleteUserRow),
+  })
+  useModalAutoFocus({ open: showCreateUser, formRef: createFormRef })
+  useModalAutoFocus({ open: Boolean(editUser), formRef: editFormRef })
+  useModalAutoFocus({ open: Boolean(passwordUser), formRef: passwordFormRef })
+
   const handleCreateSubmit = async (event) => {
     event.preventDefault()
+    const formEl = event.currentTarget
+    const message = validateFormPersian(formEl)
+    if (message) {
+      showAppToast(message)
+      formEl.reportValidity()
+      return
+    }
 
     if (createForm.password !== createForm.confirmPassword) {
       setFormError('رمز عبور و تکرار آن یکسان نیستند.')
@@ -169,6 +274,13 @@ function UsersPage() {
 
   const handleEditSubmit = async (event) => {
     event.preventDefault()
+    const formEl = event.currentTarget
+    const message = validateFormPersian(formEl)
+    if (message) {
+      showAppToast(message)
+      formEl.reportValidity()
+      return
+    }
     if (!editUser) return
 
     setSubmitting(true)
@@ -193,6 +305,13 @@ function UsersPage() {
 
   const handlePasswordSubmit = async (event) => {
     event.preventDefault()
+    const formEl = event.currentTarget
+    const message = validateFormPersian(formEl)
+    if (message) {
+      showAppToast(message)
+      formEl.reportValidity()
+      return
+    }
     if (!passwordUser) return
 
     if (passwordForm.password !== passwordForm.confirmPassword) {
@@ -354,7 +473,7 @@ function UsersPage() {
             <button
               type="button"
               className="btn btn-sm btn-accent btn-users-new d-inline-flex align-items-center gap-2"
-              title="کاربر جدید"
+              title="کاربر جدید (Ctrl+N)"
               onClick={openCreate}
             >
               <Icon name="plus" />
@@ -397,165 +516,213 @@ function UsersPage() {
         <>
           <div className="modal-backdrop show users-modal-backdrop" onClick={closeModals} />
           <div className="modal show d-block users-modal" tabIndex="-1" role="dialog">
-            <div className="modal-dialog modal-dialog-centered modal-dialog-scrollable">
-              <form className="modal-content" onSubmit={handleCreateSubmit}>
-              <div className="modal-header">
-                <h5 className="modal-title">کاربر جدید</h5>
-                <button
-                  type="button"
-                  className="btn-close"
-                  aria-label="بستن"
-                  onClick={closeModals}
-                />
-              </div>
-              <div className="modal-body">
-                {formError && (
-                  <div className="alert alert-danger py-2">{formError}</div>
-                )}
-                <div className="mb-3">
-                  <label className="form-label">کارمند</label>
-                  <select
-                    className="form-select"
-                    value={createForm.employeeId}
-                    onChange={(e) =>
-                      setCreateForm((prev) => ({ ...prev, employeeId: e.target.value }))
-                    }
-                    required
+            <div className="modal-dialog modal-dialog-centered modal-dialog-scrollable modal-lg">
+              <form
+                ref={createFormRef}
+                className="modal-content"
+                onSubmit={handleCreateSubmit}
+                noValidate
+              >
+                <div className="modal-header">
+                  <h5 className="modal-title">کاربر جدید</h5>
+                  <button
+                    type="button"
+                    className="btn-close"
+                    aria-label="بستن"
+                    onClick={closeModals}
+                  />
+                </div>
+                <div className="modal-body">
+                  {formError && (
+                    <div className="alert alert-danger py-2">{formError}</div>
+                  )}
+
+                  <div className="users-form-section">
+                    <span className="users-form-section-title">اطلاعات پایه</span>
+                    <div className="row g-3">
+                      <div className="col-md-6">
+                        <label className="form-label mb-1" htmlFor="create-employee">
+                          کارمند
+                        </label>
+                        <select
+                          id="create-employee"
+                          className="form-select"
+                          value={createForm.employeeId}
+                          required
+                          {...persianValidity('لطفاً کارمند را انتخاب کنید.')}
+                          onChange={(e) => {
+                            e.target.setCustomValidity('')
+                            setCreateForm((prev) => ({ ...prev, employeeId: e.target.value }))
+                          }}
+                        >
+                          <option value="">انتخاب کارمند</option>
+                          {employees.map((employee) => (
+                            <option key={employee.employeeId} value={employee.employeeId}>
+                              {employee.fullName}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                      <div className="col-md-6">
+                        <label className="form-label mb-1" htmlFor="create-title">
+                          عنوان
+                        </label>
+                        <select
+                          id="create-title"
+                          className="form-select"
+                          value={createForm.title}
+                          onChange={(e) =>
+                            setCreateForm((prev) => ({ ...prev, title: e.target.value }))
+                          }
+                        >
+                          {TITLE_OPTIONS.map((option) => (
+                            <option key={option.value} value={option.value}>
+                              {option.label}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                      <div className="col-md-6">
+                        <label className="form-label mb-1" htmlFor="create-full-name">
+                          نام کامل
+                        </label>
+                        <input
+                          id="create-full-name"
+                          type="text"
+                          className="form-control"
+                          value={createForm.fullName}
+                          required
+                          {...persianValidity('لطفاً نام کامل را وارد کنید.')}
+                          onChange={(e) => {
+                            e.target.setCustomValidity('')
+                            setCreateForm((prev) => ({ ...prev, fullName: e.target.value }))
+                          }}
+                        />
+                      </div>
+                      <div className="col-md-6">
+                        <label className="form-label mb-1" htmlFor="create-role">
+                          نقش
+                        </label>
+                        <select
+                          id="create-role"
+                          className="form-select"
+                          value={createForm.roleId}
+                          required
+                          {...persianValidity('لطفاً نقش را انتخاب کنید.')}
+                          onChange={(e) => {
+                            e.target.setCustomValidity('')
+                            setCreateForm((prev) => ({ ...prev, roleId: e.target.value }))
+                          }}
+                        >
+                          <option value="">انتخاب نقش</option>
+                          {roles.map((role) => (
+                            <option key={role.roleId} value={role.roleId}>
+                              {role.name}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="users-form-section">
+                    <span className="users-form-section-title">حساب کاربری</span>
+                    <div className="row g-3">
+                      <div className="col-md-6">
+                        <label className="form-label mb-1" htmlFor="create-user-name">
+                          نام کاربری
+                        </label>
+                        <input
+                          id="create-user-name"
+                          type="text"
+                          className="form-control"
+                          value={createForm.userName}
+                          required
+                          autoComplete="username"
+                          dir="ltr"
+                          {...persianValidity('لطفاً نام کاربری را وارد کنید.')}
+                          onChange={(e) => {
+                            e.target.setCustomValidity('')
+                            setCreateForm((prev) => ({ ...prev, userName: e.target.value }))
+                          }}
+                        />
+                      </div>
+                      <div className="col-md-6">
+                        <label className="form-label mb-1" htmlFor="create-email">
+                          ایمیل
+                        </label>
+                        <input
+                          id="create-email"
+                          type="email"
+                          className="form-control"
+                          value={createForm.email}
+                          required
+                          autoComplete="email"
+                          dir="ltr"
+                          {...persianValidity('لطفاً ایمیل را وارد کنید.')}
+                          onChange={(e) => {
+                            e.target.setCustomValidity('')
+                            setCreateForm((prev) => ({ ...prev, email: e.target.value }))
+                          }}
+                        />
+                      </div>
+                      <div className="col-md-6">
+                        <PasswordField
+                          id="create-password"
+                          label="رمز عبور"
+                          value={createForm.password}
+                          required
+                          minLength={4}
+                          validityMessage="لطفاً رمز عبور را وارد کنید."
+                          onChange={(password) =>
+                            setCreateForm((prev) => ({ ...prev, password }))
+                          }
+                        />
+                      </div>
+                      <div className="col-md-6">
+                        <PasswordField
+                          id="create-confirm-password"
+                          label="تکرار رمز عبور"
+                          value={createForm.confirmPassword}
+                          required
+                          minLength={4}
+                          validityMessage="لطفاً تکرار رمز عبور را وارد کنید."
+                          onChange={(confirmPassword) =>
+                            setCreateForm((prev) => ({ ...prev, confirmPassword }))
+                          }
+                        />
+                      </div>
+                      <div className="col-12">
+                        <div className="form-check form-switch">
+                          <input
+                            className="form-check-input"
+                            type="checkbox"
+                            id="create-is-active"
+                            checked={createForm.isActive}
+                            onChange={(e) =>
+                              setCreateForm((prev) => ({ ...prev, isActive: e.target.checked }))
+                            }
+                          />
+                          <label className="form-check-label" htmlFor="create-is-active">
+                            فعال
+                          </label>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+                <div className="modal-footer">
+                  <button
+                    type="button"
+                    className="btn btn-outline-secondary"
+                    onClick={closeModals}
                   >
-                    <option value="">انتخاب کارمند</option>
-                    {employees.map((employee) => (
-                      <option key={employee.employeeId} value={employee.employeeId}>
-                        {employee.fullName}
-                      </option>
-                    ))}
-                  </select>
+                    انصراف
+                  </button>
+                  <button type="submit" className="btn btn-accent" disabled={submitting}>
+                    {submitting ? 'در حال ایجاد...' : 'ایجاد کاربر'}
+                  </button>
                 </div>
-                <div className="mb-3">
-                  <label className="form-label">عنوان</label>
-                  <select
-                    className="form-select"
-                    value={createForm.title}
-                    onChange={(e) =>
-                      setCreateForm((prev) => ({ ...prev, title: e.target.value }))
-                    }
-                  >
-                    {TITLE_OPTIONS.map((option) => (
-                      <option key={option.value} value={option.value}>
-                        {option.label}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                <div className="mb-3">
-                  <label className="form-label">نام کامل</label>
-                  <input
-                    type="text"
-                    className="form-control"
-                    value={createForm.fullName}
-                    onChange={(e) =>
-                      setCreateForm((prev) => ({ ...prev, fullName: e.target.value }))
-                    }
-                    required
-                  />
-                </div>
-                <div className="mb-3">
-                  <label className="form-label">نام کاربری</label>
-                  <input
-                    type="text"
-                    className="form-control"
-                    value={createForm.userName}
-                    onChange={(e) =>
-                      setCreateForm((prev) => ({ ...prev, userName: e.target.value }))
-                    }
-                    required
-                  />
-                </div>
-                <div className="mb-3">
-                  <label className="form-label">ایمیل</label>
-                  <input
-                    type="email"
-                    className="form-control"
-                    value={createForm.email}
-                    onChange={(e) =>
-                      setCreateForm((prev) => ({ ...prev, email: e.target.value }))
-                    }
-                    required
-                  />
-                </div>
-                <div className="mb-3">
-                  <label className="form-label">نقش</label>
-                  <select
-                    className="form-select"
-                    value={createForm.roleId}
-                    onChange={(e) =>
-                      setCreateForm((prev) => ({ ...prev, roleId: e.target.value }))
-                    }
-                    required
-                  >
-                    <option value="">انتخاب نقش</option>
-                    {roles.map((role) => (
-                      <option key={role.roleId} value={role.roleId}>
-                        {role.name}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                <div className="mb-3">
-                  <label className="form-label">رمز عبور</label>
-                  <input
-                    type="password"
-                    className="form-control"
-                    value={createForm.password}
-                    onChange={(e) =>
-                      setCreateForm((prev) => ({ ...prev, password: e.target.value }))
-                    }
-                    required
-                    minLength={4}
-                  />
-                </div>
-                <div className="mb-3">
-                  <label className="form-label">تکرار رمز عبور</label>
-                  <input
-                    type="password"
-                    className="form-control"
-                    value={createForm.confirmPassword}
-                    onChange={(e) =>
-                      setCreateForm((prev) => ({
-                        ...prev,
-                        confirmPassword: e.target.value,
-                      }))
-                    }
-                    required
-                    minLength={4}
-                  />
-                </div>
-                <div className="form-check form-switch">
-                  <input
-                    className="form-check-input"
-                    type="checkbox"
-                    id="create-is-active"
-                    checked={createForm.isActive}
-                    onChange={(e) =>
-                      setCreateForm((prev) => ({ ...prev, isActive: e.target.checked }))
-                    }
-                  />
-                  <label className="form-check-label" htmlFor="create-is-active">
-                    فعال
-                  </label>
-                </div>
-              </div>
-              <div className="modal-footer">
-                <button
-                  type="button"
-                  className="btn btn-outline-secondary"
-                  onClick={closeModals}
-                >
-                  انصراف
-                </button>
-                <button type="submit" className="btn btn-accent" disabled={submitting}>
-                  {submitting ? 'در حال ایجاد...' : 'ایجاد کاربر'}
-                </button>
-              </div>
               </form>
             </div>
           </div>
@@ -566,118 +733,164 @@ function UsersPage() {
         <>
           <div className="modal-backdrop show users-modal-backdrop" onClick={closeModals} />
           <div className="modal show d-block users-modal" tabIndex="-1" role="dialog">
-            <div className="modal-dialog modal-dialog-centered modal-dialog-scrollable">
-              <form className="modal-content" onSubmit={handleEditSubmit}>
-              <div className="modal-header">
-                <h5 className="modal-title">ویرایش کاربر</h5>
-                <button
-                  type="button"
-                  className="btn-close"
-                  aria-label="بستن"
-                  onClick={closeModals}
-                />
-              </div>
-              <div className="modal-body">
-                {formError && (
-                  <div className="alert alert-danger py-2">{formError}</div>
-                )}
-                <div className="mb-3">
-                  <label className="form-label">عنوان</label>
-                  <select
-                    className="form-select"
-                    value={editForm.title}
-                    onChange={(e) =>
-                      setEditForm((prev) => ({ ...prev, title: e.target.value }))
-                    }
+            <div className="modal-dialog modal-dialog-centered modal-dialog-scrollable modal-lg">
+              <form
+                ref={editFormRef}
+                className="modal-content"
+                onSubmit={handleEditSubmit}
+                noValidate
+              >
+                <div className="modal-header">
+                  <h5 className="modal-title">ویرایش کاربر</h5>
+                  <button
+                    type="button"
+                    className="btn-close"
+                    aria-label="بستن"
+                    onClick={closeModals}
+                  />
+                </div>
+                <div className="modal-body">
+                  {formError && (
+                    <div className="alert alert-danger py-2">{formError}</div>
+                  )}
+
+                  <div className="users-form-section">
+                    <span className="users-form-section-title">اطلاعات پایه</span>
+                    <div className="row g-3">
+                      <div className="col-md-6">
+                        <label className="form-label mb-1" htmlFor="edit-title">
+                          عنوان
+                        </label>
+                        <select
+                          id="edit-title"
+                          className="form-select"
+                          value={editForm.title}
+                          onChange={(e) =>
+                            setEditForm((prev) => ({ ...prev, title: e.target.value }))
+                          }
+                        >
+                          {TITLE_OPTIONS.map((option) => (
+                            <option key={option.value} value={option.value}>
+                              {option.label}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                      <div className="col-md-6">
+                        <label className="form-label mb-1" htmlFor="edit-full-name">
+                          نام کامل
+                        </label>
+                        <input
+                          id="edit-full-name"
+                          type="text"
+                          className="form-control"
+                          value={editForm.fullName}
+                          required
+                          {...persianValidity('لطفاً نام کامل را وارد کنید.')}
+                          onChange={(e) => {
+                            e.target.setCustomValidity('')
+                            setEditForm((prev) => ({ ...prev, fullName: e.target.value }))
+                          }}
+                        />
+                      </div>
+                      <div className="col-md-6">
+                        <label className="form-label mb-1" htmlFor="edit-role">
+                          نقش
+                        </label>
+                        <select
+                          id="edit-role"
+                          className="form-select"
+                          value={editForm.roleId}
+                          required
+                          {...persianValidity('لطفاً نقش را انتخاب کنید.')}
+                          onChange={(e) => {
+                            e.target.setCustomValidity('')
+                            setEditForm((prev) => ({ ...prev, roleId: e.target.value }))
+                          }}
+                        >
+                          <option value="">انتخاب نقش</option>
+                          {roles.map((role) => (
+                            <option key={role.roleId} value={role.roleId}>
+                              {role.name}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                      <div className="col-md-6 d-flex align-items-end">
+                        <div className="form-check form-switch mb-2">
+                          <input
+                            className="form-check-input"
+                            type="checkbox"
+                            id="edit-is-active"
+                            checked={editForm.isActive}
+                            onChange={(e) =>
+                              setEditForm((prev) => ({ ...prev, isActive: e.target.checked }))
+                            }
+                          />
+                          <label className="form-check-label" htmlFor="edit-is-active">
+                            فعال
+                          </label>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="users-form-section">
+                    <span className="users-form-section-title">حساب کاربری</span>
+                    <div className="row g-3">
+                      <div className="col-md-6">
+                        <label className="form-label mb-1" htmlFor="edit-user-name">
+                          نام کاربری
+                        </label>
+                        <input
+                          id="edit-user-name"
+                          type="text"
+                          className="form-control"
+                          value={editForm.userName}
+                          required
+                          autoComplete="username"
+                          dir="ltr"
+                          {...persianValidity('لطفاً نام کاربری را وارد کنید.')}
+                          onChange={(e) => {
+                            e.target.setCustomValidity('')
+                            setEditForm((prev) => ({ ...prev, userName: e.target.value }))
+                          }}
+                        />
+                      </div>
+                      <div className="col-md-6">
+                        <label className="form-label mb-1" htmlFor="edit-email">
+                          ایمیل
+                        </label>
+                        <input
+                          id="edit-email"
+                          type="email"
+                          className="form-control"
+                          value={editForm.email}
+                          required
+                          autoComplete="email"
+                          dir="ltr"
+                          {...persianValidity('لطفاً ایمیل را وارد کنید.')}
+                          onChange={(e) => {
+                            e.target.setCustomValidity('')
+                            setEditForm((prev) => ({ ...prev, email: e.target.value }))
+                          }}
+                        />
+                      </div>
+                    </div>
+                  </div>
+                </div>
+                <div className="modal-footer">
+                  <button
+                    type="button"
+                    className="btn btn-outline-secondary"
+                    onClick={closeModals}
                   >
-                    {TITLE_OPTIONS.map((option) => (
-                      <option key={option.value} value={option.value}>
-                        {option.label}
-                      </option>
-                    ))}
-                  </select>
+                    انصراف
+                  </button>
+                  <button type="submit" className="btn btn-accent" disabled={submitting}>
+                    {submitting ? 'در حال ذخیره...' : 'ذخیره'}
+                  </button>
                 </div>
-                <div className="mb-3">
-                  <label className="form-label">نام کامل</label>
-                  <input
-                    type="text"
-                    className="form-control"
-                    value={editForm.fullName}
-                    onChange={(e) =>
-                      setEditForm((prev) => ({ ...prev, fullName: e.target.value }))
-                    }
-                    required
-                  />
-                </div>
-                <div className="mb-3">
-                  <label className="form-label">نام کاربری</label>
-                  <input
-                    type="text"
-                    className="form-control"
-                    value={editForm.userName}
-                    onChange={(e) =>
-                      setEditForm((prev) => ({ ...prev, userName: e.target.value }))
-                    }
-                    required
-                  />
-                </div>
-                <div className="mb-3">
-                  <label className="form-label">ایمیل</label>
-                  <input
-                    type="email"
-                    className="form-control"
-                    value={editForm.email}
-                    onChange={(e) =>
-                      setEditForm((prev) => ({ ...prev, email: e.target.value }))
-                    }
-                    required
-                  />
-                </div>
-                <div className="mb-3">
-                  <label className="form-label">نقش</label>
-                  <select
-                    className="form-select"
-                    value={editForm.roleId}
-                    onChange={(e) =>
-                      setEditForm((prev) => ({ ...prev, roleId: e.target.value }))
-                    }
-                    required
-                  >
-                    <option value="">انتخاب نقش</option>
-                    {roles.map((role) => (
-                      <option key={role.roleId} value={role.roleId}>
-                        {role.name}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                <div className="form-check form-switch">
-                  <input
-                    className="form-check-input"
-                    type="checkbox"
-                    id="edit-is-active"
-                    checked={editForm.isActive}
-                    onChange={(e) =>
-                      setEditForm((prev) => ({ ...prev, isActive: e.target.checked }))
-                    }
-                  />
-                  <label className="form-check-label" htmlFor="edit-is-active">
-                    فعال
-                  </label>
-                </div>
-              </div>
-              <div className="modal-footer">
-                <button
-                  type="button"
-                  className="btn btn-outline-secondary"
-                  onClick={closeModals}
-                >
-                  انصراف
-                </button>
-                <button type="submit" className="btn btn-accent" disabled={submitting}>
-                  {submitting ? 'در حال ذخیره...' : 'ذخیره'}
-                </button>
-              </div>
               </form>
             </div>
           </div>
@@ -689,65 +902,69 @@ function UsersPage() {
           <div className="modal-backdrop show users-modal-backdrop" onClick={closeModals} />
           <div className="modal show d-block users-modal" tabIndex="-1" role="dialog">
             <div className="modal-dialog modal-dialog-centered modal-dialog-scrollable">
-              <form className="modal-content" onSubmit={handlePasswordSubmit}>
-              <div className="modal-header">
-                <h5 className="modal-title">تغییر رمز عبور</h5>
-                <button
-                  type="button"
-                  className="btn-close"
-                  aria-label="بستن"
-                  onClick={closeModals}
-                />
-              </div>
-              <div className="modal-body">
-                <p className="text-muted small mb-3">
-                  کاربر: <strong>{passwordUser.fullName}</strong> ({passwordUser.userName})
-                </p>
-                {formError && (
-                  <div className="alert alert-danger py-2">{formError}</div>
-                )}
-                <div className="mb-3">
-                  <label className="form-label">رمز عبور جدید</label>
-                  <input
-                    type="password"
-                    className="form-control"
-                    value={passwordForm.password}
-                    onChange={(e) =>
-                      setPasswordForm((prev) => ({ ...prev, password: e.target.value }))
-                    }
-                    required
-                    minLength={4}
+              <form
+                ref={passwordFormRef}
+                className="modal-content"
+                onSubmit={handlePasswordSubmit}
+                noValidate
+              >
+                <div className="modal-header">
+                  <h5 className="modal-title">تغییر رمز عبور</h5>
+                  <button
+                    type="button"
+                    className="btn-close"
+                    aria-label="بستن"
+                    onClick={closeModals}
                   />
                 </div>
-                <div className="mb-3">
-                  <label className="form-label">تکرار رمز عبور</label>
-                  <input
-                    type="password"
-                    className="form-control"
-                    value={passwordForm.confirmPassword}
-                    onChange={(e) =>
-                      setPasswordForm((prev) => ({
-                        ...prev,
-                        confirmPassword: e.target.value,
-                      }))
-                    }
-                    required
-                    minLength={4}
-                  />
+                <div className="modal-body">
+                  <p className="text-muted small mb-3">
+                    کاربر: <strong>{passwordUser.fullName}</strong> ({passwordUser.userName})
+                  </p>
+                  {formError && (
+                    <div className="alert alert-danger py-2">{formError}</div>
+                  )}
+                  <div className="row g-3">
+                    <div className="col-12">
+                      <PasswordField
+                        id="change-password"
+                        label="رمز عبور جدید"
+                        value={passwordForm.password}
+                        required
+                        minLength={4}
+                        validityMessage="لطفاً رمز عبور جدید را وارد کنید."
+                        onChange={(password) =>
+                          setPasswordForm((prev) => ({ ...prev, password }))
+                        }
+                      />
+                    </div>
+                    <div className="col-12">
+                      <PasswordField
+                        id="change-confirm-password"
+                        label="تکرار رمز عبور"
+                        value={passwordForm.confirmPassword}
+                        required
+                        minLength={4}
+                        validityMessage="لطفاً تکرار رمز عبور را وارد کنید."
+                        onChange={(confirmPassword) =>
+                          setPasswordForm((prev) => ({ ...prev, confirmPassword }))
+                        }
+                      />
+                    </div>
+                  </div>
                 </div>
-              </div>
-              <div className="modal-footer">
-                <button
-                  type="button"
-                  className="btn btn-outline-secondary"
-                  onClick={closeModals}
-                >
-                  انصراف
-                </button>
-                <button type="submit" className="btn btn-accent" disabled={submitting}>
-                  {submitting ? 'در حال ذخیره...' : 'تغییر رمز'}
-                </button>
-              </div>
+                <div className="modal-footer">
+                  <button
+                    type="button"
+                    className="btn btn-outline-secondary"
+                    onClick={closeModals}
+                  >
+                    انصراف
+                  </button>
+                  <button type="submit" className="btn btn-accent" disabled={submitting}>
+                    {submitting ? 'در حال ذخیره...' : 'تغییر رمز'}
+                  </button>
+                </div>
               </form>
             </div>
           </div>
@@ -760,41 +977,41 @@ function UsersPage() {
           <div className="modal show d-block users-modal" tabIndex="-1" role="dialog">
             <div className="modal-dialog modal-dialog-centered modal-dialog-scrollable">
               <div className="modal-content">
-              <div className="modal-header">
-                <h5 className="modal-title">حذف کاربر</h5>
-                <button
-                  type="button"
-                  className="btn-close"
-                  aria-label="بستن"
-                  onClick={closeModals}
-                />
-              </div>
-              <div className="modal-body">
-                {formError && (
-                  <div className="alert alert-danger py-2">{formError}</div>
-                )}
-                <p className="mb-0">
-                  آیا از حذف کاربر{' '}
-                  <strong>{deleteUserRow.fullName}</strong> اطمینان دارید؟
-                </p>
-              </div>
-              <div className="modal-footer">
-                <button
-                  type="button"
-                  className="btn btn-outline-secondary"
-                  onClick={closeModals}
-                >
-                  انصراف
-                </button>
-                <button
-                  type="button"
-                  className="btn btn-danger"
-                  onClick={handleDeleteConfirm}
-                  disabled={submitting}
-                >
-                  {submitting ? 'در حال حذف...' : 'حذف'}
-                </button>
-              </div>
+                <div className="modal-header">
+                  <h5 className="modal-title">حذف کاربر</h5>
+                  <button
+                    type="button"
+                    className="btn-close"
+                    aria-label="بستن"
+                    onClick={closeModals}
+                  />
+                </div>
+                <div className="modal-body">
+                  {formError && (
+                    <div className="alert alert-danger py-2">{formError}</div>
+                  )}
+                  <p className="mb-0">
+                    آیا از حذف کاربر{' '}
+                    <strong>{deleteUserRow.fullName}</strong> اطمینان دارید؟
+                  </p>
+                </div>
+                <div className="modal-footer">
+                  <button
+                    type="button"
+                    className="btn btn-outline-secondary"
+                    onClick={closeModals}
+                  >
+                    انصراف
+                  </button>
+                  <button
+                    type="button"
+                    className="btn btn-danger"
+                    onClick={handleDeleteConfirm}
+                    disabled={submitting}
+                  >
+                    {submitting ? 'در حال حذف...' : 'حذف'}
+                  </button>
+                </div>
               </div>
             </div>
           </div>

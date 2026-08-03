@@ -3,7 +3,7 @@ import Icon from '../../components/common/Icon'
 import DataTable from '../../lib/dataTableSetup'
 import { showAppToast } from '../../lib/appToast'
 import { persianValidity, validateFormPersian } from '../../lib/persianFormValidity'
-import { useModalKeyboardShortcuts, usePageCreateShortcut } from '../../hooks/useModalKeyboardShortcuts'
+import { useModalKeyboardShortcuts, usePageCreateShortcut, useModalAutoFocus } from '../../hooks/useModalKeyboardShortcuts'
 import { tipProps, useBootstrapTooltips } from '../../hooks/useBootstrapTooltips'
 import { usePageCrud } from '../../permissions/usePageCrud'
 import { fetchBaseCurrency } from '../../services/currenciesApi'
@@ -415,6 +415,8 @@ function ProductListPage() {
     isBlocked: modalOpen,
   })
 
+  useModalAutoFocus({ open: formModalOpen, formRef })
+
   const handleBaseUnitChange = (baseMeaurmentId) => {
     setForm((prev) => ({
       ...prev,
@@ -548,7 +550,7 @@ function ProductListPage() {
               type="button"
               className="btn btn-sm btn-accent btn-users-new d-inline-flex align-items-center gap-2"
               onClick={openCreate}
-              title="محصول جدید (Ctrl+Space)"
+              title="محصول جدید (Ctrl+N / Ctrl+Space)"
             >
               <Icon name="plus" />
               <span>محصول جدید</span>

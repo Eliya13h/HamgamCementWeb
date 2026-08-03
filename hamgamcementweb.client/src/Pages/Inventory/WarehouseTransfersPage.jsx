@@ -1,7 +1,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import Icon from '../../components/common/Icon'
 import JalaliDateField from '../../components/common/JalaliDateField'
+import {
+  useModalKeyboardShortcuts,
+  usePageCreateShortcut,
+  useModalAutoFocus,
+} from '../../hooks/useModalKeyboardShortcuts'
+import { showAppToast } from '../../lib/appToast'
 import DataTable from '../../lib/dataTableSetup'
+import { persianValidity, validateFormPersian } from '../../lib/persianFormValidity'
 import { usePageCrud } from '../../permissions/usePageCrud'
 import { fetchMeaurmentOptions, fetchProductOptions } from '../../services/productsApi'
 import {
@@ -46,6 +53,7 @@ const emptyLine = { productId: '', quantity: '', meaurmentId: '', notes: '' }
 function WarehouseTransfersPage() {
   const { canCreate, canEdit } = usePageCrud('/inventory/transfers')
   const tableRef = useRef(null)
+  const formRef = useRef(null)
   const [loadError, setLoadError] = useState('')
   const [showCreate, setShowCreate] = useState(false)
   const [detail, setDetail] = useState(null)
@@ -90,8 +98,9 @@ function WarehouseTransfersPage() {
     tableRef.current?.dt()?.ajax.reload(null, false)
   }, [])
 
-  const openCreate = () => {
+  const openCreate = useCallback(() => {
     setFormError('')
+    setDetail(null)
     setForm({
       fromWarehouseId: '',
       toWarehouseId: '',
@@ -105,17 +114,18 @@ function WarehouseTransfersPage() {
       ],
     })
     setShowCreate(true)
-  }
+  }, [meaurmentOptions])
 
-  const closeModals = () => {
+  const closeModals = useCallback(() => {
     setShowCreate(false)
     setDetail(null)
     setFormError('')
     setSubmitting(false)
-  }
+  }, [])
 
   const openDetail = async (row) => {
     setFormError('')
+    setShowCreate(false)
     try {
       const data = await warehouseTransfersApi.getById(row.warehouseTransferId)
       setDetail(data)
@@ -124,7 +134,7 @@ function WarehouseTransfersPage() {
     }
   }
 
-  const handlePost = async (transferId) => {
+  const handlePost = useCallback(async (transferId) => {
     setSubmitting(true)
     setFormError('')
     try {
@@ -135,7 +145,38 @@ function WarehouseTransfersPage() {
       setFormError(error.message)
       setSubmitting(false)
     }
-  }
+  }, [closeModals, reloadTable])
+
+  const triggerCreateSave = useCallback(() => {
+    if (!submitting) formRef.current?.requestSubmit()
+  }, [submitting])
+
+  const triggerPost = useCallback(() => {
+    if (!submitting && detail?.status === 'Draft' && canEdit) {
+      handlePost(detail.warehouseTransferId)
+    }
+  }, [submitting, detail, canEdit, handlePost])
+
+  useModalKeyboardShortcuts({
+    open: showCreate,
+    onClose: closeModals,
+    onSave: triggerCreateSave,
+    formRef,
+  })
+
+  useModalKeyboardShortcuts({
+    open: Boolean(detail),
+    onClose: closeModals,
+    onSave: detail?.status === 'Draft' && canEdit ? triggerPost : undefined,
+  })
+
+  usePageCreateShortcut({
+    enabled: canCreate,
+    onNew: openCreate,
+    isBlocked: showCreate || Boolean(detail),
+  })
+
+  useModalAutoFocus({ open: showCreate, formRef })
 
   const updateLine = (index, patch) => {
     setForm((prev) => {
@@ -164,11 +205,21 @@ function WarehouseTransfersPage() {
 
   const handleSubmit = async (event) => {
     event.preventDefault()
+    const formEl = event.currentTarget
+    const message = validateFormPersian(formEl)
+    if (message) {
+      showAppToast(message)
+      formEl.reportValidity()
+      return
+    }
+
     setSubmitting(true)
     setFormError('')
 
     if (form.fromWarehouseId === form.toWarehouseId) {
-      setFormError('انبار مبدأ و مقصد نمی‌توانند یکسان باشند.')
+      const err = 'انبار مبدأ و مقصد نمی‌توانند یکسان باشند.'
+      setFormError(err)
+      showAppToast(err)
       setSubmitting(false)
       return
     }
@@ -281,7 +332,12 @@ function WarehouseTransfersPage() {
         <div className="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3">
           <h2 className="card-title mb-0">انتقال بین انبارها</h2>
           {canCreate && (
-            <button type="button" className="btn btn-accent" onClick={openCreate}>
+            <button
+              type="button"
+              className="btn btn-accent"
+              title="انتقال جدید (Ctrl+N)"
+              onClick={openCreate}
+            >
               <Icon name="plus" size={16} className="me-1" />
               <span>انتقال جدید</span>
             </button>
@@ -304,7 +360,7 @@ function WarehouseTransfersPage() {
           <div className="modal show d-block users-modal" tabIndex="-1" role="dialog">
             <div className="modal-dialog modal-dialog-centered modal-dialog-scrollable modal-xl">
               <div className="modal-content">
-                <form onSubmit={handleSubmit}>
+                <form ref={formRef} onSubmit={handleSubmit} noValidate>
                   <div className="modal-header">
                     <h5 className="modal-title">انتقال جدید</h5>
                     <button
@@ -324,6 +380,7 @@ function WarehouseTransfersPage() {
                         <select
                           className="form-select"
                           required
+                          {...persianValidity('لطفاً انبار مبدأ را انتخاب کنید.')}
                           value={form.fromWarehouseId}
                           onChange={(e) =>
                             setForm((prev) => ({
@@ -345,6 +402,7 @@ function WarehouseTransfersPage() {
                         <select
                           className="form-select"
                           required
+                          {...persianValidity('لطفاً انبار مقصد را انتخاب کنید.')}
                           value={form.toWarehouseId}
                           onChange={(e) =>
                             setForm((prev) => ({
@@ -401,6 +459,7 @@ function WarehouseTransfersPage() {
                           <select
                             className="form-select"
                             required
+                            {...persianValidity('لطفاً محصول را انتخاب کنید.')}
                             value={line.productId}
                             onChange={(e) =>
                               updateLine(index, { productId: e.target.value })
@@ -422,6 +481,7 @@ function WarehouseTransfersPage() {
                             min="0"
                             className="form-control"
                             required
+                            {...persianValidity('لطفاً مقدار را وارد کنید.')}
                             value={line.quantity}
                             onChange={(e) =>
                               updateLine(index, { quantity: e.target.value })
@@ -433,6 +493,7 @@ function WarehouseTransfersPage() {
                           <select
                             className="form-select"
                             required
+                            {...persianValidity('لطفاً واحد را انتخاب کنید.')}
                             value={line.meaurmentId}
                             onChange={(e) =>
                               updateLine(index, { meaurmentId: e.target.value })

@@ -1,6 +1,12 @@
 import { useCallback, useMemo, useRef, useState } from 'react'
 import Icon from '../../components/common/Icon'
+import {
+  useModalKeyboardShortcuts,
+  useModalAutoFocus,
+} from '../../hooks/useModalKeyboardShortcuts'
+import { showAppToast } from '../../lib/appToast'
 import DataTable from '../../lib/dataTableSetup'
+import { validateFormPersian } from '../../lib/persianFormValidity'
 import PermissionTree from '../../permissions/PermissionTree'
 import { usePageCrud } from '../../permissions/usePageCrud'
 import { permissionTree } from '../../permissions/registry'
@@ -35,6 +41,7 @@ const emptyForm = {
 
 function AccessLevelsPage() {
   const tableRef = useRef(null)
+  const editFormRef = useRef(null)
   const { can } = usePageCrud('/users/roles')
   const [loadError, setLoadError] = useState('')
   const [editUser, setEditUser] = useState(null)
@@ -72,8 +79,27 @@ function AccessLevelsPage() {
     setForm({ ...emptyForm, permissions: new Set() })
   }
 
+  const triggerEditSave = useCallback(() => {
+    if (!submitting) editFormRef.current?.requestSubmit()
+  }, [submitting])
+
+  useModalKeyboardShortcuts({
+    open: Boolean(editUser),
+    onClose: closeModal,
+    onSave: triggerEditSave,
+    formRef: editFormRef,
+  })
+  useModalAutoFocus({ open: Boolean(editUser), formRef: editFormRef })
+
   const handleSubmit = async (event) => {
     event.preventDefault()
+    const formEl = event.currentTarget
+    const message = validateFormPersian(formEl)
+    if (message) {
+      showAppToast(message)
+      formEl.reportValidity()
+      return
+    }
     if (!editUser) return
 
     setSubmitting(true)
@@ -219,8 +245,13 @@ function AccessLevelsPage() {
         <>
           <div className="modal-backdrop show users-modal-backdrop" onClick={closeModal} />
           <div className="modal show d-block users-modal access-levels-modal" tabIndex="-1">
-            <div className="modal-dialog modal-dialog-centered modal-dialog-scrollable">
-              <form className="modal-content" onSubmit={handleSubmit}>
+            <div className="modal-dialog modal-dialog-centered modal-dialog-scrollable modal-lg">
+              <form
+                ref={editFormRef}
+                className="modal-content"
+                onSubmit={handleSubmit}
+                noValidate
+              >
                 <div className="modal-header">
                   <h5 className="modal-title">ویرایش دسترسی‌ها</h5>
                   <button
@@ -239,33 +270,37 @@ function AccessLevelsPage() {
                     نقش: <strong>{editUser.roleName}</strong>
                   </p>
 
-                  <div className="form-check form-switch mb-3">
-                    <input
-                      className="form-check-input"
-                      type="checkbox"
-                      id="user-full-access"
-                      checked={form.hasFullAccess}
-                      onChange={(e) =>
-                        setForm((prev) => ({ ...prev, hasFullAccess: e.target.checked }))
-                      }
-                    />
-                    <label className="form-check-label" htmlFor="user-full-access">
-                      دسترسی کامل به کل سیستم
-                    </label>
-                  </div>
-
-                  {!form.hasFullAccess && (
-                    <div className="mb-0">
-                      <label className="form-label">دسترسی‌ها</label>
-                      <PermissionTree
-                        tree={permissionTree}
-                        value={form.permissions}
-                        onChange={(permissions) =>
-                          setForm((prev) => ({ ...prev, permissions }))
-                        }
-                      />
+                  <div className="row g-3">
+                    <div className="col-12">
+                      <div className="form-check form-switch">
+                        <input
+                          className="form-check-input"
+                          type="checkbox"
+                          id="user-full-access"
+                          checked={form.hasFullAccess}
+                          onChange={(e) =>
+                            setForm((prev) => ({ ...prev, hasFullAccess: e.target.checked }))
+                          }
+                        />
+                        <label className="form-check-label" htmlFor="user-full-access">
+                          دسترسی کامل به کل سیستم
+                        </label>
+                      </div>
                     </div>
-                  )}
+
+                    {!form.hasFullAccess && (
+                      <div className="col-12">
+                        <label className="form-label mb-1">دسترسی‌ها</label>
+                        <PermissionTree
+                          tree={permissionTree}
+                          value={form.permissions}
+                          onChange={(permissions) =>
+                            setForm((prev) => ({ ...prev, permissions }))
+                          }
+                        />
+                      </div>
+                    )}
+                  </div>
                 </div>
                 <div className="modal-footer">
                   <button

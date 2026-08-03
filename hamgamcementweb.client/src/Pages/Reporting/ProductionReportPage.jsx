@@ -1,5 +1,6 @@
 import { useCallback, useMemo, useRef, useState } from 'react'
 import Icon from '../../components/common/Icon'
+import { useModalKeyboardShortcuts } from '../../hooks/useModalKeyboardShortcuts'
 import DataTable from '../../lib/dataTableSetup'
 import { PRODUCTION_COST_TYPE_OPTIONS, productionBatchesApi } from '../../services/productionApi'
 import { dataTableLanguage, formatAmount, formatJalaliDate } from '../Transport/CrudTablePage'
@@ -30,6 +31,13 @@ function ProductionReportPage() {
       setLoadError(error.message)
     }
   }, [])
+
+  const closeTrace = useCallback(() => setTraceData(null), [])
+
+  useModalKeyboardShortcuts({
+    open: Boolean(traceData),
+    onClose: closeTrace,
+  })
 
   const tableOptions = useMemo(
     () => ({
@@ -127,7 +135,7 @@ function ProductionReportPage() {
               <div className="modal-content">
                 <div className="modal-header">
                   <h5 className="modal-title">ردیابی — {traceData.batchNumber}</h5>
-                  <button type="button" className="btn-close" onClick={() => setTraceData(null)} />
+                  <button type="button" className="btn-close" onClick={closeTrace} />
                 </div>
                 <div className="modal-body">
                   <p className="small text-muted mb-2">

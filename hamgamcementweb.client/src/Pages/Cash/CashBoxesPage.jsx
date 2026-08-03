@@ -1,6 +1,12 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import Icon from '../../components/common/Icon'
 import JalaliDateField from '../../components/common/JalaliDateField'
+import {
+  useModalKeyboardShortcuts,
+  useModalAutoFocus,
+} from '../../hooks/useModalKeyboardShortcuts'
+import { showAppToast } from '../../lib/appToast'
+import { persianValidity, validateFormPersian } from '../../lib/persianFormValidity'
 import CrudTablePage from '../Transport/CrudTablePage'
 import { usePageCrud } from '../../permissions/usePageCrud'
 import { fetchCurrencyOptions } from '../../services/transportApi'
@@ -125,6 +131,7 @@ function buildAmountMap(currencies) {
 
 function CashBoxesPage() {
   const { canCreate } = usePageCrud('/cash/boxes')
+  const transferFormRef = useRef(null)
   const [showTransfer, setShowTransfer] = useState(false)
   const [tableKey, setTableKey] = useState(0)
   const [boxes, setBoxes] = useState([])
@@ -179,20 +186,43 @@ function CashBoxesPage() {
     setShowTransfer(true)
   }
 
-  const closeTransfer = () => {
+  const closeTransfer = useCallback(() => {
     setShowTransfer(false)
     setSubmitting(false)
     setTransferError('')
-  }
+  }, [])
+
+  const triggerTransferSave = useCallback(() => {
+    if (!submitting) transferFormRef.current?.requestSubmit()
+  }, [submitting])
+
+  useModalKeyboardShortcuts({
+    open: showTransfer,
+    onClose: closeTransfer,
+    onSave: triggerTransferSave,
+    formRef: transferFormRef,
+  })
+
+  useModalAutoFocus({ open: showTransfer, formRef: transferFormRef })
 
   const handleTransfer = async (event) => {
     event.preventDefault()
+    const formEl = event.currentTarget
+    const message = validateFormPersian(formEl)
+    if (message) {
+      showAppToast(message)
+      formEl.reportValidity()
+      return
+    }
+
     setSubmitting(true)
     setTransferError('')
     setTransferMessage('')
 
     if (transferForm.fromCashBoxId === transferForm.toCashBoxId) {
-      setTransferError('صندوق مبدأ و مقصد نمی‌توانند یکسان باشند.')
+      const err = 'صندوق مبدأ و مقصد نمی‌توانند یکسان باشند.'
+      setTransferError(err)
+      showAppToast(err)
       setSubmitting(false)
       return
     }
@@ -205,7 +235,9 @@ function CashBoxesPage() {
       .filter((l) => l.currencyId > 0 && l.amount > 0)
 
     if (!lines.length) {
-      setTransferError('حداقل یک مبلغ برای یک ارز وارد کنید.')
+      const err = 'حداقل یک مبلغ برای یک ارز وارد کنید.'
+      setTransferError(err)
+      showAppToast(err)
       setSubmitting(false)
       return
     }
@@ -271,7 +303,12 @@ function CashBoxesPage() {
             data-bs-focus="false"
           >
             <div className="modal-dialog modal-dialog-centered modal-dialog-scrollable">
-              <form className="modal-content" onSubmit={handleTransfer}>
+              <form
+                ref={transferFormRef}
+                className="modal-content"
+                onSubmit={handleTransfer}
+                noValidate
+              >
                 <div className="modal-header">
                   <h5 className="modal-title">انتقال آزاد بین صندوق‌ها</h5>
                   <button
@@ -292,6 +329,7 @@ function CashBoxesPage() {
                         className="form-select"
                         value={transferForm.fromCashBoxId}
                         required
+                        {...persianValidity('لطفاً صندوق مبدأ را انتخاب کنید.')}
                         onChange={(e) =>
                           setTransferForm((prev) => ({
                             ...prev,
@@ -313,6 +351,7 @@ function CashBoxesPage() {
                         className="form-select"
                         value={transferForm.toCashBoxId}
                         required
+                        {...persianValidity('لطفاً صندوق مقصد را انتخاب کنید.')}
                         onChange={(e) =>
                           setTransferForm((prev) => ({
                             ...prev,

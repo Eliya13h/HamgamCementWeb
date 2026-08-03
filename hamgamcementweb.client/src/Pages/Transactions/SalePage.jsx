@@ -5,7 +5,11 @@ import AmountField from '../../components/common/AmountField'
 import JalaliDateField from '../../components/common/JalaliDateField'
 import PrefixNumberField from '../../components/common/PrefixNumberField'
 import SearchableSelect from '../../components/common/SearchableSelect'
-import { useModalKeyboardShortcuts } from '../../hooks/useModalKeyboardShortcuts'
+import {
+  useModalAutoFocus,
+  useModalKeyboardShortcuts,
+  usePageCreateShortcut,
+} from '../../hooks/useModalKeyboardShortcuts'
 import { todayGregorianIso } from '../../lib/afghanSolarCalendar'
 import DataTable from '../../lib/dataTableSetup'
 import { fetchBaseCurrency, fetchCurrencyRates } from '../../services/currenciesApi'
@@ -19,6 +23,7 @@ import {
   PRODUCT_SALE_PRICE_MODE,
 } from '../../services/productsApi'
 import { showAppToast } from '../../lib/appToast'
+import { persianValidity, validateFormPersian } from '../../lib/persianFormValidity'
 import { fetchCurrencyOptions, fetchVehicleOptions } from '../../services/transportApi'
 import {
   INVOICE_STATUSES,
@@ -639,6 +644,14 @@ function SalePage() {
     event.preventDefault()
     if (viewPosted) return
 
+    const formEl = event.currentTarget
+    const message = validateFormPersian(formEl)
+    if (message) {
+      showAppToast(message)
+      formEl.reportValidity()
+      return
+    }
+
     if (showPaymentField) {
       const paid = Number(header.paidAmount) || 0
       if (paid < 0) {
@@ -709,6 +722,19 @@ function SalePage() {
     onSave: !viewPosted ? triggerSave : undefined,
     formRef,
   })
+
+  useModalKeyboardShortcuts({
+    open: Boolean(deleteRow),
+    onClose: closeModals,
+  })
+
+  usePageCreateShortcut({
+    enabled: canCreate,
+    onNew: openCreate,
+    isBlocked: showForm || Boolean(deleteRow) || Boolean(returnSource),
+  })
+
+  useModalAutoFocus({ open: showForm, formRef })
 
   const openReturn = useCallback((row) => {
     setReturnSource({
@@ -864,6 +890,7 @@ function SalePage() {
             <button
               type="button"
               className="btn btn-sm btn-accent btn-users-new d-inline-flex align-items-center gap-2"
+              title="فاکتور فروش جدید (Ctrl+N)"
               onClick={openCreate}
             >
               <Icon name="plus" />
@@ -905,7 +932,7 @@ function SalePage() {
           <div className="modal-backdrop show users-modal-backdrop" onClick={closeModals} />
           <div className="modal show d-block users-modal" tabIndex="-1" data-bs-focus="false">
             <div className="modal-dialog modal-dialog-centered modal-dialog-scrollable modal-xl">
-              <form ref={formRef} className="modal-content" onSubmit={handleSubmit}>
+              <form ref={formRef} className="modal-content" noValidate onSubmit={handleSubmit}>
                 <div className="modal-header">
                   <h5 className="modal-title">
                     {viewPosted
@@ -1007,6 +1034,7 @@ function SalePage() {
                         placeholder="انتخاب کنید..."
                         searchPlaceholder="جستجوی مشتری..."
                         required
+                        requiredMessage="لطفاً مشتری را انتخاب کنید."
                         disabled={viewPosted}
                       />
                     </div>
@@ -1018,6 +1046,7 @@ function SalePage() {
                         required
                         disabled={viewPosted}
                         onChange={(e) => handleHeaderChange('warehouseId', e.target.value)}
+                        {...persianValidity('لطفاً انبار را انتخاب کنید.')}
                       >
                         <option value="">انتخاب کنید...</option>
                         {warehouses.map((o) => (
@@ -1033,6 +1062,7 @@ function SalePage() {
                         value={header.invoiceDate}
                         onChange={(next) => handleHeaderChange('invoiceDate', next)}
                         required
+                        requiredMessage="لطفاً تاریخ فاکتور را انتخاب کنید."
                         disabled={viewPosted}
                       />
                     </div>
@@ -1044,6 +1074,7 @@ function SalePage() {
                         required
                         disabled={viewPosted}
                         onChange={(e) => handleCurrencyChange(e.target.value)}
+                        {...persianValidity('لطفاً ارز فاکتور را انتخاب کنید.')}
                       >
                         <option value="">انتخاب کنید...</option>
                         {currencies.map((o) => (
@@ -1100,6 +1131,7 @@ function SalePage() {
                           required
                           disabled={viewPosted}
                           onChange={(e) => handleExchangeRateChange(e.target.value)}
+                          {...persianValidity('لطفاً نرخ ارز را وارد کنید.')}
                         />
                       ) : (
                         <input
@@ -1278,6 +1310,7 @@ function SalePage() {
                                 size="sm"
                                 className="invoice-line-control-height"
                                 required
+                                requiredMessage="لطفاً محصول را انتخاب کنید."
                                 disabled={viewPosted}
                               />
                             </td>
@@ -1288,6 +1321,7 @@ function SalePage() {
                                 required
                                 disabled={viewPosted}
                                 onChange={(e) => handleMeaurmentChange(index, e.target.value)}
+                                {...persianValidity('لطفاً واحد را انتخاب کنید.')}
                               >
                                 <option value="">—</option>
                                 {meaurmentsForProduct(line.productId).map((m) => (
@@ -1306,6 +1340,7 @@ function SalePage() {
                                 step="any"
                                 className="amount-field-sm invoice-line-control-height"
                                 required
+                                requiredMessage="لطفاً مقدار را وارد کنید."
                                 disabled={viewPosted}
                               />
                             </td>
@@ -1318,6 +1353,7 @@ function SalePage() {
                                 min="0"
                                 step="any"
                                 required
+                                requiredMessage="لطفاً قیمت واحد را وارد کنید."
                                 disabled={viewPosted}
                               />
                             </td>
