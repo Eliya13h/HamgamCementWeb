@@ -12,7 +12,13 @@ import { fetchBaseCurrency, fetchCurrencyRates } from '../../services/currencies
 import { fetchGeneralSettings } from '../../services/settingsApi'
 import { usePageCrud } from '../../permissions/usePageCrud'
 import { fetchWarehouseOptions } from '../../services/inventoryApi'
-import { fetchMeaurmentOptions, fetchProductOptions } from '../../services/productsApi'
+import {
+  fetchMeaurmentOptions,
+  fetchProductOptions,
+  fetchSuggestedPurchasePrice,
+  PRODUCT_SALE_PRICE_MODE,
+} from '../../services/productsApi'
+import { showAppToast } from '../../lib/appToast'
 import { fetchCurrencyOptions, fetchVehicleOptions } from '../../services/transportApi'
 import {
   INVOICE_STATUSES,
@@ -562,7 +568,34 @@ function SalePage() {
     handleLineChange(index, 'meaurmentId', newMeaurmentId)
   }
 
-  const handleProductChange = (index, productId) => {
+  const resolveSuggestedSalePriceInBase = async (product) => {
+    if (!product) return ''
+
+    if (Number(product.salePriceMode) === PRODUCT_SALE_PRICE_MODE.ProfitPercent) {
+      const percent = Number(product.saleProfitPercent)
+      if (!(percent > 0)) return ''
+
+      try {
+        const hint = await fetchSuggestedPurchasePrice(product.value, header.warehouseId || undefined)
+        const cost = Number(hint?.unitCostInBase)
+        if (!(cost > 0)) {
+          showAppToast(
+            'برای این محصول بهای لحظه‌ای (خرید یا بهای تمام‌شده تولید) یافت نشد؛ قیمت را دستی وارد کنید.',
+            'warning',
+          )
+          return ''
+        }
+        return Math.round(cost * (1 + percent / 100) * 10000) / 10000
+      } catch (error) {
+        showAppToast(error.message || 'محاسبه قیمت فروش پیشنهادی با خطا مواجه شد.', 'warning')
+        return ''
+      }
+    }
+
+    return product.defaultSalePrice ?? ''
+  }
+
+  const handleProductChange = async (index, productId) => {
     const product = products.find((p) => String(p.value) === String(productId))
     const rate = getCurrencyRateToBase(
       header.currencyId,
@@ -570,7 +603,7 @@ function SalePage() {
       currencyRates,
       exchangeRate,
     )
-    const priceInBase = product?.defaultSalePrice ?? ''
+    const priceInBase = await resolveSuggestedSalePriceInBase(product)
     setLines((prev) =>
       prev.map((line, i) => {
         if (i !== index) return line

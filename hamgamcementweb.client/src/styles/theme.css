@@ -1792,3 +1792,24 @@ body.sidebar-drawer-open {
   overflow: hidden;
   text-overflow: ellipsis;
 }
+
+/* Bootstrap 5.3 custom tooltip — هم‌خوان با تم دارک/لایت پروژه */
+.hc-tooltip {
+  --bs-tooltip-bg: var(--hc-bg-elevated);
+  --bs-tooltip-color: var(--hc-text);
+  --bs-tooltip-opacity: 1;
+  --bs-tooltip-max-width: 280px;
+  --bs-tooltip-padding-x: 0.75rem;
+  --bs-tooltip-padding-y: 0.5rem;
+  --bs-tooltip-border-radius: 0.5rem;
+  --bs-tooltip-font-size: 0.8125rem;
+  z-index: 2200;
+}
+
+.hc-tooltip .tooltip-inner {
+  border: 1px solid var(--hc-border);
+  box-shadow: var(--hc-shadow);
+  text-align: start;
+  line-height: 1.55;
+  font-weight: 500;
+}

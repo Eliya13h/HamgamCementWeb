@@ -1,6 +1,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import Icon from '../../components/common/Icon'
+import {
+  useModalKeyboardShortcuts,
+  usePageCreateShortcut,
+  useModalAutoFocus,
+} from '../../hooks/useModalKeyboardShortcuts'
+import { showAppToast } from '../../lib/appToast'
 import DataTable from '../../lib/dataTableSetup'
+import { createServerSideTableOptions } from '../../lib/dataTableOptions'
+import { persianValidity, validateFormPersian } from '../../lib/persianFormValidity'
 import { usePageCrud } from '../../permissions/usePageCrud'
 import {
   createEmployee,
@@ -15,26 +23,144 @@ const TITLE_OPTIONS = [
   { value: 1, label: 'خانم' },
 ]
 
-const dataTableLanguage = {
-  emptyTable: 'داده‌ای برای نمایش وجود ندارد',
-  info: 'نمایش _START_ تا _END_ از _TOTAL_ ردیف',
-  infoEmpty: 'رکوردی یافت نشد',
-  infoFiltered: '(فیلتر شده از _MAX_ ردیف)',
-  lengthMenu: 'نمایش _MENU_ ردیف',
-  loadingRecords: 'در حال بارگذاری...',
-  processing: 'در حال پردازش...',
-  search: 'جستجو:',
-  zeroRecords: 'رکوردی یافت نشد',
-  paginate: {
-    first: 'اول',
-    last: 'آخر',
-    next: 'بعدی',
-    previous: 'قبلی',
-  },
+function EmployeeFormFields({ form, setForm, idPrefix, departments }) {
+  return (
+    <div className="row g-3">
+      <div className="col-md-4">
+        <label className="form-label mb-1">عنوان</label>
+        <select
+          className="form-select"
+          value={form.title}
+          onChange={(e) => setForm((prev) => ({ ...prev, title: e.target.value }))}
+        >
+          {TITLE_OPTIONS.map((option) => (
+            <option key={option.value} value={option.value}>
+              {option.label}
+            </option>
+          ))}
+        </select>
+      </div>
+      <div className="col-md-4">
+        <label className="form-label mb-1">نام</label>
+        <input
+          type="text"
+          className="form-control"
+          value={form.name}
+          required
+          {...persianValidity('لطفاً نام را وارد کنید.')}
+          onChange={(e) => {
+            e.target.setCustomValidity('')
+            setForm((prev) => ({ ...prev, name: e.target.value }))
+          }}
+        />
+      </div>
+      <div className="col-md-4">
+        <label className="form-label mb-1">نام خانوادگی</label>
+        <input
+          type="text"
+          className="form-control"
+          value={form.family}
+          required
+          {...persianValidity('لطفاً نام خانوادگی را وارد کنید.')}
+          onChange={(e) => {
+            e.target.setCustomValidity('')
+            setForm((prev) => ({ ...prev, family: e.target.value }))
+          }}
+        />
+      </div>
+      <div className="col-md-6">
+        <label className="form-label mb-1">نام پدر</label>
+        <input
+          type="text"
+          className="form-control"
+          value={form.fatherName}
+          onChange={(e) => setForm((prev) => ({ ...prev, fatherName: e.target.value }))}
+        />
+      </div>
+      <div className="col-md-6">
+        <label className="form-label mb-1">شماره تذکره</label>
+        <input
+          type="text"
+          className="form-control"
+          value={form.nationalCode}
+          onChange={(e) => setForm((prev) => ({ ...prev, nationalCode: e.target.value }))}
+        />
+      </div>
+      <div className="col-md-6">
+        <label className="form-label mb-1">موبایل</label>
+        <input
+          type="text"
+          className="form-control"
+          value={form.mobile}
+          required
+          {...persianValidity('لطفاً موبایل را وارد کنید.')}
+          onChange={(e) => {
+            e.target.setCustomValidity('')
+            setForm((prev) => ({ ...prev, mobile: e.target.value }))
+          }}
+        />
+      </div>
+      <div className="col-md-6">
+        <label className="form-label mb-1">بخش</label>
+        <select
+          className="form-select"
+          value={form.departmentId}
+          required
+          {...persianValidity('لطفاً بخش را انتخاب کنید.')}
+          onChange={(e) => {
+            e.target.setCustomValidity('')
+            setForm((prev) => ({ ...prev, departmentId: e.target.value }))
+          }}
+        >
+          <option value="">انتخاب بخش</option>
+          {departments.map((department) => (
+            <option key={department.departmentId} value={department.departmentId}>
+              {department.name}
+            </option>
+          ))}
+        </select>
+      </div>
+      <div className="col-12">
+        <label className="form-label mb-1">آدرس</label>
+        <input
+          type="text"
+          className="form-control"
+          value={form.address}
+          onChange={(e) => setForm((prev) => ({ ...prev, address: e.target.value }))}
+        />
+      </div>
+      <div className="col-md-6">
+        <label className="form-label mb-1">حقوق</label>
+        <input
+          type="number"
+          step="0.0001"
+          className="form-control"
+          value={form.sallary}
+          onChange={(e) => setForm((prev) => ({ ...prev, sallary: e.target.value }))}
+        />
+      </div>
+      <div className="col-12">
+        <div className="form-check form-switch">
+          <input
+            className="form-check-input"
+            type="checkbox"
+            id={`${idPrefix}-is-active`}
+            checked={form.isActive}
+            onChange={(e) => setForm((prev) => ({ ...prev, isActive: e.target.checked }))}
+          />
+          <label className="form-check-label" htmlFor={`${idPrefix}-is-active`}>
+            فعال
+          </label>
+        </div>
+      </div>
+    </div>
+  )
 }
 
 function EmployeesPage({ embedded = false }) {
   const tableRef = useRef(null)
+  const createFormRef = useRef(null)
+  const editFormRef = useRef(null)
   const { canCreate, canEdit, canDelete } = usePageCrud('/people/employees')
   const [departments, setDepartments] = useState([])
   const [loadError, setLoadError] = useState('')
@@ -125,8 +251,44 @@ function EmployeesPage({ embedded = false }) {
     setSubmitting(false)
   }
 
+  const triggerCreateSave = useCallback(() => {
+    if (!submitting) createFormRef.current?.requestSubmit()
+  }, [submitting])
+
+  const triggerEditSave = useCallback(() => {
+    if (!submitting) editFormRef.current?.requestSubmit()
+  }, [submitting])
+
+  useModalKeyboardShortcuts({
+    open: showCreate,
+    onClose: closeModals,
+    onSave: triggerCreateSave,
+    formRef: createFormRef,
+  })
+  useModalKeyboardShortcuts({
+    open: Boolean(editRow),
+    onClose: closeModals,
+    onSave: triggerEditSave,
+    formRef: editFormRef,
+  })
+  useModalKeyboardShortcuts({ open: Boolean(deleteRow), onClose: closeModals })
+  usePageCreateShortcut({
+    enabled: canCreate,
+    onNew: openCreate,
+    isBlocked: showCreate || Boolean(editRow) || Boolean(deleteRow),
+  })
+  useModalAutoFocus({ open: showCreate, formRef: createFormRef })
+  useModalAutoFocus({ open: Boolean(editRow), formRef: editFormRef })
+
   const handleCreateSubmit = async (event) => {
     event.preventDefault()
+    const formEl = event.currentTarget
+    const message = validateFormPersian(formEl)
+    if (message) {
+      showAppToast(message)
+      formEl.reportValidity()
+      return
+    }
 
     setSubmitting(true)
     setFormError('')
@@ -154,6 +316,13 @@ function EmployeesPage({ embedded = false }) {
 
   const handleEditSubmit = async (event) => {
     event.preventDefault()
+    const formEl = event.currentTarget
+    const message = validateFormPersian(formEl)
+    if (message) {
+      showAppToast(message)
+      formEl.reportValidity()
+      return
+    }
     if (!editRow) return
 
     setSubmitting(true)
@@ -197,69 +366,45 @@ function EmployeesPage({ embedded = false }) {
   }
 
   const tableOptions = useMemo(
-    () => ({
-      processing: true,
-      serverSide: true,
-      ajax: createEmployeesDataTableAjax(setLoadError),
-      paging: true,
-      searching: true,
-      ordering: true,
-      info: true,
-      scrollX: true,
-      autoWidth: false,
-      responsive: true,
-      stripeClasses: ['odd', 'even'],
-      order: [[1, 'asc']],
-      pageLength: 15,
-      lengthMenu: [10, 15, 25, 50, 100],
-      language: dataTableLanguage,
-      layout: {
-        topStart: {
-          search: { placeholder: 'جستجو...' },
-          pageLength: { menu: [10, 15, 25, 50, 100] },
-        },
-        topEnd: null,
-
-        bottomStart: 'info',
-        bottomEnd: {
-          paging: { firstLast: true, previousNext: true, numbers: 5 },
-        },
-      },
-      columns: [
-        { data: 'rowNumber', name: 'rowNumber' },
-        { data: 'fullName', name: 'fullName' },
-        { data: 'nationalCode', name: 'nationalCode' },
-        { data: 'mobile', name: 'mobile' },
-        { data: 'departmentName', name: 'departmentName' },
-        { data: 'sallary', name: 'sallary' },
-        {
-          data: 'isActive',
-          name: 'isActive',
-          render: (data) =>
-            data
-              ? '<span class="badge badge-active">فعال</span>'
-              : '<span class="badge badge-inactive">غیرفعال</span>',
-        },
-        { data: null, name: 'actions', defaultContent: '' },
-      ],
-      columnDefs: [
-        {
-          targets: 0,
-          orderable: false,
-          searchable: false,
-          width: '56px',
-          className: 'text-center',
-        },
-        { targets: 6, className: 'text-center' },
-        {
-          targets: 7,
-          orderable: false,
-          searchable: false,
-          className: 'text-center all dt-actions-col',
-          width: '100px',
-        },
-      ],
-    }),
+    () =>
+      createServerSideTableOptions({
+        ajax: createEmployeesDataTableAjax(setLoadError),
+        order: [[1, 'asc']],
+        columns: [
+          { data: 'rowNumber', name: 'rowNumber' },
+          { data: 'fullName', name: 'fullName' },
+          { data: 'nationalCode', name: 'nationalCode' },
+          { data: 'mobile', name: 'mobile' },
+          { data: 'departmentName', name: 'departmentName' },
+          { data: 'sallary', name: 'sallary' },
+          {
+            data: 'isActive',
+            name: 'isActive',
+            render: (data) =>
+              data
+                ? '<span class="badge badge-active">فعال</span>'
+                : '<span class="badge badge-inactive">غیرفعال</span>',
+          },
+          { data: null, name: 'actions', defaultContent: '' },
+        ],
+        columnDefs: [
+          {
+            targets: 0,
+            orderable: false,
+            searchable: false,
+            width: '56px',
+            className: 'text-center',
+          },
+          { targets: 6, className: 'text-center' },
+          {
+            targets: 7,
+            orderable: false,
+            searchable: false,
+            className: 'text-center all dt-actions-col',
+            width: '100px',
+          },
+        ],
+      }),
     [],
   )
 
@@ -301,7 +446,7 @@ function EmployeesPage({ embedded = false }) {
           <button
             type="button"
             className="btn btn-sm btn-accent btn-users-new d-inline-flex align-items-center gap-2"
-            title="کارمند جدید"
+            title="کارمند جدید (Ctrl+N)"
             onClick={openCreate}
           >
             <Icon name="plus" />
@@ -350,82 +495,20 @@ function EmployeesPage({ embedded = false }) {
         <>
           <div className="modal-backdrop show users-modal-backdrop" onClick={closeModals} />
           <div className="modal show d-block users-modal" tabIndex="-1" role="dialog">
-            <div className="modal-dialog modal-dialog-centered modal-dialog-scrollable">
-              <form className="modal-content" onSubmit={handleCreateSubmit}>
+            <div className="modal-dialog modal-dialog-centered modal-dialog-scrollable modal-lg">
+              <form ref={createFormRef} className="modal-content" onSubmit={handleCreateSubmit} noValidate>
                 <div className="modal-header">
                   <h5 className="modal-title">کارمند جدید</h5>
                   <button type="button" className="btn-close" aria-label="بستن" onClick={closeModals} />
                 </div>
                 <div className="modal-body">
                   {formError && <div className="alert alert-danger py-2">{formError}</div>}
-                  <div className="mb-3">
-                    <label className="form-label">عنوان</label>
-                    <select className="form-select" value={createForm.title}
-                      onChange={(e) => setCreateForm((prev) => ({ ...prev, title: e.target.value }))}>
-                      {TITLE_OPTIONS.map((option) => (
-                        <option key={option.value} value={option.value}>{option.label}</option>
-                      ))}
-                    </select>
-                  </div>
-                  <div className="row g-3 mb-3">
-                    <div className="col-md-6">
-                      <label className="form-label">نام</label>
-                      <input type="text" className="form-control" value={createForm.name}
-                        onChange={(e) => setCreateForm((prev) => ({ ...prev, name: e.target.value }))} required />
-                    </div>
-                    <div className="col-md-6">
-                      <label className="form-label">نام خانوادگی</label>
-                      <input type="text" className="form-control" value={createForm.family}
-                        onChange={(e) => setCreateForm((prev) => ({ ...prev, family: e.target.value }))} required />
-                    </div>
-                  </div>
-                  <div className="mb-3">
-                    <label className="form-label">نام پدر</label>
-                    <input type="text" className="form-control" value={createForm.fatherName}
-                      onChange={(e) => setCreateForm((prev) => ({ ...prev, fatherName: e.target.value }))} />
-                  </div>
-                  <div className="row g-3 mb-3">
-                    <div className="col-md-6">
-                      <label className="form-label">شماره تذکره</label>
-                      <input type="text" className="form-control" value={createForm.nationalCode}
-                        onChange={(e) => setCreateForm((prev) => ({ ...prev, nationalCode: e.target.value }))} />
-                    </div>
-                    <div className="col-md-6">
-                      <label className="form-label">موبایل</label>
-                      <input type="text" className="form-control" value={createForm.mobile}
-                        onChange={(e) => setCreateForm((prev) => ({ ...prev, mobile: e.target.value }))} required />
-                    </div>
-                  </div>
-                  <div className="mb-3">
-                    <label className="form-label">آدرس</label>
-                    <input type="text" className="form-control" value={createForm.address}
-                      onChange={(e) => setCreateForm((prev) => ({ ...prev, address: e.target.value }))} />
-                  </div>
-                  <div className="row g-3 mb-3">
-                    <div className="col-md-6">
-                      <label className="form-label">بخش</label>
-                      <select className="form-select" value={createForm.departmentId}
-                        onChange={(e) => setCreateForm((prev) => ({ ...prev, departmentId: e.target.value }))} required>
-                        <option value="">انتخاب بخش</option>
-                        {departments.map((department) => (
-                          <option key={department.departmentId} value={department.departmentId}>
-                            {department.name}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-                    <div className="col-md-6">
-                      <label className="form-label">حقوق</label>
-                      <input type="number" step="0.0001" className="form-control" value={createForm.sallary}
-                        onChange={(e) => setCreateForm((prev) => ({ ...prev, sallary: e.target.value }))} />
-                    </div>
-                  </div>
-                  <div className="form-check form-switch">
-                    <input className="form-check-input" type="checkbox" id="create-employee-is-active"
-                      checked={createForm.isActive}
-                      onChange={(e) => setCreateForm((prev) => ({ ...prev, isActive: e.target.checked }))} />
-                    <label className="form-check-label" htmlFor="create-employee-is-active">فعال</label>
-                  </div>
+                  <EmployeeFormFields
+                    form={createForm}
+                    setForm={setCreateForm}
+                    idPrefix="create-employee"
+                    departments={departments}
+                  />
                 </div>
                 <div className="modal-footer">
                   <button type="button" className="btn btn-outline-secondary" onClick={closeModals}>انصراف</button>
@@ -443,8 +526,8 @@ function EmployeesPage({ embedded = false }) {
         <>
           <div className="modal-backdrop show users-modal-backdrop" onClick={closeModals} />
           <div className="modal show d-block users-modal" tabIndex="-1" role="dialog">
-            <div className="modal-dialog modal-dialog-centered modal-dialog-scrollable">
-              <form className="modal-content" onSubmit={handleEditSubmit}>
+            <div className="modal-dialog modal-dialog-centered modal-dialog-scrollable modal-lg">
+              <form ref={editFormRef} className="modal-content" onSubmit={handleEditSubmit} noValidate>
                 <div className="modal-header">
                   <h5 className="modal-title">ویرایش کارمند</h5>
                   <button
@@ -458,150 +541,12 @@ function EmployeesPage({ embedded = false }) {
                   {formError && (
                     <div className="alert alert-danger py-2">{formError}</div>
                   )}
-                  <div className="mb-3">
-                    <label className="form-label">عنوان</label>
-                    <select
-                      className="form-select"
-                      value={editForm.title}
-                      onChange={(e) =>
-                        setEditForm((prev) => ({ ...prev, title: e.target.value }))
-                      }
-                    >
-                      {TITLE_OPTIONS.map((option) => (
-                        <option key={option.value} value={option.value}>
-                          {option.label}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                  <div className="row g-3 mb-3">
-                    <div className="col-md-6">
-                      <label className="form-label">نام</label>
-                      <input
-                        type="text"
-                        className="form-control"
-                        value={editForm.name}
-                        onChange={(e) =>
-                          setEditForm((prev) => ({ ...prev, name: e.target.value }))
-                        }
-                        required
-                      />
-                    </div>
-                    <div className="col-md-6">
-                      <label className="form-label">نام خانوادگی</label>
-                      <input
-                        type="text"
-                        className="form-control"
-                        value={editForm.family}
-                        onChange={(e) =>
-                          setEditForm((prev) => ({ ...prev, family: e.target.value }))
-                        }
-                        required
-                      />
-                    </div>
-                  </div>
-                  <div className="mb-3">
-                    <label className="form-label">نام پدر</label>
-                    <input
-                      type="text"
-                      className="form-control"
-                      value={editForm.fatherName}
-                      onChange={(e) =>
-                        setEditForm((prev) => ({ ...prev, fatherName: e.target.value }))
-                      }
-                    />
-                  </div>
-                  <div className="row g-3 mb-3">
-                    <div className="col-md-6">
-                      <label className="form-label">شماره تذکره</label>
-                      <input
-                        type="text"
-                        className="form-control"
-                        value={editForm.nationalCode}
-                        onChange={(e) =>
-                          setEditForm((prev) => ({
-                            ...prev,
-                            nationalCode: e.target.value,
-                          }))
-                        }
-                      />
-                    </div>
-                    <div className="col-md-6">
-                      <label className="form-label">موبایل</label>
-                      <input
-                        type="text"
-                        className="form-control"
-                        value={editForm.mobile}
-                        onChange={(e) =>
-                          setEditForm((prev) => ({ ...prev, mobile: e.target.value }))
-                        }
-                        required
-                      />
-                    </div>
-                  </div>
-                  <div className="mb-3">
-                    <label className="form-label">آدرس</label>
-                    <input
-                      type="text"
-                      className="form-control"
-                      value={editForm.address}
-                      onChange={(e) =>
-                        setEditForm((prev) => ({ ...prev, address: e.target.value }))
-                      }
-                    />
-                  </div>
-                  <div className="row g-3 mb-3">
-                    <div className="col-md-6">
-                      <label className="form-label">بخش</label>
-                      <select
-                        className="form-select"
-                        value={editForm.departmentId}
-                        onChange={(e) =>
-                          setEditForm((prev) => ({
-                            ...prev,
-                            departmentId: e.target.value,
-                          }))
-                        }
-                        required
-                      >
-                        <option value="">انتخاب بخش</option>
-                        {departments.map((department) => (
-                          <option
-                            key={department.departmentId}
-                            value={department.departmentId}
-                          >
-                            {department.name}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-                    <div className="col-md-6">
-                      <label className="form-label">حقوق</label>
-                      <input
-                        type="number"
-                        step="0.0001"
-                        className="form-control"
-                        value={editForm.sallary}
-                        onChange={(e) =>
-                          setEditForm((prev) => ({ ...prev, sallary: e.target.value }))
-                        }
-                      />
-                    </div>
-                  </div>
-                  <div className="form-check form-switch">
-                    <input
-                      className="form-check-input"
-                      type="checkbox"
-                      id="employee-is-active"
-                      checked={editForm.isActive}
-                      onChange={(e) =>
-                        setEditForm((prev) => ({ ...prev, isActive: e.target.checked }))
-                      }
-                    />
-                    <label className="form-check-label" htmlFor="employee-is-active">
-                      فعال
-                    </label>
-                  </div>
+                  <EmployeeFormFields
+                    form={editForm}
+                    setForm={setEditForm}
+                    idPrefix="edit-employee"
+                    departments={departments}
+                  />
                 </div>
                 <div className="modal-footer">
                   <button

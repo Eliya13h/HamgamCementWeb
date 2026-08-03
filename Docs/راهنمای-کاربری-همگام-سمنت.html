@@ -1,0 +1,969 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>راهنمای کاربری — همگام سمنت</title>
+  <style>
+    :root {
+      --bg: #f6f8fa;
+      --card: #ffffff;
+      --text: #1f2937;
+      --muted: #5b6675;
+      --line: #e5e9ef;
+      --brand: #0f766e;
+      --brand-dark: #0b5a54;
+      --brand-soft: #e6f4f2;
+      --warn: #b45309;
+      --warn-bg: #fff7ed;
+      --ok: #15803d;
+      --ok-bg: #ecfdf3;
+      --info: #1d4ed8;
+      --info-bg: #eff6ff;
+      --danger: #b91c1c;
+      --danger-bg: #fef2f2;
+      --shadow: 0 10px 30px rgba(15, 23, 42, 0.06);
+      --radius: 14px;
+      --font: "Vazirmatn", "Tahoma", "Segoe UI", sans-serif;
+    }
+
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body {
+      margin: 0;
+      font-family: var(--font);
+      background: linear-gradient(180deg, #eef5f4 0%, var(--bg) 220px);
+      color: var(--text);
+      line-height: 1.85;
+      font-size: 15.5px;
+    }
+
+    a { color: var(--brand-dark); text-decoration: none; }
+    a:hover { text-decoration: underline; }
+
+    .wrap {
+      max-width: 980px;
+      margin: 0 auto;
+      padding: 28px 18px 80px;
+    }
+
+    .hero {
+      background: linear-gradient(135deg, #0f766e 0%, #115e59 45%, #134e4a 100%);
+      color: #fff;
+      border-radius: 22px;
+      padding: 36px 28px;
+      box-shadow: var(--shadow);
+      margin-bottom: 22px;
+      position: relative;
+      overflow: hidden;
+    }
+    .hero::after {
+      content: "";
+      position: absolute;
+      inset: auto -40px -60px auto;
+      width: 220px;
+      height: 220px;
+      border-radius: 50%;
+      background: rgba(255,255,255,0.08);
+    }
+    .hero .eyebrow {
+      display: inline-block;
+      background: rgba(255,255,255,0.14);
+      border: 1px solid rgba(255,255,255,0.22);
+      padding: 4px 12px;
+      border-radius: 999px;
+      font-size: 13px;
+      margin-bottom: 12px;
+    }
+    .hero h1 {
+      margin: 0 0 8px;
+      font-size: clamp(1.6rem, 3vw, 2.2rem);
+      font-weight: 800;
+    }
+    .hero p { margin: 0; opacity: 0.92; max-width: 46rem; }
+
+    .toolbar {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin: 18px 0 28px;
+    }
+    .btn {
+      border: 1px solid var(--line);
+      background: var(--card);
+      color: var(--text);
+      padding: 8px 14px;
+      border-radius: 10px;
+      cursor: pointer;
+      font-family: inherit;
+      font-size: 14px;
+    }
+    .btn-primary {
+      background: var(--brand);
+      border-color: var(--brand);
+      color: #fff;
+    }
+    .btn:hover { filter: brightness(0.98); }
+
+    .toc, .card, section.chapter {
+      background: var(--card);
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+      padding: 22px 22px 18px;
+      margin-bottom: 18px;
+    }
+
+    .toc h2, .chapter > h2 {
+      margin: 0 0 12px;
+      color: var(--brand-dark);
+      font-size: 1.35rem;
+    }
+    .chapter > h2 {
+      padding-bottom: 10px;
+      border-bottom: 2px solid var(--brand-soft);
+      margin-bottom: 16px;
+    }
+    .chapter h3 {
+      margin: 24px 0 10px;
+      font-size: 1.12rem;
+      color: #0f3f3b;
+    }
+    .chapter h4 {
+      margin: 18px 0 8px;
+      font-size: 1rem;
+      color: #334155;
+    }
+
+    .toc ol {
+      columns: 2;
+      column-gap: 28px;
+      padding-right: 22px;
+      margin: 0;
+    }
+    .toc li { break-inside: avoid; margin: 4px 0; }
+
+    .figure {
+      margin: 16px 0 8px;
+      text-align: center;
+    }
+    .figure img {
+      max-width: 100%;
+      height: auto;
+      border-radius: 12px;
+      border: 1px solid var(--line);
+      background: #fff;
+    }
+    .figure figcaption {
+      color: var(--muted);
+      font-size: 13px;
+      margin-top: 8px;
+    }
+
+    .callout {
+      border-radius: 12px;
+      padding: 12px 14px;
+      margin: 14px 0;
+      border: 1px solid transparent;
+    }
+    .callout strong { display: inline-block; margin-left: 6px; }
+    .tip { background: var(--ok-bg); border-color: #bbf7d0; }
+    .note { background: var(--info-bg); border-color: #bfdbfe; }
+    .warn { background: var(--warn-bg); border-color: #fed7aa; }
+    .danger { background: var(--danger-bg); border-color: #fecaca; }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 12px 0 16px;
+      font-size: 14.5px;
+      overflow: hidden;
+      border-radius: 10px;
+      border: 1px solid var(--line);
+    }
+    th, td {
+      border-bottom: 1px solid var(--line);
+      padding: 10px 12px;
+      text-align: right;
+      vertical-align: top;
+    }
+    th {
+      background: var(--brand-soft);
+      color: var(--brand-dark);
+      font-weight: 700;
+    }
+    tr:last-child td { border-bottom: none; }
+    tr:nth-child(even) td { background: #fafbfc; }
+
+    ol.steps, ul.clean {
+      padding-right: 22px;
+      margin: 8px 0 14px;
+    }
+    ol.steps li, ul.clean li { margin: 6px 0; }
+
+    .kbd {
+      display: inline-block;
+      background: #f1f5f9;
+      border: 1px solid #cbd5e1;
+      border-radius: 6px;
+      padding: 1px 7px;
+      font-size: 13px;
+      font-family: Tahoma, sans-serif;
+    }
+    .badge {
+      display: inline-block;
+      padding: 2px 9px;
+      border-radius: 999px;
+      font-size: 12px;
+      font-weight: 700;
+    }
+    .badge-draft { background: #e2e8f0; color: #334155; }
+    .badge-posted { background: #dcfce7; color: #166534; }
+    .badge-return { background: #ffedd5; color: #9a3412; }
+
+    .menu-map {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(210px, 1fr));
+      gap: 10px;
+      margin: 12px 0 8px;
+    }
+    .menu-map .item {
+      background: #f8fafc;
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      padding: 12px;
+    }
+    .menu-map .item b {
+      display: block;
+      color: var(--brand-dark);
+      margin-bottom: 4px;
+    }
+    .menu-map .item span {
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    .flow {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      align-items: center;
+      margin: 12px 0 16px;
+    }
+    .flow .box {
+      background: var(--brand-soft);
+      color: var(--brand-dark);
+      border: 1px solid #99d5ce;
+      border-radius: 10px;
+      padding: 8px 12px;
+      font-weight: 700;
+      font-size: 13.5px;
+    }
+    .flow .arrow {
+      color: var(--muted);
+      font-weight: 700;
+    }
+
+    footer.guide-footer {
+      text-align: center;
+      color: var(--muted);
+      margin-top: 28px;
+      font-size: 13px;
+    }
+
+    @media (max-width: 720px) {
+      .toc ol { columns: 1; }
+      .hero { padding: 26px 18px; }
+    }
+
+    @media print {
+      body { background: #fff; font-size: 12.5px; }
+      .toolbar { display: none !important; }
+      .wrap { max-width: none; padding: 0; }
+      .hero, .toc, .card, section.chapter {
+        box-shadow: none;
+        break-inside: avoid;
+      }
+      a { color: inherit; text-decoration: none; }
+      .chapter { page-break-before: always; }
+      .chapter:first-of-type { page-break-before: auto; }
+    }
+  </style>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Vazirmatn:wght@400;600;700;800&display=swap" rel="stylesheet" />
+</head>
+<body>
+  <div class="wrap">
+    <header class="hero">
+      <div class="eyebrow">راهنمای کاربر نهایی</div>
+      <h1>همگام سمنت — پنل مدیریت</h1>
+      <p>
+        این راهنما برای کاربران عملیاتی سیستم نوشته شده است: ورود، ثبت اطلاعات پایه، خرید و فروش،
+        تولید، انبار، صندوق، حسابداری و گزارش‌گیری. هدف این است که بدون نیاز به دانش فنی،
+        بتوانید روزانه با سیستم کار کنید.
+      </p>
+    </header>
+
+    <div class="toolbar">
+      <button class="btn btn-primary" type="button" onclick="window.print()">چاپ / ذخیره PDF</button>
+      <a class="btn" href="#toc">فهرست مطالب</a>
+      <a class="btn" href="#quickstart">شروع سریع</a>
+      <a class="btn" href="#faq">سوالات پرتکرار</a>
+    </div>
+
+    <nav class="toc" id="toc">
+      <h2>فهرست مطالب</h2>
+      <ol>
+        <li><a href="#intro">۱. آشنایی با سیستم</a></li>
+        <li><a href="#login">۲. ورود و محیط کار</a></li>
+        <li><a href="#quickstart">۳. شروع سریع (ترتیب پیشنهادی)</a></li>
+        <li><a href="#basics">۴. اطلاعات پایه</a></li>
+        <li><a href="#people">۵. افراد</a></li>
+        <li><a href="#purchase-sale">۶. خرید و فروش</a></li>
+        <li><a href="#production">۷. تولید</a></li>
+        <li><a href="#inventory">۸. انبار</a></li>
+        <li><a href="#transport">۹. حمل و نقل</a></li>
+        <li><a href="#cash">۱۰. صندوق و بانک</a></li>
+        <li><a href="#accounting">۱۱. حسابداری</a></li>
+        <li><a href="#hr">۱۲. حقوق و پرسنل</a></li>
+        <li><a href="#reports">۱۳. گزارشات و آمار</a></li>
+        <li><a href="#users">۱۴. کاربران و دسترسی‌ها</a></li>
+        <li><a href="#settings">۱۵. تنظیمات</a></li>
+        <li><a href="#faq">۱۶. سوالات پرتکرار و نکات مهم</a></li>
+      </ol>
+    </nav>
+
+    <!-- 1 -->
+    <section class="chapter" id="intro">
+      <h2>۱. آشنایی با سیستم</h2>
+      <p>
+        <strong>همگام سمنت</strong> یک پنل مدیریت یکپارچه برای کارخانه سیمان است. از طریق این سیستم می‌توانید
+        افراد، محصولات، خرید، فروش، تولید، انبار، حمل، صندوق و حسابداری را در یکجا مدیریت کنید.
+      </p>
+
+      <figure class="figure">
+        <img src="user-guide-assets/workflow-overview.png" alt="نمای کلی جریان کاری سیستم" />
+        <figcaption>نمای کلی جریان کاری: اطلاعات پایه ← خرید ← تولید ← فروش ← گزارش و حسابداری</figcaption>
+      </figure>
+
+      <h3>ایدهٔ اصلی سیستم</h3>
+      <ul class="clean">
+        <li>فرم‌هایی مثل <strong>فاکتور خرید/فروش</strong>، <strong>مصارف</strong> و <strong>عواید</strong> لایهٔ ورود اطلاعات هستند.</li>
+        <li>وقتی سند را <strong>ثبت نهایی</strong> می‌کنید، سیستم موجودی انبار و سند حسابداری (دفترروزنامه) را همزمان به‌روز می‌کند.</li>
+        <li>حسابداری سیستم <strong>دابل‌انتری</strong> است؛ یعنی هر ثبت مالی باید بدهکار و بستانکارش مساوی باشد.</li>
+      </ul>
+
+      <figure class="figure">
+        <img src="user-guide-assets/document-lifecycle.png" alt="چرخه عمر اسناد" />
+        <figcaption>چرخهٔ رایج اسناد: پیش‌نویس ← ثبت نهایی ← در صورت نیاز برگشت/برگشت از خرید یا فروش</figcaption>
+      </figure>
+
+      <table>
+        <thead>
+          <tr>
+            <th>وضعیت</th>
+            <th>معنی برای کاربر</th>
+            <th>چه کار می‌توانید بکنید؟</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><span class="badge badge-draft">پیش‌نویس</span></td>
+            <td>هنوز قطعی نشده؛ روی موجودی/حساب اثر نگذاشته یا کامل نشده است.</td>
+            <td>ویرایش، حذف (در بیشتر موارد)، سپس ثبت نهایی</td>
+          </tr>
+          <tr>
+            <td><span class="badge badge-posted">ثبت‌شده</span></td>
+            <td>قطعی شده و روی موجودی و/یا دفتر اثر گذاشته است.</td>
+            <td>مشاهده، چاپ، برگشت (در صورت مجاز بودن)</td>
+          </tr>
+          <tr>
+            <td><span class="badge badge-return">برگشت</span></td>
+            <td>سند معکوس برای اصلاح خرید/فروش ثبت‌شده.</td>
+            <td>ایجاد از روی فاکتور مبدأ؛ سپس مشاهده/چاپ</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <div class="callout warn">
+        <strong>نکته مهم:</strong>
+        بعد از ثبت نهایی معمولاً ویرایش آزاد ندارید. اگر اشتباه کردید، از مسیر «برگشت» یا «برگشت سند» استفاده کنید؛ سند قبلی را دستی دستکاری نکنید.
+      </div>
+    </section>
+
+    <!-- 2 -->
+    <section class="chapter" id="login">
+      <h2>۲. ورود و محیط کار</h2>
+
+      <h3>۲.۱ ورود به سیستم</h3>
+      <figure class="figure">
+        <img src="user-guide-assets/login-concept.png" alt="مفهوم صفحه ورود" />
+        <figcaption>صفحه ورود: نام کاربری و رمز عبور را وارد کنید</figcaption>
+      </figure>
+      <ol class="steps">
+        <li>آدرس پنل را در مرورگر باز کنید.</li>
+        <li>نام کاربری و رمز عبور خود را وارد کنید.</li>
+        <li>روی دکمه <strong>ورود</strong> کلیک کنید.</li>
+        <li>در صورت موفقیت به <strong>داشبورد</strong> (یا صفحه‌ای که قبلاً باز کرده بودید) می‌روید.</li>
+      </ol>
+      <div class="callout tip">
+        <strong>راهنمایی:</strong>
+        در صفحه ورود می‌توانید تم روشن/تاریک را هم تغییر دهید. این تنظیم فقط ظاهر صفحه را عوض می‌کند.
+      </div>
+
+      <h3>۲.۲ خروج</h3>
+      <p>از منوی کاربر در بالای صفحه (سمت چپ در حالت فارسی)، گزینه خروج را انتخاب کنید.</p>
+
+      <h3>۲.۳ اجزای صفحه اصلی</h3>
+      <figure class="figure">
+        <img src="user-guide-assets/sidebar-nav.png" alt="منوی کناری سیستم" />
+        <figcaption>منوی کناری (سایدبار) دسترسی به همهٔ بخش‌ها را می‌دهد</figcaption>
+      </figure>
+      <table>
+        <thead>
+          <tr><th>بخش صفحه</th><th>کاربرد</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>منوی کناری</td><td>رفتن به ماژول‌ها (داشبورد، افراد، تولید، معاملات، انبار، حسابداری، …)</td></tr>
+          <tr><td>هدر بالا</td><td>نام کاربر، نقش نمایشی، اعلان‌ها، تغییر تم، خروج</td></tr>
+          <tr><td>محتوای صفحه</td><td>لیست‌ها، فرم‌ها، گزارش‌ها</td></tr>
+          <tr><td>تنظیمات (پایین منو)</td><td>اطلاعات شرکت، لوگو، مالیات، سال مالی</td></tr>
+        </tbody>
+      </table>
+
+      <h3>۲.۴ الگوی مشترک کار با لیست‌ها</h3>
+      <ul class="clean">
+        <li>در بالای بیشتر صفحات دکمهٔ <strong>جدید / افزودن</strong> وجود دارد.</li>
+        <li>جعبهٔ <span class="kbd">جستجو در همه ستون‌ها…</span> برای پیدا کردن سریع رکورد است.</li>
+        <li>روی هر ردیف دکمه‌های آیکونی مثل مشاهده، ویرایش، حذف، چاپ، ثبت نهایی دیده می‌شود.</li>
+        <li>اگر دکمه‌ای را نمی‌بینید، معمولاً به این دلیل است که دسترسی آن عملیات برای کاربر شما فعال نیست.</li>
+      </ul>
+    </section>
+
+    <!-- 3 -->
+    <section class="chapter" id="quickstart">
+      <h2>۳. شروع سریع — ترتیب پیشنهادی راه‌اندازی</h2>
+      <p>اگر سیستم تازه راه‌اندازی شده یا می‌خواهید از صفر شروع کنید، این ترتیب را رعایت کنید:</p>
+
+      <div class="flow">
+        <div class="box">۱. تنظیمات شرکت</div>
+        <span class="arrow">←</span>
+        <div class="box">۲. ارز پایه</div>
+        <span class="arrow">←</span>
+        <div class="box">۳. واحد و محصول</div>
+        <span class="arrow">←</span>
+        <div class="box">۴. انبار</div>
+        <span class="arrow">←</span>
+        <div class="box">۵. افراد</div>
+        <span class="arrow">←</span>
+        <div class="box">۶. صندوق/بانک</div>
+      </div>
+
+      <ol class="steps">
+        <li><strong>تنظیمات:</strong> نام شرکت، لوگو، مالیات پیش‌فرض، سال مالی را بررسی کنید.</li>
+        <li><strong>ارزها:</strong> ارز پایه (معمولاً افغانی) را تأیید کنید؛ در صورت نیاز ارزهای دیگر و نرخ را ثبت کنید.</li>
+        <li><strong>محصولات:</strong> واحدها، دسته‌بندی، سپس لیست محصولات را بسازید.</li>
+        <li><strong>انبارها:</strong> انبارهای مواد خام و محصول ساخته را تعریف کنید.</li>
+        <li><strong>موجودی اول دوره:</strong> اگر از قبل کالا دارید، موجودی افتتاحیه را ثبت کنید.</li>
+        <li><strong>افراد:</strong> مشتریان، تأمین‌کننده‌ها، رانندگان، کارمندان و … را وارد کنید.</li>
+        <li><strong>صندوق و بانک:</strong> صندوق‌ها و حساب‌های بانکی را تعریف کنید.</li>
+        <li><strong>فرمول تولید:</strong> اگر تولید دارید، فرمول ساخت را بسازید.</li>
+        <li>حالا می‌توانید خرید، تولید، فروش و دریافت/پرداخت را روزانه انجام دهید.</li>
+      </ol>
+
+      <div class="callout note">
+        <strong>توجه:</strong>
+        کدینگ حساب‌های پیش‌فرض معمولاً از قبل در سیستم وجود دارد. مگر اینکه حسابدار بگوید، ساختار حساب‌ها را بدون هماهنگی تغییر ندهید.
+      </div>
+    </section>
+
+    <!-- 4 -->
+    <section class="chapter" id="basics">
+      <h2>۴. اطلاعات پایه</h2>
+
+      <h3>۴.۱ ارزها</h3>
+      <p><strong>مسیر:</strong> ارزها ← لیست ارزها</p>
+      <ol class="steps">
+        <li>ارز جدید را با کد و نام اضافه کنید.</li>
+        <li>نرخ تبدیل نسبت به ارز پایه را ثبت کنید.</li>
+        <li>در صورت نیاز یکی از ارزها را به‌عنوان <strong>ارز پایه</strong> تعیین کنید.</li>
+      </ol>
+      <p><strong>نوسانات:</strong> از منوی «نوسانات» تاریخچه تغییر نرخ‌ها را ببینید.</p>
+
+      <h3>۴.۲ محصولات</h3>
+      <p><strong>مسیر:</strong> محصولات ← لیست محصولات / دسته‌بندی / واحدها</p>
+
+      <h4>واحدها</h4>
+      <ul class="clean">
+        <li>واحد <strong>پایه</strong> (مثل کیلوگرم) تعریف کنید.</li>
+        <li>واحدهای مشتق (مثل پاکت، تن) را با ضریب تبدیل نسبت به پایه بسازید.</li>
+      </ul>
+      <div class="callout tip">
+        <strong>مثال:</strong>
+        اگر ۱ پاکت = ۵۰ کیلوگرم باشد، واحد پاکت را مشتق از کیلوگرم با ضریب ۵۰ تعریف کنید تا تبدیل در فاکتور و انبار درست انجام شود.
+      </div>
+
+      <h4>دسته‌بندی</h4>
+      <p>محصولات را در دسته‌هایی مثل خام، پروسس‌شده و … گروه‌بندی کنید تا گزارش‌ها خواناتر شوند.</p>
+
+      <h4>لیست محصولات</h4>
+      <ol class="steps">
+        <li>روی افزودن کلیک کنید.</li>
+        <li>نام، دسته، واحد و سایر مشخصات را وارد کنید.</li>
+        <li>در صورت نیاز <strong>موجودی حداقل</strong> بگذارید تا کمبود انبار هشدار دهد.</li>
+        <li>ذخیره کنید.</li>
+      </ol>
+    </section>
+
+    <!-- 5 -->
+    <section class="chapter" id="people">
+      <h2>۵. افراد</h2>
+      <div class="menu-map">
+        <div class="item"><b>مشتریان</b><span>خریداران کالا — پایه فاکتور فروش</span></div>
+        <div class="item"><b>تأمین‌کننده‌ها</b><span>فروشندگان مواد — پایه فاکتور خرید</span></div>
+        <div class="item"><b>پرسونل</b><span>کارمندان، حضور و غیاب، بخش‌ها</span></div>
+        <div class="item"><b>حقوق و مزایا</b><span>محاسبه و پرداخت حقوق ماهانه</span></div>
+        <div class="item"><b>رانندگان / موترداران</b><span>برای حمل و نقل</span></div>
+        <div class="item"><b>سهام‌داران</b><span>سرمایه و حقوق صاحبان سهام</span></div>
+      </div>
+
+      <h3>۵.۱ مشتری و تأمین‌کننده</h3>
+      <ol class="steps">
+        <li>به صفحه مشتریان یا تأمین‌کننده‌ها بروید.</li>
+        <li>افزودن را بزنید و مشخصات (نام، نوع حقیقی/حقوقی، تماس، …) را وارد کنید.</li>
+        <li>در صورت داشتن مانده اول دوره، مانده افتتاحیه را طبق فرم ثبت کنید.</li>
+        <li>برای دیدن جزئیات و فاکتورهای مرتبط، روی آیکون <strong>مشاهده</strong> کلیک کنید.</li>
+      </ol>
+      <div class="callout warn">
+        <strong>حذف:</strong>
+        مشتری/تأمین‌کننده‌ای که تسویه نشده یا سند مرتبط دارد معمولاً قابل حذف نیست. ابتدا وضعیت مالی را بررسی کنید.
+      </div>
+
+      <h3>۵.۲ راننده و موتردار</h3>
+      <p>قبل از ثبت سفرهای حمل، رانندگان و موترداران را در این بخش تعریف کنید تا در فرم سفر قابل انتخاب باشند.</p>
+
+      <h3>۵.۳ سهام‌داران</h3>
+      <p>سهام‌داران و مانده اولیه سرمایه را اینجا ثبت کنید. عملیات آورده/برداشت/توزیع سود در بخش حسابداری ← حقوق صاحبان سهام انجام می‌شود.</p>
+    </section>
+
+    <!-- 6 -->
+    <section class="chapter" id="purchase-sale">
+      <h2>۶. خرید و فروش (معاملات)</h2>
+
+      <h3>۶.۱ فاکتور خرید</h3>
+      <p><strong>مسیر:</strong> معاملات ← خرید</p>
+      <ol class="steps">
+        <li>دکمه افزودن فاکتور خرید را بزنید.</li>
+        <li>تأمین‌کننده، انبار مقصد، ارز و تاریخ را مشخص کنید.</li>
+        <li>ردیف‌های کالا را اضافه کنید: محصول، مقدار، واحد، قیمت.</li>
+        <li>در صورت نیاز اطلاعات حمل (ناوگان خودی / کرایه‌ای) را پر کنید.</li>
+        <li>
+          یکی از این دو کار را انجام دهید:
+          <ul>
+            <li><strong>ذخیره تغییرات</strong> به‌صورت پیش‌نویس (قابل ویرایش)</li>
+            <li><strong>ذخیره و ثبت فاکتور</strong> برای قطعی‌سازی (اثر روی موجودی و حسابداری)</li>
+          </ul>
+        </li>
+      </ol>
+
+      <h3>۶.۲ فاکتور فروش</h3>
+      <p><strong>مسیر:</strong> معاملات ← فروش</p>
+      <p>روند مشابه خرید است؛ با این تفاوت که طرف حساب <strong>مشتری</strong> است و کالا از انبار خارج می‌شود.</p>
+      <div class="callout tip">
+        <strong>نکته فروش:</strong>
+        پس از ثبت نهایی، سیستم بهای تمام‌شده و سود را بر اساس روش FIFO محاسبه می‌کند. برای فروش باید موجودی کافی در انبار باشد.
+      </div>
+
+      <h3>۶.۳ برگشت از خرید / برگشت از فروش</h3>
+      <ol class="steps">
+        <li>فاکتور ثبت‌شده را در لیست پیدا کنید.</li>
+        <li>روی عملیات <strong>برگشت از خرید</strong> یا <strong>برگشت از فروش</strong> کلیک کنید.</li>
+        <li>مقدار قابل برگشت را مشخص و تأیید کنید.</li>
+      </ol>
+      <p>سند برگشت به فاکتور مبدأ لینک می‌شود و اثر معکوس روی موجودی/حساب دارد.</p>
+
+      <h3>۶.۴ چاپ</h3>
+      <p>روی فاکتورهای ثبت‌شده (و در بسیاری موارد قابل مشاهده) دکمه چاپ، گزارش چاپی را باز می‌کند.</p>
+
+      <div class="callout danger">
+        <strong>اشتباه رایج:</strong>
+        فاکتور را چندبار «ثبت نهایی» نکنید و برای اصلاح عدد، فاکتور دوم موازی نسازید. مسیر درست معمولاً برگشت یا اصلاح طبق فرآیند مجاز سیستم است.
+      </div>
+    </section>
+
+    <!-- 7 -->
+    <section class="chapter" id="production">
+      <h2>۷. تولید</h2>
+
+      <div class="flow">
+        <div class="box">فرمول ساخت</div>
+        <span class="arrow">←</span>
+        <div class="box">برنامه تولید (اختیاری)</div>
+        <span class="arrow">←</span>
+        <div class="box">تولید روزانه (پیش‌نویس)</div>
+        <span class="arrow">←</span>
+        <div class="box">بررسی هزینه</div>
+        <span class="arrow">←</span>
+        <div class="box">ثبت نهایی</div>
+      </div>
+
+      <h3>۷.۱ فرمول ساخت</h3>
+      <p><strong>مسیر:</strong> تولید ← فرمول ساخت</p>
+      <ol class="steps">
+        <li>محصول خروجی را انتخاب کنید.</li>
+        <li>مواد مصرفی (BOM) و مقدار هر ماده را وارد کنید.</li>
+        <li>هزینه‌های استاندارد (دستمزد، سربار، جانبی، ثابت) را در صورت نیاز اضافه کنید.</li>
+        <li>در صورت تمایل فرمول را به‌عنوان پیش‌فرض علامت بزنید.</li>
+      </ol>
+      <p>فرمول می‌تواند <strong>ثابت</strong> یا <strong>متغیر</strong> باشد؛ متغیر برای وقتی است که نسبت مواد با مقدار تولید تغییر می‌کند.</p>
+
+      <h3>۷.۲ برنامه تولید</h3>
+      <p><strong>مسیر:</strong> تولید ← برنامه تولید</p>
+      <p>هدف تولید دوره‌ای را ثبت کنید و در صورت پشتیبانی صفحه، از روی برنامه سند تولید روزانه بسازید.</p>
+
+      <h3>۷.۳ تولید روزانه</h3>
+      <p><strong>مسیر:</strong> تولید ← تولید روزانه</p>
+      <ol class="steps">
+        <li>سند تولید جدید بسازید (محصول، مقدار، انبار مواد، انبار محصول، فرمول).</li>
+        <li>به‌صورت پیش‌نویس ذخیره کنید.</li>
+        <li>با <strong>پیش‌نمایش / بررسی هزینه</strong> صحت مصرف مواد و هزینه‌ها را ببینید.</li>
+        <li>اگر درست بود، <strong>ثبت نهایی</strong> کنید تا موجودی مواد کم، موجودی محصول زیاد، و سند حسابداری ساخته شود.</li>
+        <li>در صورت نیاز می‌توانید از مسیر مجاز سیستم، ثبت را برگشت (unpost) کنید.</li>
+      </ol>
+      <div class="callout warn">
+        <strong>قبل از ثبت نهایی تولید:</strong>
+        موجودی مواد اولیه در انبار مبدأ باید کافی باشد؛ وگرنه ثبت ممکن است خطا بدهد.
+      </div>
+    </section>
+
+    <!-- 8 -->
+    <section class="chapter" id="inventory">
+      <h2>۸. انبار</h2>
+
+      <h3>۸.۱ تعریف انبار</h3>
+      <p><strong>مسیر:</strong> انبار ← انبارها</p>
+      <p>انبار را با نوع مناسب (مواد خام، نیمه‌خام، پردازش‌شده) و ظرفیت تعریف کنید.</p>
+
+      <h3>۸.۲ موجودی</h3>
+      <p><strong>مسیر:</strong> انبار ← موجودی</p>
+      <p>موجودی فعلی کالاها را ببینید. در صورت نیاز جزئیات لات / رهگیری تولید را هم بررسی کنید.</p>
+
+      <h3>۸.۳ موجودی اول دوره</h3>
+      <p><strong>مسیر:</strong> انبار ← موجودی اول دوره</p>
+      <ol class="steps">
+        <li>انبار و کالا و مقدار و بهای افتتاحیه را وارد کنید.</li>
+        <li>ثبت کنید تا موجودی و سند حسابداری افتتاحیه ساخته شود.</li>
+      </ol>
+      <div class="callout note">
+        <strong>چه زمانی؟</strong>
+        معمولاً فقط در شروع کار با سیستم یا ابتدای دوره مالی، نه به‌جای خرید روزانه.
+      </div>
+
+      <h3>۸.۴ گردش کالا</h3>
+      <p><strong>مسیر:</strong> انبار ← گردش کالا</p>
+      <p>دفتر ورود و خروج کالا را با فیلتر انبار، محصول و تاریخ ببینید. انتخاب انبار معمولاً لازم است.</p>
+
+      <h3>۸.۵ انتقال بین انبار</h3>
+      <ol class="steps">
+        <li>سند انتقال بسازید: انبار مبدأ، مقصد، کالا، مقدار.</li>
+        <li>پیش‌نویس را ذخیره کنید.</li>
+        <li>با ثبت نهایی، موجودی جابه‌جا می‌شود.</li>
+      </ol>
+
+      <h3>۸.۶ انبارگردانی</h3>
+      <ol class="steps">
+        <li>شمارش فیزیکی را در سند پیش‌نویس وارد کنید.</li>
+        <li>پس از اطمینان، سند را <strong>تأیید</strong> کنید تا اختلاف موجودی اصلاح و سند حسابداری مرتبط ثبت شود.</li>
+      </ol>
+    </section>
+
+    <!-- 9 -->
+    <section class="chapter" id="transport">
+      <h2>۹. حمل و نقل</h2>
+      <p>برای مدیریت ناوگان، سفرها و هزینه‌های حمل از این ماژول استفاده کنید.</p>
+
+      <table>
+        <thead>
+          <tr><th>صفحه</th><th>کاربرد</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>حمل و نقل (سفرها)</td><td>ثبت سفر: مسیر، وسیله، راننده، وضعیت (برنامه‌ریزی / در مسیر / تکمیل / لغو)</td></tr>
+          <tr><td>مسیرها</td><td>تعریف مسیرهای پرتکرار</td></tr>
+          <tr><td>وسایل نقلیه / انواع</td><td>ناوگان و نوع وسیله</td></tr>
+          <tr><td>تعمیر و نگهداری</td><td>سرویس، تعمیر، قطعات</td></tr>
+          <tr><td>فاکتور مصارف</td><td>ثبت هزینه‌های حمل با ردیف‌ها</td></tr>
+          <tr><td>دسته‌بندی مصارف</td><td>مثل ویزا، خرج راه و …</td></tr>
+        </tbody>
+      </table>
+
+      <h3>ثبت یک سفر (خلاصه)</h3>
+      <ol class="steps">
+        <li>ابتدا مسیر، وسیله و راننده را در صفحات پایه تعریف کرده باشید.</li>
+        <li>از «حمل و نقل» سفر جدید بسازید.</li>
+        <li>هدف سفر (باربری تجاری، ورود خرید، تحویل فروش) و وضعیت را مشخص کنید.</li>
+        <li>با پیشرفت کار وضعیت را به‌روز کنید تا گزارش ترانسپورت دقیق باشد.</li>
+      </ol>
+
+      <div class="callout tip">
+        <strong>ارتباط با فاکتور:</strong>
+        در فاکتور خرید/فروش هم می‌توانید بخش حمل را پر کنید (بدون حمل، ناوگان خودی، کرایه‌ای).
+      </div>
+    </section>
+
+    <!-- 10 -->
+    <section class="chapter" id="cash">
+      <h2>۱۰. صندوق و بانک</h2>
+
+      <h3>۱۰.۱ تعریف صندوق</h3>
+      <p><strong>مسیر:</strong> صندوق ← تعریف صندوق</p>
+      <p>صندوق‌های نقدی را بسازید. انتقال وجه بین صندوق‌ها نیز از همین فضا قابل انجام است.</p>
+
+      <h3>۱۰.۲ بانک‌ها</h3>
+      <p>حساب‌های بانکی شرکت را تعریف کنید تا در دریافت/پرداخت و گزارش‌ها قابل انتخاب باشند.</p>
+
+      <h3>۱۰.۳ شیفت و تحویل</h3>
+      <ol class="steps">
+        <li>شیفت صندوق را باز کنید.</li>
+        <li>عملیات روز را انجام دهید.</li>
+        <li>در پایان، شیفت را ببندید و تحویل را ثبت کنید.</li>
+      </ol>
+
+      <h3>۱۰.۴ شارژ تنخواه</h3>
+      <p>برای تأمین موجودی تنخواه از صندوق اصلی/منبع مشخص، از این صفحه استفاده کنید.</p>
+    </section>
+
+    <!-- 11 -->
+    <section class="chapter" id="accounting">
+      <h2>۱۱. حسابداری</h2>
+      <p>
+        بیشتر اسناد عملیاتی (خرید، فروش، تولید، حقوق، …) خودشان سند دفتر می‌سازند.
+        بخش حسابداری برای کنترل دفتر، دریافت/پرداخت، مصارف/عواید متفرقه و گزارش‌های مالی است.
+      </p>
+
+      <h3>۱۱.۱ کدینگ حساب‌ها</h3>
+      <p><strong>مسیر:</strong> حسابداری ← کدینگ حساب‌ها</p>
+      <p>ساختار چهارسطحی را ببینید:</p>
+      <div class="flow">
+        <div class="box">گروه</div>
+        <span class="arrow">←</span>
+        <div class="box">کل</div>
+        <span class="arrow">←</span>
+        <div class="box">معین</div>
+        <span class="arrow">←</span>
+        <div class="box">تفصیلی</div>
+      </div>
+      <p>از روی حساب می‌توانید دفتر معین (گردش حساب) را باز کنید.</p>
+      <div class="callout warn">
+        <strong>هشدار:</strong>
+        حساب‌های سیستمی را حذف یا بی‌دلیل جابه‌جا نکنید؛ به ثبت خودکار اسناد وابسته‌اند.
+      </div>
+
+      <h3>۱۱.۲ اسناد دفترروزنامه</h3>
+      <p>برای ثبت دستی سند حسابداری:</p>
+      <ol class="steps">
+        <li>سند جدید بسازید و شرح/تاریخ را وارد کنید.</li>
+        <li>خطوط بدهکار و بستانکار را اضافه کنید (در صورت نیاز با مرکز هزینه).</li>
+        <li>مجموع بدهکار باید با مجموع بستانکار <strong>مساوی</strong> باشد.</li>
+        <li>در صورت نیاز پیوست فایل اضافه کنید.</li>
+        <li>برای ابطال اثر سند ثبت‌شده از عملیات <strong>برگشت سند</strong> استفاده کنید.</li>
+      </ol>
+
+      <h3>۱۱.۳ دریافت و پرداخت</h3>
+      <p><strong>مسیر:</strong> حسابداری ← دریافت و پرداخت</p>
+      <ol class="steps">
+        <li>نوع طرف حساب را انتخاب کنید (مشتری / تأمین‌کننده).</li>
+        <li>طرف حساب و مبلغ را وارد کنید.</li>
+        <li>صندوق یا بانک مقصد/مبدأ را مشخص کنید.</li>
+        <li>در صورت نیاز به فاکتور مرتبط لینک دهید و ثبت کنید.</li>
+      </ol>
+
+      <h3>۱۱.۴ عواید و مصارف متفرقه</h3>
+      <ul class="clean">
+        <li><strong>عواید:</strong> درآمدهایی که فاکتور فروش نیستند.</li>
+        <li><strong>مصارف:</strong> هزینه‌هایی که فاکتور خرید کالا نیستند.</li>
+        <li>دسته‌بندی‌ها را از «حسابداری ← دسته‌بندی‌ها» مدیریت کنید.</li>
+        <li>ردیف‌هایی که از فاکتور به‌صورت سیستمی آمده‌اند معمولاً قفل‌اند و نباید دستی ویرایش شوند.</li>
+      </ul>
+
+      <h3>۱۱.۵ سایر ابزارهای حسابداری</h3>
+      <table>
+        <thead>
+          <tr><th>صفحه</th><th>کاربرد کوتاه</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>مراکز هزینه</td><td>تفکیک هزینه بر اساس مرکز/واحد</td></tr>
+          <tr><td>ذخیره مطالبات مشکوک</td><td>ثبت/ابطال ذخیره مطالبات</td></tr>
+          <tr><td>اسناد تکرارشونده</td><td>قالب سند ماهانه/دوره‌ای و صدور در تاریخ انتخابی</td></tr>
+          <tr><td>خرید و فروش ارز</td><td>تبدیل ارز با ثبت دفتر</td></tr>
+          <tr><td>حقوق صاحبان سهام</td><td>آورده، برداشت، توزیع سود</td></tr>
+          <tr><td>دارایی‌های ثابت</td><td>ثبت دارایی، استهلاک، فروش/اسقاط</td></tr>
+          <tr><td>سال مالی</td><td>میانبر به تنظیمات ← بستن/بازگشایی سال مالی</td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <!-- 12 -->
+    <section class="chapter" id="hr">
+      <h2>۱۲. حقوق و پرسنل</h2>
+
+      <h3>۱۲.۱ بخش‌ها و کارمندان</h3>
+      <p><strong>مسیر:</strong> افراد ← پرسونل</p>
+      <ol class="steps">
+        <li>تب <strong>بخش‌ها</strong>: ساختار سازمانی را بسازید.</li>
+        <li>تب <strong>کارمندان</strong>: پرسنل را با مشخصات و بخش مربوطه ثبت کنید.</li>
+        <li>تب <strong>حضور و غیاب</strong>: حضور روزانه، تأخیر و اضافه‌کاری را ثبت/ذخیره کنید.</li>
+      </ol>
+
+      <h3>۱۲.۲ حقوق و مزایا</h3>
+      <p><strong>مسیر:</strong> افراد ← حقوق و مزایا</p>
+      <ol class="steps">
+        <li>سال و ماه شمسی را انتخاب کنید.</li>
+        <li>پیش‌نویس محاسبه را بر اساس حضور بارگذاری کنید.</li>
+        <li>کسورات و اضافه‌ها را در صورت نیاز اصلاح کنید.</li>
+        <li>پرداخت را ثبت کنید (سند حسابداری مرتبط ساخته می‌شود).</li>
+      </ol>
+    </section>
+
+    <!-- 13 -->
+    <section class="chapter" id="reports">
+      <h2>۱۳. گزارشات و آمار</h2>
+
+      <h3>۱۳.۱ آمار و تحلیل</h3>
+      <p><strong>مسیر:</strong> آمار و تحلیل</p>
+      <p>نمای مدیریتی شامل تراز آزمایشی، سررسید مطالبات/بدهی‌ها، سود و زیان، ترازنامه، جریان وجوه نقد و موجودی صندوق‌ها.</p>
+
+      <h3>۱۳.۲ گزارشات عملیاتی</h3>
+      <table>
+        <thead>
+          <tr><th>گزارش</th><th>چه چیزی می‌دهد؟</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>محصولات</td><td>گزارش جامع محصولات (معمولاً در پنجره/چاپگر گزارش)</td></tr>
+          <tr><td>تولیدات</td><td>گزارش تولید و امکان ردیابی</td></tr>
+          <tr><td>ترانسپورت</td><td>خلاصه تن، کرایه، تعمیرات و …</td></tr>
+          <tr><td>عواید / مصارف</td><td>گزارش با فیلتر تاریخ</td></tr>
+          <tr><td>روزنامچه</td><td>گزارش ترکیبی خرید، فروش، عواید، مصارف، تولید، عمومی</td></tr>
+        </tbody>
+      </table>
+
+      <h3>۱۳.۳ داشبورد</h3>
+      <p>
+        داشبورد خلاصه امروز/ماه تولید، خرید، فروش، وضعیت مخازن/انبار، نمودار عملکرد، اعلان‌ها و آخرین عملیات را نشان می‌دهد.
+        هر روز کار را از اینجا شروع کنید تا وضعیت کلی را ببینید.
+      </p>
+    </section>
+
+    <!-- 14 -->
+    <section class="chapter" id="users">
+      <h2>۱۴. کاربران و دسترسی‌ها</h2>
+
+      <h3>۱۴.۱ مدیریت کاربران</h3>
+      <p><strong>مسیر:</strong> کاربران ← کاربران</p>
+      <ul class="clean">
+        <li>کاربر جدید بسازید، ویرایش کنید، رمز را عوض کنید یا حذف کنید.</li>
+        <li>فیلد «نقش» بیشتر برای نمایش است (مثلاً مدیر سیستم)، نه محدودیت واقعی.</li>
+      </ul>
+
+      <h3>۱۴.۲ سطح دسترسی</h3>
+      <p><strong>مسیر:</strong> کاربران ← سطح دسترسی</p>
+      <ol class="steps">
+        <li>کاربر را انتخاب کنید.</li>
+        <li>درخت دسترسی هر صفحه را ببینید.</li>
+        <li>برای هر صفحه عملیات لازم را فعال کنید: مشاهده، ایجاد، ویرایش، حذف (و در بعضی صفحات عملیات اضافه مثل تغییر رمز یا ثبت نرخ ارز).</li>
+        <li>ذخیره کنید.</li>
+      </ol>
+      <div class="callout note">
+        <strong>چرا منو را نمی‌بینم؟</strong>
+        اگر دسترسی <em>مشاهده</em> یک صفحه را نداشته باشید، آن آیتم از منوی کناری مخفی می‌شود.
+      </div>
+      <div class="callout warn">
+        <strong>بستن سال مالی:</strong>
+        معمولاً فقط مدیر سیستم (با تأیید امنیتی) مجاز است. این کار را بدون هماهنگی حسابدار انجام ندهید.
+      </div>
+    </section>
+
+    <!-- 15 -->
+    <section class="chapter" id="settings">
+      <h2>۱۵. تنظیمات</h2>
+      <p><strong>مسیر:</strong> تنظیمات (پایین منوی کناری)</p>
+      <ul class="clean">
+        <li>اطلاعات شرکت و لوگو</li>
+        <li>مالیات/تنظیمات پیش‌فرض</li>
+        <li>سال مالی و دوره‌های مالی (بستن / بازگشایی)</li>
+      </ul>
+      <div class="callout danger">
+        <strong>احتیاط:</strong>
+        بستن سال مالی اسناد اختتامیه می‌سازد و جلوی ثبت در دوره بسته‌شده را می‌گیرد. قبل از بستن، گزارش‌ها و موجودی را قطعی کنید.
+      </div>
+    </section>
+
+    <!-- 16 -->
+    <section class="chapter" id="faq">
+      <h2>۱۶. سوالات پرتکرار و نکات مهم</h2>
+
+      <h3>چرا فاکتور فروش ثبت نمی‌شود؟</h3>
+      <ul class="clean">
+        <li>موجودی انبار کافی نیست.</li>
+        <li>محصول/واحد/مشتری ناقص است.</li>
+        <li>سال یا دوره مالی بسته است.</li>
+        <li>دسترسی ثبت برای کاربر شما فعال نیست.</li>
+      </ul>
+
+      <h3>تفاوت پیش‌نویس و ثبت نهایی چیست؟</h3>
+      <p>
+        پیش‌نویس برای آماده‌سازی و بررسی است. ثبت نهایی سند را قطعی می‌کند و معمولاً موجودی و حسابداری را به‌روز می‌کند.
+        بعد از ثبت نهایی، ویرایش آزاد محدود یا غیرفعال است.
+      </p>
+
+      <h3>اگر مبلغ فاکتور ثبت‌شده اشتباه بود چه کنم؟</h3>
+      <p>از برگشت از خرید/فروش (یا برگشت سند حسابداری در موارد مجاز) استفاده کنید؛ سند موازی اشتباه‌ساز نسازید.</p>
+
+      <h3>مصارف حمل را کجا بزنم؟</h3>
+      <ul class="clean">
+        <li>هزینه مرتبط با سفر/ناوگان: حمل و نقل ← فاکتور مصارف</li>
+        <li>هزینه متفرقه عمومی: حسابداری ← مصارف</li>
+        <li>هزینه روی خود فاکتور خرید/فروش: بخش حمل داخل فاکتور</li>
+      </ul>
+
+      <h3>چک‌لیست روزانه پیشنهادی</h3>
+      <ol class="steps">
+        <li>داشبورد را باز کنید و اعلان‌ها/کمبود موجودی را ببینید.</li>
+        <li>شیفت صندوق را در صورت نیاز باز کنید.</li>
+        <li>خریدهای روز را ثبت و در صورت قطعی بودن، ثبت نهایی کنید.</li>
+        <li>تولید روزانه را ثبت و پس از بررسی هزینه، نهایی کنید.</li>
+        <li>فروش‌ها را ثبت نهایی کنید.</li>
+        <li>دریافت از مشتری / پرداخت به تأمین‌کننده را بزنید.</li>
+        <li>سفرهای حمل را به‌روز کنید.</li>
+        <li>در پایان روز شیفت صندوق را ببندید.</li>
+      </ol>
+
+      <h3>واژه‌نامه کوتاه</h3>
+      <table>
+        <thead>
+          <tr><th>واژه در سیستم</th><th>معنی ساده</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>عواید</td><td>درآمدها</td></tr>
+          <tr><td>مصارف</td><td>هزینه‌ها</td></tr>
+          <tr><td>روزنامچه</td><td>گزارش روزنامه / دفتر روز</td></tr>
+          <tr><td>تنخواه</td><td>وجه در اختیار برای هزینه‌های خرد</td></tr>
+          <tr><td>موتردار</td><td>مالک وسیله نقلیه</td></tr>
+          <tr><td>ثبت نهایی / Post</td><td>قطعی‌سازی سند و اعمال اثر مالی/انبار</td></tr>
+          <tr><td>کدینگ</td><td>درخت حساب‌های دفتر کل</td></tr>
+        </tbody>
+      </table>
+
+      <div class="callout tip">
+        <strong>چاپ این راهنما:</strong>
+        دکمه «چاپ / ذخیره PDF» بالای صفحه را بزنید و در پنجره چاپ، مقصد را PDF انتخاب کنید.
+      </div>
+    </section>
+
+    <footer class="guide-footer">
+      راهنمای کاربری همگام سمنت — نسخه آموزشی برای کاربر نهایی<br />
+      برای به‌روزرسانی این فایل، از مسیر <span class="kbd">docs/راهنمای-کاربری-همگام-سمنت.html</span> استفاده کنید.
+    </footer>
+  </div>
+</body>
+</html>

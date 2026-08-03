@@ -40,6 +40,7 @@ public static class DataSeeder
         await financeCategories.EnsureSystemCategoriesAsync(cancellationToken);
         await ChartOfAccountsSeeder.EnsureAsync(db, cancellationToken);
         await ProductionSchemaSeeder.EnsureAsync(db, cancellationToken);
+        await ProductSchemaSeeder.EnsureAsync(db, cancellationToken);
         await InventorySchemaSeeder.EnsureAsync(db, cancellationToken);
         await FiscalYearSchemaSeeder.EnsureAsync(db, cancellationToken);
         await CashSchemaSeeder.EnsureAsync(db, cancellationToken);
@@ -389,7 +390,16 @@ public static class DataSeeder
             FactorToBase = 1,
             CreatedBy = 1,
         };
+        var unit = new Meaurment
+        {
+            Name = "عدد",
+            Symbol = "ع",
+            IsBaseUnit = true,
+            FactorToBase = 1,
+            CreatedBy = 1,
+        };
         db.Meaurments.Add(kg);
+        db.Meaurments.Add(unit);
         await db.SaveChangesAsync(cancellationToken);
 
         db.Meaurments.AddRange(

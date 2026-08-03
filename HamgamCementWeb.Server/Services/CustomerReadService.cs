@@ -38,7 +38,7 @@ public sealed class CustomerReadService : ICustomerReadService
                     WHEN si.DocumentType = 3 THEN -si.TotalAmountInBaseCurrency
                     ELSE 0
                 END) AS TotalPurchase,
-                -- دریافت به ارز فاکتور است؛ برای جمع‌بندی باید به ارز پایه تبدیل شود
+                -- دریافت فاکتور + بازپرداخت برگشت فروش (PaidAmount برگشت با علامت منفی برای فرمول مانده)
                 SUM(CASE
                     WHEN si.DocumentType = 1 THEN
                         CASE
@@ -53,11 +53,23 @@ public sealed class CustomerReadService : ICustomerReadService
                             ELSE ROUND(si.PaidAmount * ISNULL(NULLIF(si.BaseUnitsPerUnitAtTransaction, 0), 1), 4)
                         END
                     ELSE 0
-                END) AS TotalPayment
+                END) AS InvoicePayment
             FROM SaleInvoices si
             WHERE ISNULL(si.IsDeleted, 0) = 0
               AND si.IsPosted = 1
             GROUP BY si.CustomerId
+        ),
+        -- دریافت/پرداخت مستقل از فاکتور (تخصیص‌شده‌ها داخل PaidAmount فاکتور هستند)
+        SettlementTotals AS (
+            SELECT
+                ps.PartyId AS CustomerId,
+                SUM(ps.AmountInBaseCurrency) AS UnallocatedPayment
+            FROM PartySettlements ps
+            WHERE ISNULL(ps.IsDeleted, 0) = 0
+              AND ps.PartyType = 1
+              AND ps.SaleInvoiceId IS NULL
+              AND ps.PurchaseInvoiceId IS NULL
+            GROUP BY ps.PartyId
         ),
         CustomerSummary AS (
             SELECT
@@ -76,22 +88,26 @@ public sealed class CustomerReadService : ICustomerReadService
                 CASE WHEN ISNULL(c.IsActive, 0) = 1 THEN 1 ELSE 0 END AS IsActive,
                 CASE WHEN ISNULL(c.IsDeleted, 0) = 1 THEN 1 ELSE 0 END AS IsDeleted,
                 ISNULL(pt.TotalPurchase, 0) AS TotalPurchase,
-                ISNULL(pt.TotalPayment, 0) AS TotalPayment,
+                ISNULL(pt.InvoicePayment, 0) + ISNULL(st.UnallocatedPayment, 0) AS TotalPayment,
                 -- مانده منفی = مشتری به ما بدهکار است (فروش − دریافت)
-                ISNULL(c.InitialBalance, 0) - ISNULL(pt.TotalPurchase, 0) + ISNULL(pt.TotalPayment, 0) AS Balance,
+                ISNULL(c.InitialBalance, 0)
+                    - ISNULL(pt.TotalPurchase, 0)
+                    + ISNULL(pt.InvoicePayment, 0)
+                    + ISNULL(st.UnallocatedPayment, 0) AS Balance,
                 CASE
-                    WHEN ISNULL(c.InitialBalance, 0) - ISNULL(pt.TotalPurchase, 0) + ISNULL(pt.TotalPayment, 0) > 0 THEN N'طلبکار'
-                    WHEN ISNULL(c.InitialBalance, 0) - ISNULL(pt.TotalPurchase, 0) + ISNULL(pt.TotalPayment, 0) < 0 THEN N'بدهکار'
+                    WHEN ISNULL(c.InitialBalance, 0) - ISNULL(pt.TotalPurchase, 0) + ISNULL(pt.InvoicePayment, 0) + ISNULL(st.UnallocatedPayment, 0) > 0 THEN N'طلبکار'
+                    WHEN ISNULL(c.InitialBalance, 0) - ISNULL(pt.TotalPurchase, 0) + ISNULL(pt.InvoicePayment, 0) + ISNULL(st.UnallocatedPayment, 0) < 0 THEN N'بدهکار'
                     ELSE N'تسویه'
                 END AS AccountStatus,
                 CASE
-                    WHEN ISNULL(c.InitialBalance, 0) - ISNULL(pt.TotalPurchase, 0) + ISNULL(pt.TotalPayment, 0) > 0 THEN 'creditor'
-                    WHEN ISNULL(c.InitialBalance, 0) - ISNULL(pt.TotalPurchase, 0) + ISNULL(pt.TotalPayment, 0) < 0 THEN 'debtor'
+                    WHEN ISNULL(c.InitialBalance, 0) - ISNULL(pt.TotalPurchase, 0) + ISNULL(pt.InvoicePayment, 0) + ISNULL(st.UnallocatedPayment, 0) > 0 THEN 'creditor'
+                    WHEN ISNULL(c.InitialBalance, 0) - ISNULL(pt.TotalPurchase, 0) + ISNULL(pt.InvoicePayment, 0) + ISNULL(st.UnallocatedPayment, 0) < 0 THEN 'debtor'
                     ELSE 'settled'
                 END AS AccountStatusCode,
                 c.CreatedAt
             FROM Customers c
             LEFT JOIN PurchaseTotals pt ON pt.CustomerId = c.CustomerID
+            LEFT JOIN SettlementTotals st ON st.CustomerId = c.CustomerID
             LEFT JOIN Accounts acc
                 ON acc.SystemCode = CONCAT(N'CUST_', c.CustomerID)
                AND ISNULL(acc.IsDeleted, 0) = 0

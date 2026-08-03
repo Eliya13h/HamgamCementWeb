@@ -115,5 +115,34 @@ export const fetchMeaurmentRatios = (baseMeaurmentId) =>
       ? `/api/products/meaurments/ratios?baseMeaurmentId=${baseMeaurmentId}`
       : '/api/products/meaurments/ratios',
   )
-export const fetchProductOptions = () => request('/api/products/list')
+export const fetchProductOptions = ({ kinds } = {}) => {
+  const params = new URLSearchParams()
+  if (Array.isArray(kinds) && kinds.length > 0) {
+    params.set('kinds', kinds.join(','))
+  }
+  const qs = params.toString()
+  return request(qs ? `/api/products/list?${qs}` : '/api/products/list')
+}
 export const fetchNextProductCodePreview = () => request('/api/products/next-code-preview')
+
+export const PRODUCT_KIND = {
+  Raw: 1,
+  SemiFinished: 2,
+  Processed: 3,
+}
+
+export const PRODUCT_SALE_PRICE_MODE = {
+  Fixed: 1,
+  ProfitPercent: 2,
+}
+
+export const PRODUCT_KIND_OPTIONS = [
+  { value: PRODUCT_KIND.Processed, label: 'پروسس شده' },
+  { value: PRODUCT_KIND.SemiFinished, label: 'نیمه پروسس' },
+  { value: PRODUCT_KIND.Raw, label: 'خام' },
+]
+
+export const PRODUCT_SALE_PRICE_MODE_OPTIONS = [
+  { value: PRODUCT_SALE_PRICE_MODE.Fixed, label: 'ثابت' },
+  { value: PRODUCT_SALE_PRICE_MODE.ProfitPercent, label: 'متغیر بر اساس درصد سود' },
+]

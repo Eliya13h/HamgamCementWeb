@@ -14,6 +14,9 @@ public class ProductionFormulaCostLine : BaseEntity
 
     public ProductionCostType CostType { get; set; }
 
+    // دسته هزینه تولید (داینامیک)؛ برای ردیف‌های قدیمی می‌تواند خالی باشد
+    public int? ProductionCostCategoryId { get; set; }
+
     [MaxLength(200)]
     public string? Description { get; set; }
 
@@ -30,4 +33,7 @@ public class ProductionFormulaCostLine : BaseEntity
 
     [ForeignKey(nameof(AccountId))]
     public virtual Account? Account { get; set; }
+
+    [ForeignKey(nameof(ProductionCostCategoryId))]
+    public virtual ProductionCostCategory? CostCategory { get; set; }
 }

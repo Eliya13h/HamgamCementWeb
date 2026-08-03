@@ -159,6 +159,10 @@ function AppRoutes() {
               path="accounting/fixed-asset-categories"
               element={<Navigate to="/accounting/categories?tab=fixed-assets" replace />}
             />
+            <Route
+              path="accounting/production-cost-categories"
+              element={<Navigate to="/accounting/categories?tab=production-costs" replace />}
+            />
 
             <Route path="cash/boxes" element={<CashBoxesPage />} />
             <Route path="cash/banks" element={<BankAccountsPage />} />

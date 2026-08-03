@@ -3,6 +3,7 @@ using System.Security.Claims;
 using HamgamCementWeb.Server.Authorization;
 using HamgamCementWeb.Server.Data;
 using HamgamCementWeb.Server.Data.Models.People;
+using HamgamCementWeb.Server.Services;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
@@ -14,18 +15,13 @@ namespace HamgamCementWeb.Server.Controllers.People;
 [Authorize]
 public class DepartmentController : ControllerBase
 {
-    private static readonly Dictionary<int, string> OrderColumns = new()
-    {
-        [1] = nameof(Department.Name),
-        [2] = nameof(Department.Description),
-        [3] = "EmployeeCount",
-    };
-
     private readonly AppDbContext _db;
+    private readonly IDepartmentReadService _reads;
 
-    public DepartmentController(AppDbContext db)
+    public DepartmentController(AppDbContext db, IDepartmentReadService reads)
     {
         _db = db;
+        _reads = reads;
     }
 
     [HttpPost("datatable")]
@@ -34,52 +30,24 @@ public class DepartmentController : ControllerBase
         [FromBody] DataTableRequest request,
         CancellationToken cancellationToken)
     {
-        var draw = request.Draw;
-        var start = Math.Max(request.Start, 0);
-        var length = request.Length <= 0 ? 10 : Math.Min(request.Length, 100);
-
-        var query = _db.Departments
-            .AsNoTracking()
-            .Where(d => d.IsDeleted != true);
-
-        var recordsTotal = await query.CountAsync(cancellationToken);
-
-        var searchValue = request.Search?.Value?.Trim();
-        if (!string.IsNullOrWhiteSpace(searchValue))
-        {
-            query = query.Where(d =>
-                d.Name.Contains(searchValue) ||
-                d.Description.Contains(searchValue));
-        }
-
-        var recordsFiltered = await query.CountAsync(cancellationToken);
-
-        var projected = query.Select(d => new DepartmentTableRow
-        {
-            DepartmentId = d.DepartmentID,
-            Name = d.Name,
-            Description = d.Description,
-            EmployeeCount = d.Employees.Count(e => e.IsDeleted != true),
-        });
-
-        projected = ApplyOrdering(projected, request.Order);
-
-        var rows = await projected
-            .Skip(start)
-            .Take(length)
-            .ToListAsync(cancellationToken);
-
-        for (var i = 0; i < rows.Count; i++)
-        {
-            rows[i].RowNumber = start + i + 1;
-        }
+        var result = await _reads.QueryDataTableAsync(
+            new DepartmentDataTableQuery
+            {
+                Start = request.Start,
+                Length = request.Length,
+                Search = request.Search?.Value,
+                Order = request.Order?
+                    .Select(o => new DataTableOrderItem { Column = o.Column, Dir = o.Dir })
+                    .ToList(),
+            },
+            cancellationToken);
 
         return Ok(new
         {
-            draw,
-            recordsTotal,
-            recordsFiltered,
-            data = rows.Select(r => new
+            draw = request.Draw,
+            recordsTotal = result.RecordsTotal,
+            recordsFiltered = result.RecordsFiltered,
+            data = result.Rows.Select(r => new
             {
                 r.RowNumber,
                 r.DepartmentId,
@@ -171,52 +139,6 @@ public class DepartmentController : ControllerBase
         return Ok(new { message = "بخش با موفقیت حذف شد." });
     }
 
-    private static IQueryable<DepartmentTableRow> ApplyOrdering(
-        IQueryable<DepartmentTableRow> query,
-        List<DataTableOrder>? orders)
-    {
-        if (orders is null || orders.Count == 0)
-        {
-            return query.OrderBy(d => d.Name);
-        }
-
-        IOrderedQueryable<DepartmentTableRow>? ordered = null;
-        foreach (var order in orders)
-        {
-            if (!OrderColumns.TryGetValue(order.Column, out var column))
-            {
-                continue;
-            }
-
-            var descending = string.Equals(order.Dir, "desc", StringComparison.OrdinalIgnoreCase);
-
-            ordered = column switch
-            {
-                nameof(Department.Name) when ordered is null => descending
-                    ? query.OrderByDescending(d => d.Name)
-                    : query.OrderBy(d => d.Name),
-                nameof(Department.Name) => descending
-                    ? ordered!.ThenByDescending(d => d.Name)
-                    : ordered!.ThenBy(d => d.Name),
-                nameof(Department.Description) when ordered is null => descending
-                    ? query.OrderByDescending(d => d.Description)
-                    : query.OrderBy(d => d.Description),
-                nameof(Department.Description) => descending
-                    ? ordered!.ThenByDescending(d => d.Description)
-                    : ordered!.ThenBy(d => d.Description),
-                "EmployeeCount" when ordered is null => descending
-                    ? query.OrderByDescending(d => d.EmployeeCount)
-                    : query.OrderBy(d => d.EmployeeCount),
-                "EmployeeCount" => descending
-                    ? ordered!.ThenByDescending(d => d.EmployeeCount)
-                    : ordered!.ThenBy(d => d.EmployeeCount),
-                _ => ordered,
-            };
-        }
-
-        return ordered ?? query.OrderBy(d => d.Name);
-    }
-
     private int? ResolveCurrentUserId()
     {
         var userIdClaim = User.FindFirstValue(ClaimTypes.NameIdentifier);
@@ -242,15 +164,6 @@ public class DepartmentController : ControllerBase
     {
         public int Column { get; set; }
         public string Dir { get; set; } = "asc";
-    }
-
-    public class DepartmentTableRow
-    {
-        public int RowNumber { get; set; }
-        public int DepartmentId { get; set; }
-        public string Name { get; set; } = string.Empty;
-        public string Description { get; set; } = string.Empty;
-        public int EmployeeCount { get; set; }
     }
 
     public class SaveDepartmentRequest

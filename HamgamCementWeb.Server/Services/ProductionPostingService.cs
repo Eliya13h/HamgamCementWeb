@@ -93,7 +93,6 @@ public interface IProductionPostingService
 {
     Task PostBatchAsync(int productionBatchId, int? userId, CancellationToken cancellationToken = default);
     Task UnpostBatchAsync(int productionBatchId, int? userId, CancellationToken cancellationToken = default);
-    Task<ProductionTraceResult> GetTraceAsync(int productionBatchId, CancellationToken cancellationToken = default);
     Task<ProductionPostPreviewResult> PreviewPostAsync(int productionBatchId, CancellationToken cancellationToken = default);
 }
 
@@ -104,19 +103,22 @@ public class ProductionPostingService : IProductionPostingService
     private readonly IFifoInventoryService _fifo;
     private readonly IJournalPostingService _journal;
     private readonly IAccountLookupService _accounts;
+    private readonly IProductionBatchReadService _batchRead;
 
     public ProductionPostingService(
         AppDbContext db,
         IMeaurmentConversionService conversion,
         IFifoInventoryService fifo,
         IJournalPostingService journal,
-        IAccountLookupService accounts)
+        IAccountLookupService accounts,
+        IProductionBatchReadService batchRead)
     {
         _db = db;
         _conversion = conversion;
         _fifo = fifo;
         _journal = journal;
         _accounts = accounts;
+        _batchRead = batchRead;
     }
 
     public static string CostTypeSystemCode(ProductionCostType costType) => costType switch
@@ -124,6 +126,7 @@ public class ProductionPostingService : IProductionPostingService
         ProductionCostType.DirectWage => AccountSystemCode.ProductionWage,
         ProductionCostType.Overhead => AccountSystemCode.ProductionOverhead,
         ProductionCostType.Ancillary => AccountSystemCode.ProductionAncillary,
+        ProductionCostType.ProductionBurden => AccountSystemCode.ProductionAncillary,
         ProductionCostType.Fixed => AccountSystemCode.ProductionFixed,
         _ => AccountSystemCode.OperatingExpense,
     };
@@ -148,39 +151,22 @@ public class ProductionPostingService : IProductionPostingService
         int productionBatchId,
         CancellationToken cancellationToken = default)
     {
-        var batch = await _db.ProductionBatches
-            .AsNoTracking()
-            .Include(b => b.InputLines)
-                .ThenInclude(l => l.Product)
-            .Include(b => b.InputLines)
-                .ThenInclude(l => l.Warehouse)
-            .Include(b => b.InputLines)
-                .ThenInclude(l => l.Meaurment)
-            .Include(b => b.OutputLines)
-                .ThenInclude(l => l.Product)
-            .Include(b => b.OutputLines)
-                .ThenInclude(l => l.Meaurment)
-            .Include(b => b.CostLines)
-            .Include(b => b.OutputWarehouse)
-            .FirstOrDefaultAsync(b => b.ProductionBatchID == productionBatchId && b.IsDeleted != true, cancellationToken)
+        var loaded = await _batchRead.LoadPreviewBatchAsync(productionBatchId, cancellationToken)
             ?? throw new InvalidOperationException("سند تولید یافت نشد.");
 
-        if (batch.IsPosted)
+        var header = loaded.Header;
+        if (header.IsPosted)
         {
             throw new InvalidOperationException("این سند تولید قبلاً ثبت نهایی شده است.");
         }
 
-        var inputLines = batch.InputLines.Where(x => x.IsDeleted != true).ToList();
-        var outputLines = batch.OutputLines.Where(x => x.IsDeleted != true).ToList();
-        var costLines = batch.CostLines.Where(x => x.IsDeleted != true).ToList();
-
         var warnings = new List<string>();
-        if (inputLines.Count == 0 || outputLines.Count == 0)
+        if (loaded.InputLines.Count == 0 || loaded.OutputLines.Count == 0)
         {
             warnings.Add("سند تولید باید حداقل یک ردیف مصرف و یک ردیف تولید داشته باشد.");
         }
 
-        if (batch.OutputWarehouse.WarehouseType != WarehouseType.Processed)
+        if ((WarehouseType)header.OutputWarehouseType != WarehouseType.Processed)
         {
             warnings.Add("انبار مقصد باید از نوع مواد پردازش‌شده باشد.");
         }
@@ -188,17 +174,10 @@ public class ProductionPostingService : IProductionPostingService
         var previewInputs = new List<ProductionPostPreviewInputLine>();
         decimal estimatedMaterial = 0;
 
-        foreach (var line in inputLines)
+        foreach (var line in loaded.InputLines)
         {
             var qtyInBase = await _conversion.ToBaseAsync(line.Quantity, line.MeaurmentId, cancellationToken);
-            var available = await _db.InventoryStocks
-                .AsNoTracking()
-                .Where(s =>
-                    s.IsDeleted != true &&
-                    s.ProductId == line.ProductId &&
-                    s.WarehouseId == line.WarehouseId)
-                .Select(s => (decimal?)s.QuantityInBase)
-                .FirstOrDefaultAsync(cancellationToken) ?? 0m;
+            loaded.AvailableStockByKey.TryGetValue((line.ProductId, line.WarehouseId), out var available);
 
             decimal estimatedCost = 0;
             var hasEnough = available + 0.000001m >= qtyInBase;
@@ -219,7 +198,7 @@ public class ProductionPostingService : IProductionPostingService
                 }
                 catch (InvalidOperationException ex)
                 {
-                    warnings.Add($"{line.Product.Name}: {ex.Message}");
+                    warnings.Add($"{line.ProductName}: {ex.Message}");
                     hasEnough = false;
                 }
             }
@@ -227,17 +206,17 @@ public class ProductionPostingService : IProductionPostingService
             if (!hasEnough)
             {
                 warnings.Add(
-                    $"موجودی ناکافی برای «{line.Product.Name}» در انبار «{line.Warehouse.Name}» " +
+                    $"موجودی ناکافی برای «{line.ProductName}» در انبار «{line.WarehouseName}» " +
                     $"(نیاز: {qtyInBase:N4}، موجود: {available:N4}).");
             }
 
             estimatedMaterial += estimatedCost;
             previewInputs.Add(new ProductionPostPreviewInputLine(
                 line.ProductId,
-                line.Product.Name,
+                line.ProductName,
                 line.WarehouseId,
-                line.Warehouse.Name,
-                line.Meaurment.Name,
+                line.WarehouseName,
+                line.MeaurmentName,
                 line.Quantity,
                 qtyInBase,
                 estimatedCost,
@@ -245,21 +224,21 @@ public class ProductionPostingService : IProductionPostingService
                 hasEnough));
         }
 
-        var conversionCost = costLines.Sum(c => c.Amount);
+        var conversionCost = loaded.CostLines.Sum(c => c.Amount);
         // سازگاری با اسناد قدیمی بدون CostLines
-        if (conversionCost <= 0 && (batch.FixedCost > 0 || batch.VariableCost > 0))
+        if (conversionCost <= 0 && (header.FixedCost > 0 || header.VariableCost > 0))
         {
-            conversionCost = batch.FixedCost + batch.VariableCost;
+            conversionCost = header.FixedCost + header.VariableCost;
         }
 
         var outputs = new List<ProductionPostPreviewOutputLine>();
-        foreach (var line in outputLines)
+        foreach (var line in loaded.OutputLines)
         {
             var qtyInBase = await _conversion.ToBaseAsync(line.Quantity, line.MeaurmentId, cancellationToken);
             outputs.Add(new ProductionPostPreviewOutputLine(
                 line.ProductId,
-                line.Product.Name,
-                line.Meaurment.Name,
+                line.ProductName,
+                line.MeaurmentName,
                 line.Quantity,
                 qtyInBase));
         }
@@ -267,15 +246,15 @@ public class ProductionPostingService : IProductionPostingService
         var canPost = warnings.Count == 0 && previewInputs.All(x => x.HasEnoughStock);
 
         return new ProductionPostPreviewResult(
-            batch.ProductionBatchID,
-            batch.BatchNumber,
-            batch.OutputWarehouse.Name,
+            header.ProductionBatchId,
+            header.BatchNumber,
+            header.OutputWarehouseName,
             canPost,
             warnings,
             previewInputs,
             outputs,
-            costLines.Select(c => new ProductionPostPreviewCostLine(
-                (int)c.CostType,
+            loaded.CostLines.Select(c => new ProductionPostPreviewCostLine(
+                c.CostType,
                 c.Description,
                 c.Amount)).ToList(),
             estimatedMaterial,
@@ -639,166 +618,5 @@ public class ProductionPostingService : IProductionPostingService
         batch.UpdatedBy = userId;
 
         await _db.SaveChangesAsync(cancellationToken);
-    }
-
-    public async Task<ProductionTraceResult> GetTraceAsync(int productionBatchId, CancellationToken cancellationToken = default)
-    {
-        var batch = await _db.ProductionBatches
-            .AsNoTracking()
-            .Where(b => b.ProductionBatchID == productionBatchId && b.IsDeleted != true)
-            .Select(b => new
-            {
-                b.ProductionBatchID,
-                b.BatchNumber,
-                b.ProductionDate,
-                OutputWarehouseName = b.OutputWarehouse.Name,
-                b.TotalMaterialCostInBase,
-                b.TotalConversionCostInBase,
-                b.TotalCostInBase,
-                b.FixedCost,
-                b.VariableCost,
-                b.JournalEntryId,
-                InputLines = b.InputLines
-                    .Where(x => x.IsDeleted != true)
-                    .Select(x => new
-                    {
-                        x.ProductionInputLineID,
-                        x.WarehouseId,
-                        warehouseName = x.Warehouse.Name,
-                        x.ProductId,
-                        productName = x.Product.Name,
-                        x.Quantity,
-                        x.QuantityInBase,
-                        meaurmentName = x.Meaurment.Name,
-                        x.MaterialCostInBase,
-                    })
-                    .ToList(),
-                OutputLines = b.OutputLines
-                    .Where(x => x.IsDeleted != true)
-                    .Select(x => new
-                    {
-                        x.ProductionOutputLineID,
-                        x.ProductId,
-                        productName = x.Product.Name,
-                        x.Quantity,
-                        x.QuantityInBase,
-                        meaurmentName = x.Meaurment.Name,
-                        x.UnitCostInBase,
-                        x.InventoryLotId,
-                    })
-                    .ToList(),
-                CostLines = b.CostLines
-                    .Where(x => x.IsDeleted != true)
-                    .Select(x => new
-                    {
-                        x.ProductionBatchCostLineID,
-                        costType = (int)x.CostType,
-                        x.Description,
-                        x.Amount,
-                        x.AccountId,
-                    })
-                    .ToList(),
-            })
-            .FirstOrDefaultAsync(cancellationToken)
-            ?? throw new InvalidOperationException("سند تولید یافت نشد.");
-
-        var lotsRaw = await _db.InventoryLots
-            .AsNoTracking()
-            .Where(l => l.ProductionBatchId == productionBatchId && l.IsDeleted != true)
-            .Select(l => new
-            {
-                l.InventoryLotID,
-                l.LotCode,
-                l.ProductId,
-                ProductName = l.Product.Name,
-                l.ReceivedQuantityInBase,
-                l.RemainingQuantityInBase,
-                l.UnitCost,
-                l.PurchaseInvoiceId,
-            })
-            .ToListAsync(cancellationToken);
-
-        var purchaseIds = lotsRaw
-            .Where(l => l.PurchaseInvoiceId.HasValue)
-            .Select(l => l.PurchaseInvoiceId!.Value)
-            .Distinct()
-            .ToList();
-
-        var invoiceNumbers = purchaseIds.Count == 0
-            ? new Dictionary<int, string>()
-            : await _db.PurchaseInvoices
-                .AsNoTracking()
-                .Where(i => purchaseIds.Contains(i.PurchaseInvoiceID))
-                .ToDictionaryAsync(i => i.PurchaseInvoiceID, i => i.InvoiceNumber, cancellationToken);
-
-        var lots = lotsRaw
-            .Select(l => new ProductionTraceLot(
-                l.InventoryLotID,
-                l.LotCode,
-                l.ProductId,
-                l.ProductName,
-                l.ReceivedQuantityInBase,
-                l.RemainingQuantityInBase,
-                l.UnitCost,
-                l.PurchaseInvoiceId,
-                l.PurchaseInvoiceId.HasValue && invoiceNumbers.TryGetValue(l.PurchaseInvoiceId.Value, out var num)
-                    ? num
-                    : null))
-            .ToList();
-
-        var inputLineIds = await _db.ProductionInputLines
-            .AsNoTracking()
-            .Where(l => l.ProductionBatchId == productionBatchId && l.IsDeleted != true)
-            .Select(l => l.ProductionInputLineID)
-            .ToListAsync(cancellationToken);
-
-        var consumedLots = await _db.ProductionInputLotAllocations
-            .AsNoTracking()
-            .Where(a => inputLineIds.Contains(a.ProductionInputLineId) && a.IsDeleted != true)
-            .Select(a => new ProductionTraceConsumedLot(
-                a.ProductionInputLineId,
-                a.InputLine.ProductId,
-                a.InputLine.Product.Name,
-                a.InventoryLotId,
-                a.InventoryLot.LotCode,
-                a.QuantityInBase,
-                a.UnitCostInBase,
-                a.LineCostInBase))
-            .ToListAsync(cancellationToken);
-
-        var lotIds = lotsRaw.Select(l => l.InventoryLotID).ToList();
-        var sales = lotIds.Count == 0
-            ? []
-            : await _db.SaleItemLotAllocations
-                .AsNoTracking()
-                .Where(a => lotIds.Contains(a.InventoryLotId) && a.IsDeleted != true)
-                .Select(a => new ProductionTraceSale(
-                    a.SalesItem.SaleInvoiceId,
-                    a.SalesItem.Invoice.InvoiceNumber,
-                    a.SalesItem.Invoice.InvoiceDate,
-                    a.QuantityInBase,
-                    a.InventoryLotId,
-                    a.InventoryLot.LotCode))
-                .ToListAsync(cancellationToken);
-
-        return new ProductionTraceResult(
-            batch.ProductionBatchID,
-            batch.BatchNumber,
-            batch.ProductionDate,
-            batch.OutputWarehouseName,
-            batch.TotalMaterialCostInBase,
-            batch.TotalConversionCostInBase,
-            batch.TotalCostInBase > 0
-                ? batch.TotalCostInBase
-                : batch.TotalMaterialCostInBase + batch.FixedCost + batch.VariableCost,
-            batch.FixedCost,
-            batch.VariableCost,
-            batch.JournalEntryId,
-            batch.InputLines.Cast<object>().ToList(),
-            batch.OutputLines.Cast<object>().ToList(),
-            batch.CostLines.Cast<object>().ToList(),
-            lots,
-            consumedLots,
-            sales);
     }
 }

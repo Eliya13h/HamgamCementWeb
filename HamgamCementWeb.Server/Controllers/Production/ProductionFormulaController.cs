@@ -4,6 +4,7 @@ using HamgamCementWeb.Server.Authorization;
 using HamgamCementWeb.Server.Controllers.Transport;
 using HamgamCementWeb.Server.Data;
 using HamgamCementWeb.Server.Data.Models.Production;
+using HamgamCementWeb.Server.Services;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
@@ -17,16 +18,20 @@ public class ProductionFormulaController : ControllerBase
 {
     private static readonly Dictionary<int, string> OrderColumns = new()
     {
-        [1] = nameof(ProductionFormula.Name),
-        [2] = nameof(ProductionFormula.ProductId),
-        [3] = nameof(ProductionFormula.Mode),
+        [1] = "Name",
+        [2] = "ProductName",
+        [3] = "BaseQuantity",
+        [4] = "Mode",
+        [5] = "IsDefault",
     };
 
     private readonly AppDbContext _db;
+    private readonly IProductionFormulaReadService _formulaRead;
 
-    public ProductionFormulaController(AppDbContext db)
+    public ProductionFormulaController(AppDbContext db, IProductionFormulaReadService formulaRead)
     {
         _db = db;
+        _formulaRead = formulaRead;
     }
 
     private int? ResolveCurrentUserId()
@@ -50,44 +55,19 @@ public class ProductionFormulaController : ControllerBase
     {
         var start = Math.Max(request.Start, 0);
         var length = request.Length <= 0 ? 10 : Math.Min(request.Length, 100);
+        var order = request.Order?.FirstOrDefault();
+        var orderColumn = order is not null && OrderColumns.TryGetValue(order.Column, out var col)
+            ? col
+            : "Name";
+        var ascending = !string.Equals(order?.Dir, "desc", StringComparison.OrdinalIgnoreCase);
 
-        var query = _db.ProductionFormulas
-            .AsNoTracking()
-            .Where(f => f.IsDeleted != true);
-
-        var recordsTotal = await query.CountAsync(cancellationToken);
-
-        var searchValue = request.Search?.Value?.Trim();
-        if (!string.IsNullOrWhiteSpace(searchValue))
-        {
-            query = query.Where(f =>
-                f.Name.Contains(searchValue) ||
-                f.Product.Name.Contains(searchValue) ||
-                (f.Notes != null && f.Notes.Contains(searchValue)));
-        }
-
-        var recordsFiltered = await query.CountAsync(cancellationToken);
-
-        var rows = await query
-            .ApplyDataTableOrder(request.Order, OrderColumns, nameof(ProductionFormula.Name))
-            .Skip(start)
-            .Take(length)
-            .Select(f => new
-            {
-                productionFormulaId = f.ProductionFormulaID,
-                name = f.Name,
-                productId = f.ProductId,
-                productName = f.Product.Name,
-                meaurmentId = f.MeaurmentId,
-                meaurmentName = f.Meaurment.Name,
-                baseQuantity = f.BaseQuantity,
-                mode = (int)f.Mode,
-                isDefault = f.IsDefault,
-                materialLinesCount = f.MaterialLines.Count(x => x.IsDeleted != true),
-                costLinesCount = f.CostLines.Count(x => x.IsDeleted != true),
-                notes = f.Notes,
-            })
-            .ToListAsync(cancellationToken);
+        var (recordsTotal, recordsFiltered, rows) = await _formulaRead.GetDataTableAsync(
+            start,
+            length,
+            request.Search?.Value,
+            orderColumn,
+            ascending,
+            cancellationToken);
 
         return Ok(new
         {
@@ -97,21 +77,30 @@ public class ProductionFormulaController : ControllerBase
             data = rows.Select((r, i) => new
             {
                 rowNumber = start + i + 1,
-                r.productionFormulaId,
-                r.name,
-                r.productId,
-                r.productName,
-                r.meaurmentId,
-                r.meaurmentName,
-                r.baseQuantity,
-                r.mode,
-                modeLabel = ModeLabel((ProductionFormulaMode)r.mode),
-                r.isDefault,
-                r.materialLinesCount,
-                r.costLinesCount,
-                r.notes,
+                productionFormulaId = r.ProductionFormulaId,
+                name = r.Name,
+                productId = r.ProductId,
+                productName = r.ProductName,
+                meaurmentId = r.MeaurmentId,
+                meaurmentName = r.MeaurmentName,
+                baseQuantity = r.BaseQuantity,
+                mode = r.Mode,
+                modeLabel = ModeLabel((ProductionFormulaMode)r.Mode),
+                isDefault = r.IsDefault,
+                materialLinesCount = r.MaterialLinesCount,
+                costLinesCount = r.CostLinesCount,
+                notes = r.Notes,
             }),
         });
+    }
+
+    // پیشنهاد هزینه‌های سیستمی (حقوق بخش تولید و سایر پرسنل)
+    [HttpGet("system-cost-hints")]
+    [HasPermission("production.formulas.view")]
+    public async Task<IActionResult> SystemCostHints(CancellationToken cancellationToken)
+    {
+        var hints = await _formulaRead.GetSystemCostHintsAsync(cancellationToken);
+        return Ok(hints);
     }
 
     // برای دراپ‌داون ثبت تولید — با دسترسی مشاهده تولید روزانه هم مجاز است
@@ -121,45 +110,31 @@ public class ProductionFormulaController : ControllerBase
         [FromQuery] int? productId,
         CancellationToken cancellationToken)
     {
-        var query = _db.ProductionFormulas
-            .AsNoTracking()
-            .Where(f => f.IsDeleted != true && f.IsActive != false);
-
-        if (productId is > 0)
+        var items = await _formulaRead.GetListAsync(productId, cancellationToken);
+        return Ok(items.Select(f => new
         {
-            query = query.Where(f => f.ProductId == productId);
-        }
-
-        var items = await query
-            .OrderByDescending(f => f.IsDefault)
-            .ThenBy(f => f.Name)
-            .Select(f => new
-            {
-                value = f.ProductionFormulaID,
-                label = f.IsDefault ? $"{f.Name} (پیش‌فرض)" : f.Name,
-                productId = f.ProductId,
-                productName = f.Product.Name,
-                meaurmentId = f.MeaurmentId,
-                baseQuantity = f.BaseQuantity,
-                mode = (int)f.Mode,
-                isDefault = f.IsDefault,
-            })
-            .ToListAsync(cancellationToken);
-
-        return Ok(items);
+            value = f.Value,
+            label = f.Label,
+            productId = f.ProductId,
+            productName = f.ProductName,
+            meaurmentId = f.MeaurmentId,
+            baseQuantity = f.BaseQuantity,
+            mode = f.Mode,
+            isDefault = f.IsDefault,
+        }));
     }
 
     [HttpGet("{id:int}")]
     [HasPermission("production.formulas.view")]
     public async Task<IActionResult> GetById(int id, CancellationToken cancellationToken)
     {
-        var formula = await LoadFormulaDtoAsync(id, cancellationToken);
+        var formula = await _formulaRead.GetByIdAsync(id, cancellationToken);
         if (formula is null)
         {
             return NotFound(new { message = "فرمول تولید یافت نشد." });
         }
 
-        return Ok(formula);
+        return Ok(ToFormulaResponse(formula));
     }
 
     // جزئیات فرمول برای پر کردن فرم ثبت تولید
@@ -167,13 +142,13 @@ public class ProductionFormulaController : ControllerBase
     [HasPermission("production.daily.view")]
     public async Task<IActionResult> GetForProduction(int id, CancellationToken cancellationToken)
     {
-        var formula = await LoadFormulaDtoAsync(id, cancellationToken);
+        var formula = await _formulaRead.GetByIdAsync(id, cancellationToken);
         if (formula is null)
         {
             return NotFound(new { message = "فرمول تولید یافت نشد." });
         }
 
-        return Ok(formula);
+        return Ok(ToFormulaResponse(formula));
     }
 
     [HttpPost]
@@ -196,8 +171,11 @@ public class ProductionFormulaController : ControllerBase
         var userId = ResolveCurrentUserId();
         var now = DateTime.Now;
 
+        await using var transaction = await _db.Database.BeginTransactionAsync(cancellationToken);
+
         if (request.IsDefault)
         {
+            // پاک‌سازی پیش‌فرض‌ها باید قبل از Insert ذخیره شود تا ایندکس یکتا نقض نشود
             await ClearDefaultForProductAsync(request.ProductId, excludeId: null, userId, now, cancellationToken);
         }
 
@@ -219,6 +197,7 @@ public class ProductionFormulaController : ControllerBase
         AddLines(formula, request, userId, now);
         _db.ProductionFormulas.Add(formula);
         await _db.SaveChangesAsync(cancellationToken);
+        await transaction.CommitAsync(cancellationToken);
 
         return Ok(new { message = "فرمول تولید ایجاد شد.", productionFormulaId = formula.ProductionFormulaID });
     }
@@ -254,8 +233,11 @@ public class ProductionFormulaController : ControllerBase
         var userId = ResolveCurrentUserId();
         var now = DateTime.Now;
 
+        await using var transaction = await _db.Database.BeginTransactionAsync(cancellationToken);
+
         if (request.IsDefault)
         {
+            // ابتدا پیش‌فرض‌های دیگر را در DB پاک کن، بعد این ردیف را پیش‌فرض کن
             await ClearDefaultForProductAsync(request.ProductId, excludeId: id, userId, now, cancellationToken);
         }
 
@@ -286,6 +268,7 @@ public class ProductionFormulaController : ControllerBase
 
         AddLines(formula, request, userId, now);
         await _db.SaveChangesAsync(cancellationToken);
+        await transaction.CommitAsync(cancellationToken);
 
         return Ok(new { message = "فرمول تولید ویرایش شد." });
     }
@@ -305,12 +288,18 @@ public class ProductionFormulaController : ControllerBase
         var userId = ResolveCurrentUserId();
         var now = DateTime.Now;
 
+        // ایندکس یکتای فیلترشدهٔ ProductId (IsDefault=1) با دو UPDATE همزمان نقض می‌شود
+        // اگر ردیف جدید قبل از پاک‌شدن پیش‌فرض قبلی نوشته شود — بنابراین دو مرحله جدا.
+        await using var transaction = await _db.Database.BeginTransactionAsync(cancellationToken);
+
         await ClearDefaultForProductAsync(formula.ProductId, excludeId: id, userId, now, cancellationToken);
+
         formula.IsDefault = true;
         formula.IsUpdated = true;
         formula.UpdatedAt = now;
         formula.UpdatedBy = userId;
         await _db.SaveChangesAsync(cancellationToken);
+        await transaction.CommitAsync(cancellationToken);
 
         return Ok(new { message = "فرمول به‌عنوان پیش‌فرض تنظیم شد." });
     }
@@ -363,54 +352,47 @@ public class ProductionFormulaController : ControllerBase
         return Ok(new { message = "فرمول تولید حذف شد." });
     }
 
-    private async Task<object?> LoadFormulaDtoAsync(int id, CancellationToken cancellationToken)
+    private static object ToFormulaResponse(ProductionFormulaDetailDto formula) => new
     {
-        return await _db.ProductionFormulas
-            .AsNoTracking()
-            .Where(f => f.ProductionFormulaID == id && f.IsDeleted != true)
-            .Select(f => new
-            {
-                productionFormulaId = f.ProductionFormulaID,
-                name = f.Name,
-                productId = f.ProductId,
-                productName = f.Product.Name,
-                meaurmentId = f.MeaurmentId,
-                meaurmentName = f.Meaurment.Name,
-                baseQuantity = f.BaseQuantity,
-                mode = (int)f.Mode,
-                modeLabel = f.Mode == ProductionFormulaMode.Fixed ? "ثابت" : "متغیر",
-                isDefault = f.IsDefault,
-                notes = f.Notes,
-                materialLines = f.MaterialLines
-                    .Where(x => x.IsDeleted != true)
-                    .Select(x => new
-                    {
-                        productionFormulaMaterialLineId = x.ProductionFormulaMaterialLineID,
-                        productId = x.ProductId,
-                        productName = x.Product.Name,
-                        meaurmentId = x.MeaurmentId,
-                        meaurmentName = x.Meaurment.Name,
-                        quantity = x.Quantity,
-                        defaultWarehouseId = x.DefaultWarehouseId,
-                        defaultWarehouseName = x.DefaultWarehouse != null ? x.DefaultWarehouse.Name : null,
-                    })
-                    .ToList(),
-                costLines = f.CostLines
-                    .Where(x => x.IsDeleted != true)
-                    .Select(x => new
-                    {
-                        productionFormulaCostLineId = x.ProductionFormulaCostLineID,
-                        costType = (int)x.CostType,
-                        description = x.Description,
-                        amountMode = (int)x.AmountMode,
-                        amount = x.Amount,
-                        accountId = x.AccountId,
-                    })
-                    .ToList(),
-            })
-            .FirstOrDefaultAsync(cancellationToken);
-    }
+        productionFormulaId = formula.ProductionFormulaId,
+        name = formula.Name,
+        productId = formula.ProductId,
+        productName = formula.ProductName,
+        meaurmentId = formula.MeaurmentId,
+        meaurmentName = formula.MeaurmentName,
+        baseQuantity = formula.BaseQuantity,
+        mode = formula.Mode,
+        modeLabel = formula.ModeLabel,
+        isDefault = formula.IsDefault,
+        notes = formula.Notes,
+        materialLines = formula.MaterialLines.Select(x => new
+        {
+            productionFormulaMaterialLineId = x.ProductionFormulaMaterialLineId,
+            productId = x.ProductId,
+            productName = x.ProductName,
+            meaurmentId = x.MeaurmentId,
+            meaurmentName = x.MeaurmentName,
+            quantity = x.Quantity,
+            defaultWarehouseId = x.DefaultWarehouseId,
+            defaultWarehouseName = x.DefaultWarehouseName,
+        }),
+        costLines = formula.CostLines.Select(x => new
+        {
+            productionFormulaCostLineId = x.ProductionFormulaCostLineId,
+            costType = x.CostType,
+            productionCostCategoryId = x.ProductionCostCategoryId,
+            costCategoryName = x.CostCategoryName,
+            description = x.Description,
+            amountMode = x.AmountMode,
+            amount = x.Amount,
+            accountId = x.AccountId,
+        }),
+    };
 
+    /// <summary>
+    /// پیش‌فرض‌های فعال همان محصول را بلافاصله در دیتابیس پاک می‌کند (ExecuteUpdate)
+    /// تا قبل از ست‌کردن پیش‌فرض جدید، ایندکس یکتای فیلترشده نقض نشود.
+    /// </summary>
     private async Task ClearDefaultForProductAsync(
         int productId,
         int? excludeId,
@@ -418,21 +400,19 @@ public class ProductionFormulaController : ControllerBase
         DateTime now,
         CancellationToken cancellationToken)
     {
-        var others = await _db.ProductionFormulas
+        await _db.ProductionFormulas
             .Where(f =>
                 f.ProductId == productId &&
                 f.IsDefault &&
                 f.IsDeleted != true &&
                 (excludeId == null || f.ProductionFormulaID != excludeId))
-            .ToListAsync(cancellationToken);
-
-        foreach (var other in others)
-        {
-            other.IsDefault = false;
-            other.IsUpdated = true;
-            other.UpdatedAt = now;
-            other.UpdatedBy = userId;
-        }
+            .ExecuteUpdateAsync(
+                setters => setters
+                    .SetProperty(f => f.IsDefault, false)
+                    .SetProperty(f => f.IsUpdated, true)
+                    .SetProperty(f => f.UpdatedAt, now)
+                    .SetProperty(f => f.UpdatedBy, userId),
+                cancellationToken);
     }
 
     private async Task<string?> ValidateFormulaRequestAsync(
@@ -561,6 +541,9 @@ public class ProductionFormulaController : ControllerBase
             formula.CostLines.Add(new ProductionFormulaCostLine
             {
                 CostType = line.CostType,
+                ProductionCostCategoryId = line.ProductionCostCategoryId is > 0
+                    ? line.ProductionCostCategoryId
+                    : null,
                 Description = line.Description?.Trim(),
                 AmountMode = line.AmountMode,
                 Amount = line.Amount,
@@ -616,6 +599,8 @@ public class ProductionFormulaController : ControllerBase
     public class SaveFormulaCostLineRequest
     {
         public ProductionCostType CostType { get; set; }
+
+        public int? ProductionCostCategoryId { get; set; }
 
         [MaxLength(200)]
         public string? Description { get; set; }

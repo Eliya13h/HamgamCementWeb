@@ -1,6 +1,14 @@
 import { useCallback, useMemo, useRef, useState } from 'react'
 import Icon from '../../components/common/Icon'
+import {
+  useModalKeyboardShortcuts,
+  usePageCreateShortcut,
+  useModalAutoFocus,
+} from '../../hooks/useModalKeyboardShortcuts'
+import { showAppToast } from '../../lib/appToast'
 import DataTable from '../../lib/dataTableSetup'
+import { createServerSideTableOptions } from '../../lib/dataTableOptions'
+import { persianValidity, validateFormPersian } from '../../lib/persianFormValidity'
 import { usePageCrud } from '../../permissions/usePageCrud'
 import {
   createDepartment,
@@ -9,26 +17,10 @@ import {
   updateDepartment,
 } from '../../services/departmentsApi'
 
-const dataTableLanguage = {
-  emptyTable: 'داده‌ای برای نمایش وجود ندارد',
-  info: 'نمایش _START_ تا _END_ از _TOTAL_ ردیف',
-  infoEmpty: 'رکوردی یافت نشد',
-  infoFiltered: '(فیلتر شده از _MAX_ ردیف)',
-  lengthMenu: 'نمایش _MENU_ ردیف',
-  loadingRecords: 'در حال بارگذاری...',
-  processing: 'در حال پردازش...',
-  search: 'جستجو:',
-  zeroRecords: 'رکوردی یافت نشد',
-  paginate: {
-    first: 'اول',
-    last: 'آخر',
-    next: 'بعدی',
-    previous: 'قبلی',
-  },
-}
-
 function DepartmentsPage({ embedded = false }) {
   const tableRef = useRef(null)
+  const createFormRef = useRef(null)
+  const editFormRef = useRef(null)
   const { canCreate, canEdit, canDelete } = usePageCrud('/people/departments')
   const [loadError, setLoadError] = useState('')
   const [showCreate, setShowCreate] = useState(false)
@@ -71,8 +63,44 @@ function DepartmentsPage({ embedded = false }) {
     setSubmitting(false)
   }
 
+  const triggerCreateSave = useCallback(() => {
+    if (!submitting) createFormRef.current?.requestSubmit()
+  }, [submitting])
+
+  const triggerEditSave = useCallback(() => {
+    if (!submitting) editFormRef.current?.requestSubmit()
+  }, [submitting])
+
+  useModalKeyboardShortcuts({
+    open: showCreate,
+    onClose: closeModals,
+    onSave: triggerCreateSave,
+    formRef: createFormRef,
+  })
+  useModalKeyboardShortcuts({
+    open: Boolean(editRow),
+    onClose: closeModals,
+    onSave: triggerEditSave,
+    formRef: editFormRef,
+  })
+  useModalKeyboardShortcuts({ open: Boolean(deleteRow), onClose: closeModals })
+  usePageCreateShortcut({
+    enabled: canCreate,
+    onNew: openCreate,
+    isBlocked: showCreate || Boolean(editRow) || Boolean(deleteRow),
+  })
+  useModalAutoFocus({ open: showCreate, formRef: createFormRef })
+  useModalAutoFocus({ open: Boolean(editRow), formRef: editFormRef })
+
   const handleCreateSubmit = async (event) => {
     event.preventDefault()
+    const formEl = event.currentTarget
+    const message = validateFormPersian(formEl)
+    if (message) {
+      showAppToast(message)
+      formEl.reportValidity()
+      return
+    }
     setSubmitting(true)
     setFormError('')
 
@@ -88,6 +116,13 @@ function DepartmentsPage({ embedded = false }) {
 
   const handleEditSubmit = async (event) => {
     event.preventDefault()
+    const formEl = event.currentTarget
+    const message = validateFormPersian(formEl)
+    if (message) {
+      showAppToast(message)
+      formEl.reportValidity()
+      return
+    }
     if (!editRow) return
     setSubmitting(true)
     setFormError('')
@@ -121,59 +156,35 @@ function DepartmentsPage({ embedded = false }) {
   }
 
   const tableOptions = useMemo(
-    () => ({
-      processing: true,
-      serverSide: true,
-      ajax: createDepartmentsDataTableAjax(setLoadError),
-      paging: true,
-      searching: true,
-      ordering: true,
-      info: true,
-      scrollX: true,
-      autoWidth: false,
-      responsive: true,
-      stripeClasses: ['odd', 'even'],
-      order: [[1, 'asc']],
-      pageLength: 15,
-      lengthMenu: [10, 15, 25, 50, 100],
-      language: dataTableLanguage,
-      layout: {
-        topStart: {
-          search: { placeholder: 'جستجو...' },
-          pageLength: { menu: [10, 15, 25, 50, 100] },
-        },
-        topEnd: null,
-
-        bottomStart: 'info',
-        bottomEnd: {
-          paging: { firstLast: true, previousNext: true, numbers: 5 },
-        },
-      },
-      columns: [
-        { data: 'rowNumber', name: 'rowNumber' },
-        { data: 'name', name: 'name' },
-        { data: 'description', name: 'description' },
-        { data: 'employeeCount', name: 'employeeCount' },
-        { data: null, name: 'actions', defaultContent: '' },
-      ],
-      columnDefs: [
-        {
-          targets: 0,
-          orderable: false,
-          searchable: false,
-          width: '56px',
-          className: 'text-center',
-        },
-        { targets: 3, className: 'text-center' },
-        {
-          targets: 4,
-          orderable: false,
-          searchable: false,
-          className: 'text-center all dt-actions-col',
-          width: '100px',
-        },
-      ],
-    }),
+    () =>
+      createServerSideTableOptions({
+        ajax: createDepartmentsDataTableAjax(setLoadError),
+        order: [[1, 'asc']],
+        columns: [
+          { data: 'rowNumber', name: 'rowNumber' },
+          { data: 'name', name: 'name' },
+          { data: 'description', name: 'description' },
+          { data: 'employeeCount', name: 'employeeCount' },
+          { data: null, name: 'actions', defaultContent: '' },
+        ],
+        columnDefs: [
+          {
+            targets: 0,
+            orderable: false,
+            searchable: false,
+            width: '56px',
+            className: 'text-center',
+          },
+          { targets: 3, className: 'text-center' },
+          {
+            targets: 4,
+            orderable: false,
+            searchable: false,
+            className: 'text-center all dt-actions-col',
+            width: '100px',
+          },
+        ],
+      }),
     [],
   )
 
@@ -215,7 +226,7 @@ function DepartmentsPage({ embedded = false }) {
           <button
             type="button"
             className="btn btn-sm btn-accent btn-users-new d-inline-flex align-items-center gap-2"
-            title="بخش جدید"
+            title="بخش جدید (Ctrl+N)"
             onClick={openCreate}
           >
             <Icon name="plus" />
@@ -262,7 +273,7 @@ function DepartmentsPage({ embedded = false }) {
           <div className="modal-backdrop show users-modal-backdrop" onClick={closeModals} />
           <div className="modal show d-block users-modal" tabIndex="-1" role="dialog">
             <div className="modal-dialog modal-dialog-centered modal-dialog-scrollable">
-              <form className="modal-content" onSubmit={handleCreateSubmit}>
+              <form ref={createFormRef} className="modal-content" onSubmit={handleCreateSubmit} noValidate>
                 <div className="modal-header">
                   <h5 className="modal-title">بخش جدید</h5>
                   <button
@@ -276,28 +287,32 @@ function DepartmentsPage({ embedded = false }) {
                   {formError && (
                     <div className="alert alert-danger py-2">{formError}</div>
                   )}
-                  <div className="mb-3">
-                    <label className="form-label">نام بخش</label>
-                    <input
-                      type="text"
-                      className="form-control"
-                      value={createForm.name}
-                      onChange={(e) =>
-                        setCreateForm((prev) => ({ ...prev, name: e.target.value }))
-                      }
-                      required
-                    />
-                  </div>
-                  <div className="mb-3">
-                    <label className="form-label">توضیحات</label>
-                    <textarea
-                      className="form-control"
-                      rows={3}
-                      value={createForm.description}
-                      onChange={(e) =>
-                        setCreateForm((prev) => ({ ...prev, description: e.target.value }))
-                      }
-                    />
+                  <div className="row g-3">
+                    <div className="col-12">
+                      <label className="form-label mb-1">نام بخش</label>
+                      <input
+                        type="text"
+                        className="form-control"
+                        value={createForm.name}
+                        required
+                        {...persianValidity('لطفاً نام بخش را وارد کنید.')}
+                        onChange={(e) => {
+                          e.target.setCustomValidity('')
+                          setCreateForm((prev) => ({ ...prev, name: e.target.value }))
+                        }}
+                      />
+                    </div>
+                    <div className="col-12">
+                      <label className="form-label mb-1">توضیحات</label>
+                      <textarea
+                        className="form-control"
+                        rows={3}
+                        value={createForm.description}
+                        onChange={(e) =>
+                          setCreateForm((prev) => ({ ...prev, description: e.target.value }))
+                        }
+                      />
+                    </div>
                   </div>
                 </div>
                 <div className="modal-footer">
@@ -323,7 +338,7 @@ function DepartmentsPage({ embedded = false }) {
           <div className="modal-backdrop show users-modal-backdrop" onClick={closeModals} />
           <div className="modal show d-block users-modal" tabIndex="-1" role="dialog">
             <div className="modal-dialog modal-dialog-centered modal-dialog-scrollable">
-              <form className="modal-content" onSubmit={handleEditSubmit}>
+              <form ref={editFormRef} className="modal-content" onSubmit={handleEditSubmit} noValidate>
                 <div className="modal-header">
                   <h5 className="modal-title">ویرایش بخش</h5>
                   <button
@@ -337,28 +352,32 @@ function DepartmentsPage({ embedded = false }) {
                   {formError && (
                     <div className="alert alert-danger py-2">{formError}</div>
                   )}
-                  <div className="mb-3">
-                    <label className="form-label">نام بخش</label>
-                    <input
-                      type="text"
-                      className="form-control"
-                      value={editForm.name}
-                      onChange={(e) =>
-                        setEditForm((prev) => ({ ...prev, name: e.target.value }))
-                      }
-                      required
-                    />
-                  </div>
-                  <div className="mb-3">
-                    <label className="form-label">توضیحات</label>
-                    <textarea
-                      className="form-control"
-                      rows={3}
-                      value={editForm.description}
-                      onChange={(e) =>
-                        setEditForm((prev) => ({ ...prev, description: e.target.value }))
-                      }
-                    />
+                  <div className="row g-3">
+                    <div className="col-12">
+                      <label className="form-label mb-1">نام بخش</label>
+                      <input
+                        type="text"
+                        className="form-control"
+                        value={editForm.name}
+                        required
+                        {...persianValidity('لطفاً نام بخش را وارد کنید.')}
+                        onChange={(e) => {
+                          e.target.setCustomValidity('')
+                          setEditForm((prev) => ({ ...prev, name: e.target.value }))
+                        }}
+                      />
+                    </div>
+                    <div className="col-12">
+                      <label className="form-label mb-1">توضیحات</label>
+                      <textarea
+                        className="form-control"
+                        rows={3}
+                        value={editForm.description}
+                        onChange={(e) =>
+                          setEditForm((prev) => ({ ...prev, description: e.target.value }))
+                        }
+                      />
+                    </div>
                   </div>
                 </div>
                 <div className="modal-footer">

@@ -171,10 +171,15 @@ public class PurchaseInvoiceController : InvoiceControllerBase
             return BadRequest(new { message = "این فاکتور مربوط به ورود از تولید نیست." });
         }
 
-        var posting = HttpContext.RequestServices.GetRequiredService<IProductionPostingService>();
+        var batchRead = HttpContext.RequestServices.GetRequiredService<IProductionBatchReadService>();
         try
         {
-            var trace = await posting.GetTraceAsync(invoice.ProductionBatchId.Value, cancellationToken);
+            var trace = await batchRead.GetTraceAsync(invoice.ProductionBatchId.Value, cancellationToken);
+            if (trace is null)
+            {
+                return NotFound(new { message = "سند تولید یافت نشد." });
+            }
+
             return Ok(trace);
         }
         catch (InvalidOperationException ex)

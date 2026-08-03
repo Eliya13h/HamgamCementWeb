@@ -95,11 +95,23 @@ export const PRODUCTION_COST_TYPE = {
   Overhead: 2,
   Ancillary: 3,
   Fixed: 4,
+  ProductionBurden: 5,
 }
 
 export const PRODUCTION_COST_TYPE_OPTIONS = [
-  { value: 1, label: 'دستمزد مستقیم' },
-  { value: 2, label: 'سربار تولید' },
+  { value: 1, label: 'هزینه تولید مستقیم', system: true },
+  { value: 2, label: 'هزینه تولید غیر مستقیم', system: true },
+  { value: 3, label: 'هزینه جانبی', system: false },
+  { value: 4, label: 'هزینه ثابت', system: false },
+  { value: 5, label: 'سربار تولید', system: false },
+]
+
+export const PRODUCTION_COST_DYNAMIC_TYPE_OPTIONS = PRODUCTION_COST_TYPE_OPTIONS.filter(
+  (item) => !item.system,
+)
+
+export const PRODUCTION_COST_CATEGORY_TYPE_OPTIONS = [
+  { value: 5, label: 'سربار تولید' },
   { value: 3, label: 'هزینه جانبی' },
   { value: 4, label: 'هزینه ثابت' },
 ]
@@ -126,7 +138,17 @@ export const productionFormulasApi = {
         ? `/api/production/formulas/list?productId=${productId}`
         : '/api/production/formulas/list',
     ),
+  fetchSystemCostHints: () => request('/api/production/formulas/system-cost-hints'),
 }
+
+export const productionCostCategoriesApi = {
+  ...makeResource('/api/production/cost-categories'),
+  getById: (id) => request(`/api/production/cost-categories/${id}`),
+  fetchOptions: () => request('/api/production/cost-categories/list'),
+}
+
+export const fetchProductionCostCategoryOptions = () =>
+  productionCostCategoriesApi.fetchOptions()
 
 export const productionBatchesApi = {
   ...makeResource('/api/production/batches'),
@@ -175,6 +197,9 @@ export function buildProductionFormulaPayload(form) {
       .filter((line) => line.costType && Number(line.amount) >= 0)
       .map((line) => ({
         costType: Number(line.costType),
+        productionCostCategoryId: line.productionCostCategoryId
+          ? Number(line.productionCostCategoryId)
+          : null,
         description: line.description || null,
         amountMode: Number(line.amountMode) || PRODUCTION_COST_AMOUNT_MODE.PerBase,
         amount: Number(line.amount) || 0,

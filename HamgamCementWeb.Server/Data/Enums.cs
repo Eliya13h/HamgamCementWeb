@@ -45,6 +45,29 @@ namespace HamgamCementWeb.Server.Data
         Processed = 3
     }
 
+    // نوع محصول — هم‌تراز عددی با WarehouseType
+    public enum ProductKind
+    {
+        [Display(Name = "خام")]
+        Raw = 1,
+
+        [Display(Name = "نیمه پروسس")]
+        SemiFinished = 2,
+
+        [Display(Name = "پروسس شده")]
+        Processed = 3,
+    }
+
+    // نحوه پیشنهاد قیمت فروش
+    public enum ProductSalePriceMode
+    {
+        [Display(Name = "ثابت")]
+        Fixed = 1,
+
+        [Display(Name = "متغیر بر اساس درصد سود")]
+        ProfitPercent = 2,
+    }
+
     // وضعیت سفر حمل و نقل
     public enum TripStatus
     {
@@ -145,10 +168,12 @@ namespace HamgamCementWeb.Server.Data
     // نوع هزینه در فرمول/سند تولید
     public enum ProductionCostType
     {
-        [Display(Name = "دستمزد مستقیم")]
+        // حقوق پرسنل بخش‌های انتخاب‌شده برای هزینه مستقیم — پیش‌فرض سیستمی
+        [Display(Name = "هزینه تولید مستقیم")]
         DirectWage = 1,
 
-        [Display(Name = "سربار تولید")]
+        // حقوق پرسنل بخش‌های انتخاب‌شده برای هزینه غیرمستقیم — پیش‌فرض سیستمی
+        [Display(Name = "هزینه تولید غیر مستقیم")]
         Overhead = 2,
 
         [Display(Name = "هزینه جانبی")]
@@ -156,6 +181,10 @@ namespace HamgamCementWeb.Server.Data
 
         [Display(Name = "هزینه ثابت")]
         Fixed = 4,
+
+        // سربار تولید (دسته داینامیک پیش‌فرض؛ حساب همان جانبی)
+        [Display(Name = "سربار تولید")]
+        ProductionBurden = 5,
     }
 
     // نحوه محاسبه مبلغ هزینه نسبت به مقدار پایه فرمول

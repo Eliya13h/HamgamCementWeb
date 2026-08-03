@@ -38,6 +38,7 @@ public sealed class SupplierReadService : ISupplierReadService
                     WHEN pi.DocumentType = 2 THEN -pi.TotalAmountInBaseCurrency
                     ELSE 0
                 END) AS TotalPurchase,
+                -- پرداخت فاکتور خرید + دریافت بابت برگشت خرید (PaidAmount برگشت با علامت منفی برای فرمول مانده)
                 SUM(CASE
                     WHEN pi.DocumentType = 1 THEN
                         CASE
@@ -52,11 +53,23 @@ public sealed class SupplierReadService : ISupplierReadService
                             ELSE ROUND(pi.PaidAmount * ISNULL(NULLIF(pi.BaseUnitsPerUnitAtTransaction, 0), 1), 4)
                         END
                     ELSE 0
-                END) AS TotalPayment
+                END) AS InvoicePayment
             FROM PurchaseInvoices pi
             WHERE ISNULL(pi.IsDeleted, 0) = 0
               AND pi.IsPosted = 1
             GROUP BY pi.SupplierId
+        ),
+        -- پرداخت/دریافت مستقل از فاکتور (تخصیص‌شده‌ها داخل PaidAmount فاکتور هستند)
+        SettlementTotals AS (
+            SELECT
+                ps.PartyId AS SupplierId,
+                SUM(ps.AmountInBaseCurrency) AS UnallocatedPayment
+            FROM PartySettlements ps
+            WHERE ISNULL(ps.IsDeleted, 0) = 0
+              AND ps.PartyType = 2
+              AND ps.SaleInvoiceId IS NULL
+              AND ps.PurchaseInvoiceId IS NULL
+            GROUP BY ps.PartyId
         ),
         SupplierSummary AS (
             SELECT
@@ -76,22 +89,27 @@ public sealed class SupplierReadService : ISupplierReadService
                 CASE WHEN ISNULL(s.IsActive, 0) = 1 THEN 1 ELSE 0 END AS IsActive,
                 CASE WHEN ISNULL(s.IsDeleted, 0) = 1 THEN 1 ELSE 0 END AS IsDeleted,
                 ISNULL(pt.TotalPurchase, 0) AS TotalPurchase,
-                ISNULL(pt.TotalPayment, 0) AS TotalPayment,
-                ISNULL(s.InitialBalance, 0) + ISNULL(pt.TotalPurchase, 0) - ISNULL(pt.TotalPayment, 0) AS Balance,
+                ISNULL(pt.InvoicePayment, 0) + ISNULL(st.UnallocatedPayment, 0) AS TotalPayment,
+                -- بالانس = موجودی اولیه + کل خرید − کل پرداخت
+                ISNULL(s.InitialBalance, 0)
+                    + ISNULL(pt.TotalPurchase, 0)
+                    - ISNULL(pt.InvoicePayment, 0)
+                    - ISNULL(st.UnallocatedPayment, 0) AS Balance,
                 -- مانده مثبت = بدهی ما به تأمین‌کننده → تأمین‌کننده طلبکار است
                 CASE
-                    WHEN ISNULL(s.InitialBalance, 0) + ISNULL(pt.TotalPurchase, 0) - ISNULL(pt.TotalPayment, 0) > 0 THEN N'طلبکار'
-                    WHEN ISNULL(s.InitialBalance, 0) + ISNULL(pt.TotalPurchase, 0) - ISNULL(pt.TotalPayment, 0) < 0 THEN N'بدهکار'
+                    WHEN ISNULL(s.InitialBalance, 0) + ISNULL(pt.TotalPurchase, 0) - ISNULL(pt.InvoicePayment, 0) - ISNULL(st.UnallocatedPayment, 0) > 0 THEN N'طلبکار'
+                    WHEN ISNULL(s.InitialBalance, 0) + ISNULL(pt.TotalPurchase, 0) - ISNULL(pt.InvoicePayment, 0) - ISNULL(st.UnallocatedPayment, 0) < 0 THEN N'بدهکار'
                     ELSE N'تسویه'
                 END AS AccountStatus,
                 CASE
-                    WHEN ISNULL(s.InitialBalance, 0) + ISNULL(pt.TotalPurchase, 0) - ISNULL(pt.TotalPayment, 0) > 0 THEN 'creditor'
-                    WHEN ISNULL(s.InitialBalance, 0) + ISNULL(pt.TotalPurchase, 0) - ISNULL(pt.TotalPayment, 0) < 0 THEN 'debtor'
+                    WHEN ISNULL(s.InitialBalance, 0) + ISNULL(pt.TotalPurchase, 0) - ISNULL(pt.InvoicePayment, 0) - ISNULL(st.UnallocatedPayment, 0) > 0 THEN 'creditor'
+                    WHEN ISNULL(s.InitialBalance, 0) + ISNULL(pt.TotalPurchase, 0) - ISNULL(pt.InvoicePayment, 0) - ISNULL(st.UnallocatedPayment, 0) < 0 THEN 'debtor'
                     ELSE 'settled'
                 END AS AccountStatusCode,
                 s.CreatedAt
             FROM Suppliers s
             LEFT JOIN PurchaseTotals pt ON pt.SupplierId = s.SupplierID
+            LEFT JOIN SettlementTotals st ON st.SupplierId = s.SupplierID
             LEFT JOIN Accounts acc
                 ON acc.SystemCode = CONCAT(N'SUPP_', s.SupplierID)
                AND ISNULL(acc.IsDeleted, 0) = 0

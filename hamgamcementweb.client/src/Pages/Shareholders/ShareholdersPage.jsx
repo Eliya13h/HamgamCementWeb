@@ -1,6 +1,14 @@
 import { useCallback, useMemo, useRef, useState } from 'react'
 import Icon from '../../components/common/Icon'
+import {
+  useModalKeyboardShortcuts,
+  usePageCreateShortcut,
+  useModalAutoFocus,
+} from '../../hooks/useModalKeyboardShortcuts'
+import { showAppToast } from '../../lib/appToast'
 import DataTable from '../../lib/dataTableSetup'
+import { createServerSideTableOptions } from '../../lib/dataTableOptions'
+import { persianValidity, validateFormPersian } from '../../lib/persianFormValidity'
 import { usePageCrud } from '../../permissions/usePageCrud'
 import {
   createShareholder,
@@ -15,26 +23,112 @@ const TITLE_OPTIONS = [
   { value: 1, label: 'خانم' },
 ]
 
-const dataTableLanguage = {
-  emptyTable: 'داده‌ای برای نمایش وجود ندارد',
-  info: 'نمایش _START_ تا _END_ از _TOTAL_ ردیف',
-  infoEmpty: 'رکوردی یافت نشد',
-  infoFiltered: '(فیلتر شده از _MAX_ ردیف)',
-  lengthMenu: 'نمایش _MENU_ ردیف',
-  loadingRecords: 'در حال بارگذاری...',
-  processing: 'در حال پردازش...',
-  search: 'جستجو:',
-  zeroRecords: 'رکوردی یافت نشد',
-  paginate: {
-    first: 'اول',
-    last: 'آخر',
-    next: 'بعدی',
-    previous: 'قبلی',
-  },
+function ShareholderFormFields({ form, setForm, idPrefix }) {
+  return (
+    <div className="row g-3">
+      <div className="col-md-4">
+        <label className="form-label mb-1">عنوان</label>
+        <select
+          className="form-select"
+          value={form.title}
+          onChange={(e) => setForm((prev) => ({ ...prev, title: e.target.value }))}
+        >
+          {TITLE_OPTIONS.map((option) => (
+            <option key={option.value} value={option.value}>
+              {option.label}
+            </option>
+          ))}
+        </select>
+      </div>
+      <div className="col-md-4">
+        <label className="form-label mb-1">نام</label>
+        <input
+          type="text"
+          className="form-control"
+          value={form.firstName}
+          required
+          {...persianValidity('لطفاً نام را وارد کنید.')}
+          onChange={(e) => {
+            e.target.setCustomValidity('')
+            setForm((prev) => ({ ...prev, firstName: e.target.value }))
+          }}
+        />
+      </div>
+      <div className="col-md-4">
+        <label className="form-label mb-1">نام خانوادگی</label>
+        <input
+          type="text"
+          className="form-control"
+          value={form.lastName}
+          required
+          {...persianValidity('لطفاً نام خانوادگی را وارد کنید.')}
+          onChange={(e) => {
+            e.target.setCustomValidity('')
+            setForm((prev) => ({ ...prev, lastName: e.target.value }))
+          }}
+        />
+      </div>
+      <div className="col-md-6">
+        <label className="form-label mb-1">سهم سود (%)</label>
+        <input
+          type="number"
+          step="0.01"
+          className="form-control"
+          value={form.profitShare}
+          onChange={(e) => setForm((prev) => ({ ...prev, profitShare: e.target.value }))}
+        />
+      </div>
+      <div className="col-md-6">
+        <label className="form-label mb-1">سهم ضرر (%)</label>
+        <input
+          type="number"
+          step="0.01"
+          className="form-control"
+          value={form.lossShare}
+          onChange={(e) => setForm((prev) => ({ ...prev, lossShare: e.target.value }))}
+        />
+      </div>
+      <div className="col-md-6">
+        <label className="form-label mb-1">موجودی اولیه</label>
+        <input
+          type="number"
+          step="0.0001"
+          className="form-control"
+          value={form.initialBalance}
+          onChange={(e) => setForm((prev) => ({ ...prev, initialBalance: e.target.value }))}
+        />
+      </div>
+      <div className="col-12">
+        <label className="form-label mb-1">توضیحات</label>
+        <textarea
+          className="form-control"
+          rows={3}
+          value={form.description}
+          onChange={(e) => setForm((prev) => ({ ...prev, description: e.target.value }))}
+        />
+      </div>
+      <div className="col-12">
+        <div className="form-check form-switch">
+          <input
+            className="form-check-input"
+            type="checkbox"
+            id={`${idPrefix}-is-active`}
+            checked={form.isActive}
+            onChange={(e) => setForm((prev) => ({ ...prev, isActive: e.target.checked }))}
+          />
+          <label className="form-check-label" htmlFor={`${idPrefix}-is-active`}>
+            فعال
+          </label>
+        </div>
+      </div>
+    </div>
+  )
 }
 
 function ShareholdersPage() {
   const tableRef = useRef(null)
+  const createFormRef = useRef(null)
+  const editFormRef = useRef(null)
   const { canCreate, canEdit, canDelete } = usePageCrud('/people/shareholders')
   const [loadError, setLoadError] = useState('')
   const [showCreate, setShowCreate] = useState(false)
@@ -110,8 +204,44 @@ function ShareholdersPage() {
     setSubmitting(false)
   }
 
+  const triggerCreateSave = useCallback(() => {
+    if (!submitting) createFormRef.current?.requestSubmit()
+  }, [submitting])
+
+  const triggerEditSave = useCallback(() => {
+    if (!submitting) editFormRef.current?.requestSubmit()
+  }, [submitting])
+
+  useModalKeyboardShortcuts({
+    open: showCreate,
+    onClose: closeModals,
+    onSave: triggerCreateSave,
+    formRef: createFormRef,
+  })
+  useModalKeyboardShortcuts({
+    open: Boolean(editRow),
+    onClose: closeModals,
+    onSave: triggerEditSave,
+    formRef: editFormRef,
+  })
+  useModalKeyboardShortcuts({ open: Boolean(deleteRow), onClose: closeModals })
+  usePageCreateShortcut({
+    enabled: canCreate,
+    onNew: openCreate,
+    isBlocked: showCreate || Boolean(editRow) || Boolean(deleteRow),
+  })
+  useModalAutoFocus({ open: showCreate, formRef: createFormRef })
+  useModalAutoFocus({ open: Boolean(editRow), formRef: editFormRef })
+
   const handleCreateSubmit = async (event) => {
     event.preventDefault()
+    const formEl = event.currentTarget
+    const message = validateFormPersian(formEl)
+    if (message) {
+      showAppToast(message)
+      formEl.reportValidity()
+      return
+    }
 
     setSubmitting(true)
     setFormError('')
@@ -137,6 +267,13 @@ function ShareholdersPage() {
 
   const handleEditSubmit = async (event) => {
     event.preventDefault()
+    const formEl = event.currentTarget
+    const message = validateFormPersian(formEl)
+    if (message) {
+      showAppToast(message)
+      formEl.reportValidity()
+      return
+    }
     if (!editRow) return
 
     setSubmitting(true)
@@ -191,74 +328,50 @@ function ShareholdersPage() {
   )
 
   const tableOptions = useMemo(
-    () => ({
-      processing: true,
-      serverSide: true,
-      ajax: createShareholdersDataTableAjax(setLoadError),
-      paging: true,
-      searching: true,
-      ordering: true,
-      info: true,
-      scrollX: true,
-      autoWidth: false,
-      responsive: true,
-      stripeClasses: ['odd', 'even'],
-      order: [[1, 'asc']],
-      pageLength: 15,
-      lengthMenu: [10, 15, 25, 50, 100],
-      language: dataTableLanguage,
-      layout: {
-        topStart: {
-          search: { placeholder: 'جستجو...' },
-          pageLength: { menu: [10, 15, 25, 50, 100] },
-        },
-        topEnd: null,
-
-        bottomStart: 'info',
-        bottomEnd: {
-          paging: { firstLast: true, previousNext: true, numbers: 5 },
-        },
-      },
-      columns: [
-        { data: 'rowNumber', name: 'rowNumber' },
-        { data: 'fullName', name: 'fullName' },
-        {
-          data: 'accountCode',
-          name: 'accountCode',
-          orderable: false,
-          render: (data) => data || '—',
-        },
-        { data: 'profitShare', name: 'profitShare' },
-        { data: 'lossShare', name: 'lossShare' },
-        { data: 'initialBalance', name: 'initialBalance' },
-        {
-          data: 'isActive',
-          name: 'isActive',
-          render: (data) =>
-            data
-              ? '<span class="badge badge-active">فعال</span>'
-              : '<span class="badge badge-inactive">غیرفعال</span>',
-        },
-        { data: null, name: 'actions', defaultContent: '' },
-      ],
-      columnDefs: [
-        {
-          targets: 0,
-          orderable: false,
-          searchable: false,
-          width: '56px',
-          className: 'text-center',
-        },
-        { targets: 6, className: 'text-center' },
-        {
-          targets: 7,
-          orderable: false,
-          searchable: false,
-          className: 'text-center all dt-actions-col',
-          width: '140px',
-        },
-      ],
-    }),
+    () =>
+      createServerSideTableOptions({
+        ajax: createShareholdersDataTableAjax(setLoadError),
+        order: [[1, 'asc']],
+        columns: [
+          { data: 'rowNumber', name: 'rowNumber' },
+          { data: 'fullName', name: 'fullName' },
+          {
+            data: 'accountCode',
+            name: 'accountCode',
+            orderable: false,
+            render: (data) => data || '—',
+          },
+          { data: 'profitShare', name: 'profitShare' },
+          { data: 'lossShare', name: 'lossShare' },
+          { data: 'initialBalance', name: 'initialBalance' },
+          {
+            data: 'isActive',
+            name: 'isActive',
+            render: (data) =>
+              data
+                ? '<span class="badge badge-active">فعال</span>'
+                : '<span class="badge badge-inactive">غیرفعال</span>',
+          },
+          { data: null, name: 'actions', defaultContent: '' },
+        ],
+        columnDefs: [
+          {
+            targets: 0,
+            orderable: false,
+            searchable: false,
+            width: '56px',
+            className: 'text-center',
+          },
+          { targets: 6, className: 'text-center' },
+          {
+            targets: 7,
+            orderable: false,
+            searchable: false,
+            className: 'text-center all dt-actions-col',
+            width: '140px',
+          },
+        ],
+      }),
     [],
   )
 
@@ -311,7 +424,7 @@ function ShareholdersPage() {
             <button
               type="button"
               className="btn btn-sm btn-accent btn-users-new d-inline-flex align-items-center gap-2"
-              title="سهام‌دار جدید"
+              title="سهام‌دار جدید (Ctrl+N)"
               onClick={openCreate}
             >
               <Icon name="plus" />
@@ -355,63 +468,19 @@ function ShareholdersPage() {
         <>
           <div className="modal-backdrop show users-modal-backdrop" onClick={closeModals} />
           <div className="modal show d-block users-modal" tabIndex="-1" role="dialog">
-            <div className="modal-dialog modal-dialog-centered modal-dialog-scrollable">
-              <form className="modal-content" onSubmit={handleCreateSubmit}>
+            <div className="modal-dialog modal-dialog-centered modal-dialog-scrollable modal-lg">
+              <form ref={createFormRef} className="modal-content" onSubmit={handleCreateSubmit} noValidate>
                 <div className="modal-header">
                   <h5 className="modal-title">سهام‌دار جدید</h5>
                   <button type="button" className="btn-close" aria-label="بستن" onClick={closeModals} />
                 </div>
                 <div className="modal-body">
                   {formError && <div className="alert alert-danger py-2">{formError}</div>}
-                  <div className="mb-3">
-                    <label className="form-label">عنوان</label>
-                    <select className="form-select" value={createForm.title}
-                      onChange={(e) => setCreateForm((prev) => ({ ...prev, title: e.target.value }))}>
-                      {TITLE_OPTIONS.map((option) => (
-                        <option key={option.value} value={option.value}>{option.label}</option>
-                      ))}
-                    </select>
-                  </div>
-                  <div className="row g-3 mb-3">
-                    <div className="col-md-6">
-                      <label className="form-label">نام</label>
-                      <input type="text" className="form-control" value={createForm.firstName}
-                        onChange={(e) => setCreateForm((prev) => ({ ...prev, firstName: e.target.value }))} required />
-                    </div>
-                    <div className="col-md-6">
-                      <label className="form-label">نام خانوادگی</label>
-                      <input type="text" className="form-control" value={createForm.lastName}
-                        onChange={(e) => setCreateForm((prev) => ({ ...prev, lastName: e.target.value }))} required />
-                    </div>
-                  </div>
-                  <div className="row g-3 mb-3">
-                    <div className="col-md-6">
-                      <label className="form-label">سهم سود (%)</label>
-                      <input type="number" step="0.01" className="form-control" value={createForm.profitShare}
-                        onChange={(e) => setCreateForm((prev) => ({ ...prev, profitShare: e.target.value }))} />
-                    </div>
-                    <div className="col-md-6">
-                      <label className="form-label">سهم ضرر (%)</label>
-                      <input type="number" step="0.01" className="form-control" value={createForm.lossShare}
-                        onChange={(e) => setCreateForm((prev) => ({ ...prev, lossShare: e.target.value }))} />
-                    </div>
-                  </div>
-                  <div className="mb-3">
-                    <label className="form-label">موجودی اولیه</label>
-                    <input type="number" step="0.0001" className="form-control" value={createForm.initialBalance}
-                      onChange={(e) => setCreateForm((prev) => ({ ...prev, initialBalance: e.target.value }))} />
-                  </div>
-                  <div className="mb-3">
-                    <label className="form-label">توضیحات</label>
-                    <textarea className="form-control" rows={3} value={createForm.description}
-                      onChange={(e) => setCreateForm((prev) => ({ ...prev, description: e.target.value }))} />
-                  </div>
-                  <div className="form-check form-switch">
-                    <input className="form-check-input" type="checkbox" id="create-shareholder-is-active"
-                      checked={createForm.isActive}
-                      onChange={(e) => setCreateForm((prev) => ({ ...prev, isActive: e.target.checked }))} />
-                    <label className="form-check-label" htmlFor="create-shareholder-is-active">فعال</label>
-                  </div>
+                  <ShareholderFormFields
+                    form={createForm}
+                    setForm={setCreateForm}
+                    idPrefix="create-shareholder"
+                  />
                 </div>
                 <div className="modal-footer">
                   <button type="button" className="btn btn-outline-secondary" onClick={closeModals}>انصراف</button>
@@ -429,8 +498,8 @@ function ShareholdersPage() {
         <>
           <div className="modal-backdrop show users-modal-backdrop" onClick={closeModals} />
           <div className="modal show d-block users-modal" tabIndex="-1" role="dialog">
-            <div className="modal-dialog modal-dialog-centered modal-dialog-scrollable">
-              <form className="modal-content" onSubmit={handleEditSubmit}>
+            <div className="modal-dialog modal-dialog-centered modal-dialog-scrollable modal-lg">
+              <form ref={editFormRef} className="modal-content" onSubmit={handleEditSubmit} noValidate>
                 <div className="modal-header">
                   <h5 className="modal-title">ویرایش سهام‌دار</h5>
                   <button
@@ -444,114 +513,11 @@ function ShareholdersPage() {
                   {formError && (
                     <div className="alert alert-danger py-2">{formError}</div>
                   )}
-                  <div className="mb-3">
-                    <label className="form-label">عنوان</label>
-                    <select
-                      className="form-select"
-                      value={editForm.title}
-                      onChange={(e) =>
-                        setEditForm((prev) => ({ ...prev, title: e.target.value }))
-                      }
-                    >
-                      {TITLE_OPTIONS.map((option) => (
-                        <option key={option.value} value={option.value}>
-                          {option.label}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                  <div className="row g-3 mb-3">
-                    <div className="col-md-6">
-                      <label className="form-label">نام</label>
-                      <input
-                        type="text"
-                        className="form-control"
-                        value={editForm.firstName}
-                        onChange={(e) =>
-                          setEditForm((prev) => ({ ...prev, firstName: e.target.value }))
-                        }
-                        required
-                      />
-                    </div>
-                    <div className="col-md-6">
-                      <label className="form-label">نام خانوادگی</label>
-                      <input
-                        type="text"
-                        className="form-control"
-                        value={editForm.lastName}
-                        onChange={(e) =>
-                          setEditForm((prev) => ({ ...prev, lastName: e.target.value }))
-                        }
-                        required
-                      />
-                    </div>
-                  </div>
-                  <div className="row g-3 mb-3">
-                    <div className="col-md-6">
-                      <label className="form-label">سهم سود (%)</label>
-                      <input
-                        type="number"
-                        step="0.01"
-                        className="form-control"
-                        value={editForm.profitShare}
-                        onChange={(e) =>
-                          setEditForm((prev) => ({ ...prev, profitShare: e.target.value }))
-                        }
-                      />
-                    </div>
-                    <div className="col-md-6">
-                      <label className="form-label">سهم ضرر (%)</label>
-                      <input
-                        type="number"
-                        step="0.01"
-                        className="form-control"
-                        value={editForm.lossShare}
-                        onChange={(e) =>
-                          setEditForm((prev) => ({ ...prev, lossShare: e.target.value }))
-                        }
-                      />
-                    </div>
-                  </div>
-                  <div className="mb-3">
-                    <label className="form-label">موجودی اولیه</label>
-                    <input
-                      type="number"
-                      step="0.0001"
-                      className="form-control"
-                      value={editForm.initialBalance}
-                      onChange={(e) =>
-                        setEditForm((prev) => ({
-                          ...prev,
-                          initialBalance: e.target.value,
-                        }))
-                      }
-                    />
-                  </div>
-                  <div className="mb-3">
-                    <label className="form-label">توضیحات</label>
-                    <textarea
-                      className="form-control"
-                      rows={3}
-                      value={editForm.description}
-                      onChange={(e) =>
-                        setEditForm((prev) => ({ ...prev, description: e.target.value }))
-                      }
-                    />
-                  </div>
-                  <div className="form-check form-switch">
-                    <input
-                      className="form-check-input"
-                      type="checkbox"
-                      id="shareholder-is-active"
-                      checked={editForm.isActive}
-                      onChange={(e) =>
-                        setEditForm((prev) => ({ ...prev, isActive: e.target.checked }))
-                      }
-                    />
-                    <label className="form-check-label" htmlFor="shareholder-is-active">
-                      فعال
-                    </label>
-                  </div>
+                  <ShareholderFormFields
+                    form={editForm}
+                    setForm={setEditForm}
+                    idPrefix="edit-shareholder"
+                  />
                 </div>
                 <div className="modal-footer">
                   <button

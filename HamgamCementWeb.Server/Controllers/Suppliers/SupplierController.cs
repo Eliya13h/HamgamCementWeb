@@ -220,7 +220,7 @@ public class SupplierController : ControllerBase
             _db.Suppliers.Add(supplier);
             await _db.SaveChangesAsync(cancellationToken);
 
-            if (supplier.InitialBalance > 0)
+            if (supplier.InitialBalance != 0)
             {
                 await _opening.PostSupplierOpeningAsync(
                     supplier.SupplierID,

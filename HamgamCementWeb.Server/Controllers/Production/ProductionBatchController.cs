@@ -18,24 +18,27 @@ public class ProductionBatchController : ControllerBase
 {
     private static readonly Dictionary<int, string> OrderColumns = new()
     {
-        [1] = nameof(ProductionBatch.BatchNumber),
-        [3] = nameof(ProductionBatch.ProductionDate),
-        [5] = nameof(ProductionBatch.Status),
-        [6] = nameof(ProductionBatch.TotalCostInBase),
+        [1] = "BatchNumber",
+        [3] = "ProductionDate",
+        [5] = "Status",
+        [6] = "TotalCostInBase",
     };
 
     private readonly AppDbContext _db;
     private readonly IMeaurmentConversionService _conversion;
     private readonly IProductionPostingService _posting;
+    private readonly IProductionBatchReadService _batchRead;
 
     public ProductionBatchController(
         AppDbContext db,
         IMeaurmentConversionService conversion,
-        IProductionPostingService posting)
+        IProductionPostingService posting,
+        IProductionBatchReadService batchRead)
     {
         _db = db;
         _conversion = conversion;
         _posting = posting;
+        _batchRead = batchRead;
     }
 
     private int? ResolveCurrentUserId()
@@ -59,52 +62,22 @@ public class ProductionBatchController : ControllerBase
     {
         var start = Math.Max(request.Start, 0);
         var length = request.Length <= 0 ? 10 : Math.Min(request.Length, 100);
+        var order = request.Order?.FirstOrDefault();
+        var orderColumn = order is not null && OrderColumns.TryGetValue(order.Column, out var col)
+            ? col
+            : "ProductionDate";
+        // پیش‌فرض: تاریخ نزولی (مثل قبل)
+        var ascending = order is null
+            ? false
+            : !string.Equals(order.Dir, "desc", StringComparison.OrdinalIgnoreCase);
 
-        var query = _db.ProductionBatches
-            .AsNoTracking()
-            .Where(b => b.IsDeleted != true);
-
-        var recordsTotal = await query.CountAsync(cancellationToken);
-
-        var searchValue = request.Search?.Value?.Trim();
-        if (!string.IsNullOrWhiteSpace(searchValue))
-        {
-            query = query.Where(b =>
-                b.BatchNumber.Contains(searchValue) ||
-                b.OutputWarehouse.Name.Contains(searchValue) ||
-                (b.Formula != null && b.Formula.Name.Contains(searchValue)) ||
-                (b.Description != null && b.Description.Contains(searchValue)));
-        }
-
-        var recordsFiltered = await query.CountAsync(cancellationToken);
-
-        var rows = await query
-            .ApplyDataTableOrder(request.Order, OrderColumns, nameof(ProductionBatch.ProductionDate), defaultDescending: true)
-            .Skip(start)
-            .Take(length)
-            .Select(b => new
-            {
-                productionBatchId = b.ProductionBatchID,
-                batchNumber = b.BatchNumber,
-                productionDate = b.ProductionDate,
-                productionFormulaId = b.ProductionFormulaId,
-                formulaName = b.Formula != null ? b.Formula.Name : null,
-                productionPlanId = b.ProductionPlanId,
-                planLabel = b.Plan != null
-                    ? b.Plan.Product.Name + " / " + b.Plan.PlanDate.ToString("yyyy-MM-dd")
-                    : null,
-                outputWarehouseId = b.OutputWarehouseId,
-                outputWarehouseName = b.OutputWarehouse.Name,
-                status = (int)b.Status,
-                isPosted = b.IsPosted,
-                totalMaterialCostInBase = b.TotalMaterialCostInBase,
-                totalConversionCostInBase = b.TotalConversionCostInBase,
-                totalCostInBase = b.TotalCostInBase,
-                inputLinesCount = b.InputLines.Count(x => x.IsDeleted != true),
-                outputLinesCount = b.OutputLines.Count(x => x.IsDeleted != true),
-                description = b.Description,
-            })
-            .ToListAsync(cancellationToken);
+        var (recordsTotal, recordsFiltered, rows) = await _batchRead.GetDataTableAsync(
+            start,
+            length,
+            request.Search?.Value,
+            orderColumn,
+            ascending,
+            cancellationToken);
 
         return Ok(new
         {
@@ -114,142 +87,121 @@ public class ProductionBatchController : ControllerBase
             data = rows.Select((r, i) => new
             {
                 rowNumber = start + i + 1,
-                r.productionBatchId,
-                r.batchNumber,
-                productionDate = r.productionDate.ToString("yyyy-MM-dd"),
-                r.productionFormulaId,
-                r.formulaName,
-                r.productionPlanId,
-                r.planLabel,
-                r.outputWarehouseId,
-                r.outputWarehouseName,
-                r.status,
-                statusLabel = GetStatusLabel((ProductionBatchStatus)r.status),
-                r.isPosted,
-                r.totalMaterialCostInBase,
-                r.totalConversionCostInBase,
-                r.totalCostInBase,
-                r.inputLinesCount,
-                r.outputLinesCount,
-                r.description,
+                productionBatchId = r.ProductionBatchId,
+                batchNumber = r.BatchNumber,
+                productionDate = r.ProductionDate.ToString("yyyy-MM-dd"),
+                productionFormulaId = r.ProductionFormulaId,
+                formulaName = r.FormulaName,
+                productionPlanId = r.ProductionPlanId,
+                planLabel = r.PlanLabel,
+                outputWarehouseId = r.OutputWarehouseId,
+                outputWarehouseName = r.OutputWarehouseName,
+                status = r.Status,
+                statusLabel = GetStatusLabel((ProductionBatchStatus)r.Status),
+                isPosted = r.IsPosted,
+                totalMaterialCostInBase = r.TotalMaterialCostInBase,
+                totalConversionCostInBase = r.TotalConversionCostInBase,
+                totalCostInBase = r.TotalCostInBase,
+                inputLinesCount = r.InputLinesCount,
+                outputLinesCount = r.OutputLinesCount,
+                description = r.Description,
             }),
         });
     }
 
     [HttpGet("list")]
     [HasPermission("production.daily.view")]
-    public async Task<IActionResult> List(CancellationToken cancellationToken)
+    public async Task<IActionResult> List(
+        [FromQuery] int start = 0,
+        [FromQuery] int length = 100,
+        CancellationToken cancellationToken = default)
     {
-        var items = await _db.ProductionBatches
-            .AsNoTracking()
-            .Where(b => b.IsDeleted != true && b.IsPosted)
-            .OrderByDescending(b => b.ProductionDate)
-            .Select(b => new
-            {
-                value = b.ProductionBatchID,
-                label = b.BatchNumber,
-                productionDate = b.ProductionDate,
-                outputWarehouseId = b.OutputWarehouseId,
-            })
-            .ToListAsync(cancellationToken);
-
-        return Ok(items);
+        var items = await _batchRead.GetListAsync(start, length, cancellationToken);
+        return Ok(items.Select(b => new
+        {
+            value = b.Value,
+            label = b.Label,
+            productionDate = b.ProductionDate,
+            outputWarehouseId = b.OutputWarehouseId,
+        }));
     }
 
     [HttpGet("{id:int}")]
     [HasPermission("production.daily.view")]
     public async Task<IActionResult> GetById(int id, CancellationToken cancellationToken)
     {
-        var batch = await _db.ProductionBatches
-            .AsNoTracking()
-            .Where(b => b.ProductionBatchID == id && b.IsDeleted != true)
-            .Select(b => new
-            {
-                productionBatchId = b.ProductionBatchID,
-                batchNumber = b.BatchNumber,
-                productionDate = b.ProductionDate,
-                productionFormulaId = b.ProductionFormulaId,
-                formulaName = b.Formula != null ? b.Formula.Name : null,
-                formulaMode = b.Formula != null ? (int?)b.Formula.Mode : null,
-                productionPlanId = b.ProductionPlanId,
-                planLabel = b.Plan != null
-                    ? b.Plan.Product.Name + " / " + b.Plan.PlanDate.ToString("yyyy-MM-dd")
-                    : null,
-                outputWarehouseId = b.OutputWarehouseId,
-                outputWarehouseName = b.OutputWarehouse.Name,
-                status = (int)b.Status,
-                isPosted = b.IsPosted,
-                totalMaterialCostInBase = b.TotalMaterialCostInBase,
-                totalConversionCostInBase = b.TotalConversionCostInBase,
-                totalCostInBase = b.TotalCostInBase,
-                journalEntryId = b.JournalEntryId,
-                description = b.Description,
-                inputLines = b.InputLines
-                    .Where(x => x.IsDeleted != true)
-                    .Select(x => new
-                    {
-                        productionInputLineId = x.ProductionInputLineID,
-                        warehouseId = x.WarehouseId,
-                        warehouseName = x.Warehouse.Name,
-                        productId = x.ProductId,
-                        productName = x.Product.Name,
-                        meaurmentId = x.MeaurmentId,
-                        meaurmentName = x.Meaurment.Name,
-                        quantity = x.Quantity,
-                        quantityInBase = x.QuantityInBase,
-                        materialCostInBase = x.MaterialCostInBase,
-                    })
-                    .ToList(),
-                outputLines = b.OutputLines
-                    .Where(x => x.IsDeleted != true)
-                    .Select(x => new
-                    {
-                        productionOutputLineId = x.ProductionOutputLineID,
-                        productId = x.ProductId,
-                        productName = x.Product.Name,
-                        meaurmentId = x.MeaurmentId,
-                        meaurmentName = x.Meaurment.Name,
-                        quantity = x.Quantity,
-                        quantityInBase = x.QuantityInBase,
-                        unitCostInBase = x.UnitCostInBase,
-                        inventoryLotId = x.InventoryLotId,
-                    })
-                    .ToList(),
-                costLines = b.CostLines
-                    .Where(x => x.IsDeleted != true)
-                    .Select(x => new
-                    {
-                        productionBatchCostLineId = x.ProductionBatchCostLineID,
-                        costType = (int)x.CostType,
-                        description = x.Description,
-                        amount = x.Amount,
-                        accountId = x.AccountId,
-                    })
-                    .ToList(),
-            })
-            .FirstOrDefaultAsync(cancellationToken);
-
+        var batch = await _batchRead.GetByIdAsync(id, cancellationToken);
         if (batch is null)
         {
             return NotFound(new { message = "سند تولید یافت نشد." });
         }
 
-        return Ok(batch);
+        return Ok(new
+        {
+            productionBatchId = batch.ProductionBatchId,
+            batchNumber = batch.BatchNumber,
+            productionDate = batch.ProductionDate,
+            productionFormulaId = batch.ProductionFormulaId,
+            formulaName = batch.FormulaName,
+            formulaMode = batch.FormulaMode,
+            productionPlanId = batch.ProductionPlanId,
+            planLabel = batch.PlanLabel,
+            outputWarehouseId = batch.OutputWarehouseId,
+            outputWarehouseName = batch.OutputWarehouseName,
+            status = batch.Status,
+            isPosted = batch.IsPosted,
+            totalMaterialCostInBase = batch.TotalMaterialCostInBase,
+            totalConversionCostInBase = batch.TotalConversionCostInBase,
+            totalCostInBase = batch.TotalCostInBase,
+            journalEntryId = batch.JournalEntryId,
+            description = batch.Description,
+            inputLines = batch.InputLines.Select(x => new
+            {
+                productionInputLineId = x.ProductionInputLineId,
+                warehouseId = x.WarehouseId,
+                warehouseName = x.WarehouseName,
+                productId = x.ProductId,
+                productName = x.ProductName,
+                meaurmentId = x.MeaurmentId,
+                meaurmentName = x.MeaurmentName,
+                quantity = x.Quantity,
+                quantityInBase = x.QuantityInBase,
+                materialCostInBase = x.MaterialCostInBase,
+            }),
+            outputLines = batch.OutputLines.Select(x => new
+            {
+                productionOutputLineId = x.ProductionOutputLineId,
+                productId = x.ProductId,
+                productName = x.ProductName,
+                meaurmentId = x.MeaurmentId,
+                meaurmentName = x.MeaurmentName,
+                quantity = x.Quantity,
+                quantityInBase = x.QuantityInBase,
+                unitCostInBase = x.UnitCostInBase,
+                inventoryLotId = x.InventoryLotId,
+            }),
+            costLines = batch.CostLines.Select(x => new
+            {
+                productionBatchCostLineId = x.ProductionBatchCostLineId,
+                costType = x.CostType,
+                description = x.Description,
+                amount = x.Amount,
+                accountId = x.AccountId,
+            }),
+        });
     }
 
     [HttpGet("{id:int}/trace")]
     [HasPermission("production.daily.view")]
     public async Task<IActionResult> Trace(int id, CancellationToken cancellationToken)
     {
-        try
+        var trace = await _batchRead.GetTraceAsync(id, cancellationToken);
+        if (trace is null)
         {
-            var trace = await _posting.GetTraceAsync(id, cancellationToken);
-            return Ok(trace);
+            return NotFound(new { message = "سند تولید یافت نشد." });
         }
-        catch (InvalidOperationException ex)
-        {
-            return NotFound(new { message = ex.Message });
-        }
+
+        return Ok(trace);
     }
 
     [HttpPost]

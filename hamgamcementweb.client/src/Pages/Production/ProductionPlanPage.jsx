@@ -4,6 +4,12 @@ import Icon from '../../components/common/Icon'
 import JalaliDateField from '../../components/common/JalaliDateField'
 import SearchableSelect from '../../components/common/SearchableSelect'
 import DataTable from '../../lib/dataTableSetup'
+import { showAppToast } from '../../lib/appToast'
+import { persianValidity, validateFormPersian } from '../../lib/persianFormValidity'
+import {
+  useModalKeyboardShortcuts,
+  usePageCreateShortcut,
+} from '../../hooks/useModalKeyboardShortcuts'
 import { usePageCrud } from '../../permissions/usePageCrud'
 import { todayGregorianIso } from '../../lib/afghanSolarCalendar'
 import { fetchMeaurmentOptions, fetchProductOptions } from '../../services/productsApi'
@@ -20,6 +26,7 @@ const planColumns = [
 
 function ProductionPlanPage() {
   const tableRef = useRef(null)
+  const formRef = useRef(null)
   const navigate = useNavigate()
   const { canCreate, canEdit, canDelete } = usePageCrud('/production/plan')
   const [loadError, setLoadError] = useState('')
@@ -94,6 +101,16 @@ function ProductionPlanPage() {
 
   const handleSubmit = async (event) => {
     event.preventDefault()
+    const formEl = formRef.current
+    if (formEl) {
+      const message = validateFormPersian(formEl)
+      if (message) {
+        showAppToast(message)
+        formEl.reportValidity()
+        return
+      }
+    }
+
     setSubmitting(true)
     setFormError('')
     try {
@@ -105,9 +122,11 @@ function ProductionPlanPage() {
       }
       closeModals()
       reloadTable()
+      showAppToast(editId ? 'برنامه ویرایش شد.' : 'برنامه ایجاد شد.', 'success')
     } catch (error) {
       setFormError(error.message)
       setSubmitting(false)
+      showAppToast(error.message)
     }
   }
 
@@ -119,108 +138,118 @@ function ProductionPlanPage() {
       await productionPlansApi.remove(deleteRow.productionPlanId)
       closeModals()
       reloadTable()
+      showAppToast('برنامه حذف شد.', 'success')
     } catch (error) {
       setFormError(error.message)
       setSubmitting(false)
+      showAppToast(error.message)
     }
   }
 
-  const tableOptions = useMemo(
-    () => ({
-      processing: true,
-      serverSide: true,
-      ajax: productionPlansApi.createDataTableAjax(setLoadError),
-      paging: true,
-      searching: true,
-      ordering: true,
-      info: true,
-      scrollX: true,
-      autoWidth: false,
-      responsive: true,
-      stripeClasses: ['odd', 'even'],
-      order: [[2, 'desc']],
-      pageLength: 15,
-      lengthMenu: [10, 15, 25, 50, 100],
-      language: dataTableLanguage,
-      layout: {
-        topStart: {
-          search: { placeholder: 'جستجو...' },
-          pageLength: { menu: [10, 15, 25, 50, 100] },
-        },
-        topEnd: null,
-        bottomStart: 'info',
-        bottomEnd: { paging: { firstLast: true, previousNext: true, numbers: 5 } },
+  const tableOptions = useMemo(() => ({
+    processing: true,
+    serverSide: true,
+    ajax: productionPlansApi.createDataTableAjax(setLoadError),
+    paging: true,
+    searching: true,
+    ordering: true,
+    info: true,
+    scrollX: true,
+    autoWidth: false,
+    responsive: true,
+    stripeClasses: ['odd', 'even'],
+    order: [[2, 'desc']],
+    pageLength: 15,
+    lengthMenu: [10, 15, 25, 50, 100],
+    language: dataTableLanguage,
+    layout: {
+      topStart: {
+        search: { placeholder: 'جستجو...' },
+        pageLength: { menu: [10, 15, 25, 50, 100] },
       },
-      columns: [
-        { data: 'rowNumber', name: 'rowNumber' },
-        { data: 'productName', name: 'productName', title: 'محصول' },
-        {
-          data: 'planDate',
-          name: 'planDate',
-          title: 'تاریخ',
-          render: (data) => formatJalaliDate(data),
+      topEnd: null,
+      bottomStart: 'info',
+      bottomEnd: { paging: { firstLast: true, previousNext: true, numbers: 5 } },
+    },
+    columns: [
+      { data: 'rowNumber', name: 'rowNumber' },
+      { data: 'productName', name: 'productName', title: 'محصول' },
+      {
+        data: 'planDate',
+        name: 'planDate',
+        title: 'تاریخ',
+        render: (data) => formatJalaliDate(data),
+      },
+      {
+        data: 'plannedQuantity',
+        name: 'plannedQuantity',
+        title: 'مقدار برنامه',
+        render: (data, _type, row) => `${formatAmount(data)} ${row.meaurmentName ?? ''}`.trim(),
+      },
+      {
+        data: 'statusLabel',
+        name: 'statusLabel',
+        title: 'وضعیت',
+        orderable: false,
+        render: (_data, _type, row) => {
+          if (row.postedBatchesCount > 0) return '<span class="badge badge-active">تولید شده</span>'
+          if (row.linkedBatchesCount > 0) return '<span class="badge badge-inactive">در حال تولید</span>'
+          return '<span class="badge badge-settled">برنامه‌ریزی</span>'
         },
-        {
-          data: 'plannedQuantity',
-          name: 'plannedQuantity',
-          title: 'مقدار برنامه',
-          render: (data, _type, row) => `${formatAmount(data)} ${row.meaurmentName ?? ''}`.trim(),
-        },
-        {
-          data: 'statusLabel',
-          name: 'statusLabel',
-          title: 'وضعیت',
-          orderable: false,
-          render: (data, _type, row) => {
-            if (row.postedBatchesCount > 0) return '<span class="badge badge-active">تولید شده</span>'
-            if (row.linkedBatchesCount > 0) return '<span class="badge badge-inactive">در حال تولید</span>'
-            return '<span class="text-muted">برنامه‌ریزی</span>'
-          },
-        },
-        { data: 'notes', name: 'notes', title: 'یادداشت', orderable: false },
-        { data: null, name: 'actions', defaultContent: '', title: 'عملیات' },
-      ],
-      columnDefs: [
-        { targets: 0, orderable: false, searchable: false, width: '56px', className: 'text-center' },
-        {
-          targets: 6,
-          orderable: false,
-          searchable: false,
-          className: 'text-center all dt-actions-col',
-          width: '140px',
-        },
-      ],
-    }),
-    [],
-  )
+      },
+      { data: 'notes', name: 'notes', title: 'یادداشت', defaultContent: '—' },
+      { data: null, name: 'actions', defaultContent: '', title: 'عملیات' },
+    ],
+    columnDefs: [
+      { targets: 0, orderable: false, searchable: false, width: '56px', className: 'text-center' },
+      { targets: 6, orderable: false, searchable: false, className: 'text-center all dt-actions-col', width: '160px' },
+    ],
+  }), [])
 
-  const actionSlots = useMemo(
-    () => ({
-      6: (_data, _type, row) => (
-        <div className="dt-actions">
+  const actionSlots = useMemo(() => ({
+    6: (_data, _type, row) => (
+      <div className="dt-actions">
+        {canCreate && (
           <button
             type="button"
             className="dt-action-btn"
             title="ایجاد سند تولید از این برنامه"
             onClick={() => navigate(`/production/daily?planId=${row.productionPlanId}`)}
           >
-            <Icon name="production" />
+            <Icon name="plus" />
           </button>
-          {canEdit && (
-            <button type="button" className="dt-action-btn" title="ویرایش" onClick={() => openEdit(row)}>
-              <Icon name="edit" />
-            </button>
-          )}
-          {canDelete && (
-            <button type="button" className="dt-action-btn btn-delete" title="حذف" onClick={() => setDeleteRow(row)}>
-              <Icon name="trash" />
-            </button>
-          )}
-        </div>
-      ),
-    }),
-    [canDelete, canEdit, navigate, openEdit],
-  )
+        )}
+        {canEdit && (
+          <button type="button" className="dt-action-btn" title="ویرایش" onClick={() => openEdit(row)}>
+            <Icon name="edit" />
+          </button>
+        )}
+        {canDelete && (
+          <button type="button" className="dt-action-btn btn-delete" title="حذف" onClick={() => setDeleteRow(row)}>
+            <Icon name="trash" />
+          </button>
+        )}
+      </div>
+    ),
+  }), [canCreate, canDelete, canEdit, navigate, openEdit])
+
+  useModalKeyboardShortcuts({
+    open: showForm,
+    onClose: closeModals,
+    onSave: !submitting ? () => formRef.current?.requestSubmit() : undefined,
+    formRef,
+  })
+
+  useModalKeyboardShortcuts({
+    open: Boolean(deleteRow),
+    onClose: closeModals,
+  })
+
+  usePageCreateShortcut({
+    enabled: canCreate,
+    onNew: openCreate,
+    isBlocked: showForm || Boolean(deleteRow),
+  })
 
   return (
     <div className="content-card card border-0 production-page">
@@ -231,15 +260,18 @@ function ProductionPlanPage() {
             <p className="text-muted mb-0 small">هدف تولید را مشخص کنید؛ سپس از روی آن سند تولید روزانه بسازید</p>
           </div>
           {canCreate && (
-            <button type="button" className="btn btn-primary d-inline-flex align-items-center gap-2" onClick={openCreate}>
+            <button
+              type="button"
+              className="btn btn-primary d-inline-flex align-items-center gap-2"
+              onClick={openCreate}
+              title="برنامه جدید (Ctrl+Space)"
+            >
               <Icon name="plus" />
               <span>برنامه جدید</span>
             </button>
           )}
         </div>
-
         {loadError && <div className="alert alert-danger">{loadError}</div>}
-
         <div className="users-table-wrapper">
           <DataTable ref={tableRef} className="table table-hover w-100 align-middle" options={tableOptions} slots={actionSlots}>
             <thead>
@@ -258,7 +290,7 @@ function ProductionPlanPage() {
           <div className="modal show d-block production-modal" tabIndex={-1} style={{ backgroundColor: 'rgba(0,0,0,0.5)' }}>
             <div className="modal-dialog modal-dialog-scrollable">
               <div className="modal-content">
-                <form onSubmit={handleSubmit}>
+                <form ref={formRef} onSubmit={handleSubmit} noValidate>
                   <div className="modal-header">
                     <h5 className="modal-title">{editId ? 'ویرایش برنامه' : 'برنامه تولید جدید'}</h5>
                     <button type="button" className="btn-close" onClick={closeModals} />
@@ -272,6 +304,7 @@ function ProductionPlanPage() {
                           value={form.planDate}
                           onChange={(value) => setForm((prev) => ({ ...prev, planDate: value }))}
                           required
+                          requiredMessage="لطفاً تاریخ برنامه را انتخاب کنید."
                         />
                       </div>
                       <div className="col-12">
@@ -281,6 +314,7 @@ function ProductionPlanPage() {
                           value={form.productId}
                           onChange={(value) => setForm((prev) => ({ ...prev, productId: value, meaurmentId: '' }))}
                           required
+                          requiredMessage="لطفاً محصول را انتخاب کنید."
                         />
                       </div>
                       <div className="col-md-6">
@@ -290,6 +324,7 @@ function ProductionPlanPage() {
                           value={form.meaurmentId}
                           required
                           onChange={(e) => setForm((prev) => ({ ...prev, meaurmentId: e.target.value }))}
+                          {...persianValidity('لطفاً واحد را انتخاب کنید.')}
                         >
                           <option value="">—</option>
                           {meaurmentsForProduct(form.productId).map((m) => (
@@ -307,6 +342,7 @@ function ProductionPlanPage() {
                           step="any"
                           required
                           onChange={(e) => setForm((prev) => ({ ...prev, plannedQuantity: e.target.value }))}
+                          {...persianValidity('لطفاً مقدار برنامه معتبر وارد کنید.')}
                         />
                       </div>
                       <div className="col-12">
@@ -340,7 +376,7 @@ function ProductionPlanPage() {
                 </div>
                 <div className="modal-body">
                   {formError && <div className="alert alert-danger">{formError}</div>}
-                  <p>آیا از حذف برنامه «{deleteRow.productName}» مطمئن هستید؟</p>
+                  <p>برنامه «{deleteRow.productName}» حذف شود؟</p>
                 </div>
                 <div className="modal-footer">
                   <button type="button" className="btn btn-secondary" onClick={closeModals}>انصراف</button>

@@ -52,12 +52,21 @@ builder.Services.AddScoped<ICurrencyExchangeRateService, CurrencyExchangeRateSer
         builder.Services.AddScoped<IInvoiceReturnService, InvoiceReturnService>();
 builder.Services.AddScoped<ICustomerReadService, CustomerReadService>();
 builder.Services.AddScoped<ISupplierReadService, SupplierReadService>();
+builder.Services.AddScoped<IEmployeeReadService, EmployeeReadService>();
+builder.Services.AddScoped<IDriverReadService, DriverReadService>();
+builder.Services.AddScoped<IVehicleOwnerReadService, VehicleOwnerReadService>();
+builder.Services.AddScoped<IDepartmentReadService, DepartmentReadService>();
+builder.Services.AddScoped<IShareholderReadService, ShareholderReadService>();
 builder.Services.AddScoped<IInvoiceReportService, InvoiceReportService>();
 builder.Services.AddScoped<IJournalReportService, JournalReportService>();
 builder.Services.AddScoped<IProductReportService, ProductReportService>();
 builder.Services.AddScoped<IWarehouseTurnoverService, WarehouseTurnoverService>();
 builder.Services.AddScoped<IFinanceCategoryService, FinanceCategoryService>();
 builder.Services.AddScoped<IProductionPostingService, ProductionPostingService>();
+builder.Services.AddScoped<IProductionBatchReadService, ProductionBatchReadService>();
+builder.Services.AddScoped<IProductionPlanReadService, ProductionPlanReadService>();
+builder.Services.AddScoped<IProductionFormulaReadService, ProductionFormulaReadService>();
+builder.Services.AddScoped<IProductionCostCategoryReadService, ProductionCostCategoryReadService>();
 builder.Services.AddScoped<IJournalPostingService, JournalPostingService>();
 builder.Services.AddScoped<IAccountingIntegrityService, AccountingIntegrityService>();
 builder.Services.AddScoped<IAccountLookupService, AccountLookupService>();
@@ -121,6 +130,12 @@ await RunStartupWithRetryAsync(
 
 app.UseDefaultFiles();
 app.UseStaticFiles();
+app.UseStaticFiles(new StaticFileOptions
+{
+    FileProvider = new Microsoft.Extensions.FileProviders.PhysicalFileProvider(
+        Path.Combine(app.Environment.ContentRootPath, "Reports", "Fonts")),
+    RequestPath = "/report-fonts",
+});
 
 // Configure the HTTP request pipeline.
 if (app.Environment.IsDevelopment())

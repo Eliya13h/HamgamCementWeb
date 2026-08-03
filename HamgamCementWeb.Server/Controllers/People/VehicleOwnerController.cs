@@ -3,6 +3,7 @@ using System.Security.Claims;
 using HamgamCementWeb.Server.Authorization;
 using HamgamCementWeb.Server.Data;
 using HamgamCementWeb.Server.Data.Models.People;
+using HamgamCementWeb.Server.Services;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
@@ -14,20 +15,13 @@ namespace HamgamCementWeb.Server.Controllers.People;
 [Authorize]
 public class VehicleOwnerController : ControllerBase
 {
-    private static readonly Dictionary<int, string> OrderColumns = new()
-    {
-        [1] = "FullName",
-        [2] = nameof(VehicleOwner.NationalCode),
-        [3] = nameof(VehicleOwner.Mobile),
-        [4] = nameof(VehicleOwner.DefaultShare),
-        [5] = nameof(VehicleOwner.IsActive),
-    };
-
     private readonly AppDbContext _db;
+    private readonly IVehicleOwnerReadService _reads;
 
-    public VehicleOwnerController(AppDbContext db)
+    public VehicleOwnerController(AppDbContext db, IVehicleOwnerReadService reads)
     {
         _db = db;
+        _reads = reads;
     }
 
     [HttpPost("datatable")]
@@ -36,63 +30,28 @@ public class VehicleOwnerController : ControllerBase
         [FromBody] DataTableRequest request,
         CancellationToken cancellationToken)
     {
-        var draw = request.Draw;
-        var start = Math.Max(request.Start, 0);
-        var length = request.Length <= 0 ? 10 : Math.Min(request.Length, 100);
-
-        var query = _db.VehicleOwners
-            .AsNoTracking()
-            .Where(v => v.IsDeleted != true);
-
-        var recordsTotal = await query.CountAsync(cancellationToken);
-
-        var searchValue = request.Search?.Value?.Trim();
-        if (!string.IsNullOrWhiteSpace(searchValue))
-        {
-            query = query.Where(v =>
-                v.Name.Contains(searchValue) ||
-                v.Family.Contains(searchValue) ||
-                v.NationalCode.Contains(searchValue) ||
-                v.Mobile.Contains(searchValue));
-        }
-
-        var recordsFiltered = await query.CountAsync(cancellationToken);
-
-        var orderedQuery = ApplyOrdering(query, request.Order);
-        var rows = await orderedQuery
-            .Skip(start)
-            .Take(length)
-            .Select(v => new VehicleOwnerTableRow
+        var result = await _reads.QueryDataTableAsync(
+            new VehicleOwnerDataTableQuery
             {
-                VehicleOwnerId = v.VehicleOwnerID,
-                Title = v.Title,
-                Name = v.Name,
-                FatherName = v.FatherName,
-                Family = v.Family,
-                NationalCode = v.NationalCode,
-                Mobile = v.Mobile,
-                Address = v.Address,
-                DefaultShare = v.DefaultShare,
-                IsActive = v.IsActive == true,
-            })
-            .ToListAsync(cancellationToken);
-
-        for (var i = 0; i < rows.Count; i++)
-        {
-            rows[i].RowNumber = start + i + 1;
-            rows[i].FullName = $"{rows[i].Name} {rows[i].Family}".Trim();
-        }
+                Start = request.Start,
+                Length = request.Length,
+                Search = request.Search?.Value,
+                Order = request.Order?
+                    .Select(o => new DataTableOrderItem { Column = o.Column, Dir = o.Dir })
+                    .ToList(),
+            },
+            cancellationToken);
 
         return Ok(new
         {
-            draw,
-            recordsTotal,
-            recordsFiltered,
-            data = rows.Select(r => new
+            draw = request.Draw,
+            recordsTotal = result.RecordsTotal,
+            recordsFiltered = result.RecordsFiltered,
+            data = result.Rows.Select(r => new
             {
                 r.RowNumber,
                 r.VehicleOwnerId,
-                title = (int)r.Title,
+                title = r.Title,
                 r.Name,
                 r.FatherName,
                 r.Family,
@@ -109,19 +68,12 @@ public class VehicleOwnerController : ControllerBase
     [HttpGet("list")]
     public async Task<IActionResult> List(CancellationToken cancellationToken)
     {
-        var items = await _db.VehicleOwners
-            .AsNoTracking()
-            .Where(v => v.IsDeleted != true && v.IsActive == true)
-            .OrderBy(v => v.Name)
-            .ThenBy(v => v.Family)
-            .Select(v => new
-            {
-                value = v.VehicleOwnerID,
-                label = v.Name + " " + v.Family,
-            })
-            .ToListAsync(cancellationToken);
-
-        return Ok(items);
+        var items = await _reads.ListActiveAsync(cancellationToken);
+        return Ok(items.Select(v => new
+        {
+            value = v.Value,
+            label = v.Label,
+        }));
     }
 
     [HttpPost]
@@ -220,64 +172,6 @@ public class VehicleOwnerController : ControllerBase
         return Ok(new { message = "موتردار با موفقیت حذف شد." });
     }
 
-    private static IQueryable<VehicleOwner> ApplyOrdering(
-        IQueryable<VehicleOwner> query,
-        List<DataTableOrder>? orders)
-    {
-        if (orders is null || orders.Count == 0)
-        {
-            return query.OrderByDescending(v => v.CreatedAt);
-        }
-
-        IOrderedQueryable<VehicleOwner>? ordered = null;
-        foreach (var order in orders)
-        {
-            if (!OrderColumns.TryGetValue(order.Column, out var column))
-            {
-                continue;
-            }
-
-            var descending = string.Equals(order.Dir, "desc", StringComparison.OrdinalIgnoreCase);
-
-            ordered = column switch
-            {
-                "FullName" when ordered is null => descending
-                    ? query.OrderByDescending(v => v.Family).ThenByDescending(v => v.Name)
-                    : query.OrderBy(v => v.Family).ThenBy(v => v.Name),
-                "FullName" => descending
-                    ? ordered!.ThenByDescending(v => v.Family).ThenByDescending(v => v.Name)
-                    : ordered!.ThenBy(v => v.Family).ThenBy(v => v.Name),
-                nameof(VehicleOwner.NationalCode) when ordered is null => descending
-                    ? query.OrderByDescending(v => v.NationalCode)
-                    : query.OrderBy(v => v.NationalCode),
-                nameof(VehicleOwner.NationalCode) => descending
-                    ? ordered!.ThenByDescending(v => v.NationalCode)
-                    : ordered!.ThenBy(v => v.NationalCode),
-                nameof(VehicleOwner.Mobile) when ordered is null => descending
-                    ? query.OrderByDescending(v => v.Mobile)
-                    : query.OrderBy(v => v.Mobile),
-                nameof(VehicleOwner.Mobile) => descending
-                    ? ordered!.ThenByDescending(v => v.Mobile)
-                    : ordered!.ThenBy(v => v.Mobile),
-                nameof(VehicleOwner.DefaultShare) when ordered is null => descending
-                    ? query.OrderByDescending(v => v.DefaultShare)
-                    : query.OrderBy(v => v.DefaultShare),
-                nameof(VehicleOwner.DefaultShare) => descending
-                    ? ordered!.ThenByDescending(v => v.DefaultShare)
-                    : ordered!.ThenBy(v => v.DefaultShare),
-                nameof(VehicleOwner.IsActive) when ordered is null => descending
-                    ? query.OrderByDescending(v => v.IsActive)
-                    : query.OrderBy(v => v.IsActive),
-                nameof(VehicleOwner.IsActive) => descending
-                    ? ordered!.ThenByDescending(v => v.IsActive)
-                    : ordered!.ThenBy(v => v.IsActive),
-                _ => ordered,
-            };
-        }
-
-        return ordered ?? query.OrderByDescending(v => v.CreatedAt);
-    }
-
     private int? ResolveCurrentUserId()
     {
         var userIdClaim = User.FindFirstValue(ClaimTypes.NameIdentifier);
@@ -303,22 +197,6 @@ public class VehicleOwnerController : ControllerBase
     {
         public int Column { get; set; }
         public string Dir { get; set; } = "asc";
-    }
-
-    public class VehicleOwnerTableRow
-    {
-        public int RowNumber { get; set; }
-        public int VehicleOwnerId { get; set; }
-        public PersonTitle Title { get; set; }
-        public string Name { get; set; } = string.Empty;
-        public string FatherName { get; set; } = string.Empty;
-        public string Family { get; set; } = string.Empty;
-        public string FullName { get; set; } = string.Empty;
-        public string NationalCode { get; set; } = string.Empty;
-        public string Mobile { get; set; } = string.Empty;
-        public string Address { get; set; } = string.Empty;
-        public decimal DefaultShare { get; set; }
-        public bool IsActive { get; set; }
     }
 
     public class SaveVehicleOwnerRequest

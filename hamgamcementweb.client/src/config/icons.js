@@ -58,6 +58,7 @@ export const icons = {
   exchange: 'fa-solid fa-arrow-right-arrow-left',
   star: 'fa-solid fa-star',
   xmark: 'fa-solid fa-xmark',
+  'circle-info': 'fa-solid fa-circle-info',
 }
 
 export function getIcon(name) {

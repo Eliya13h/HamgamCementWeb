@@ -2,9 +2,16 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import AmountField from '../../components/common/AmountField'
 import Icon from '../../components/common/Icon'
+import {
+  useModalKeyboardShortcuts,
+  usePageCreateShortcut,
+  useModalAutoFocus,
+} from '../../hooks/useModalKeyboardShortcuts'
+import { showAppToast } from '../../lib/appToast'
 import DataTable from '../../lib/dataTableSetup'
 import { createServerSideTableOptions } from '../../lib/dataTableOptions'
 import { makeAmountCurrencyRender, makeSignedBalanceRender } from '../../lib/currencyFormat'
+import { persianValidity, validateFormPersian } from '../../lib/persianFormValidity'
 import { usePageCrud } from '../../permissions/usePageCrud'
 import { fetchBaseCurrency } from '../../services/currenciesApi'
 import {
@@ -34,9 +41,125 @@ function accountStatusBadge(code, label) {
   return `<span class="badge ${cls}">${label}</span>`
 }
 
+function SupplierFormFields({ form, setForm, idPrefix, baseCurrencySymbol }) {
+  return (
+    <div className="row g-3">
+      <div className="col-md-4">
+        <label className="form-label mb-1">عنوان</label>
+        <select
+          className="form-select"
+          value={form.title}
+          onChange={(e) => setForm((prev) => ({ ...prev, title: e.target.value }))}
+        >
+          {TITLE_OPTIONS.map((option) => (
+            <option key={option.value} value={option.value}>
+              {option.label}
+            </option>
+          ))}
+        </select>
+      </div>
+      <div className="col-md-8">
+        <label className="form-label mb-1">نام</label>
+        <input
+          type="text"
+          className="form-control"
+          value={form.name}
+          required
+          {...persianValidity('لطفاً نام تأمین‌کننده را وارد کنید.')}
+          onChange={(e) => {
+            e.target.setCustomValidity('')
+            setForm((prev) => ({ ...prev, name: e.target.value }))
+          }}
+        />
+      </div>
+      <div className="col-md-6">
+        <label className="form-label mb-1">تلفن</label>
+        <input
+          type="text"
+          dir="ltr"
+          className="form-control"
+          value={form.phoneNumber}
+          required
+          {...persianValidity('لطفاً تلفن تأمین‌کننده را وارد کنید.')}
+          onChange={(e) => {
+            e.target.setCustomValidity('')
+            setForm((prev) => ({ ...prev, phoneNumber: e.target.value }))
+          }}
+        />
+      </div>
+      <div className="col-md-6">
+        <label className="form-label mb-1">نوع</label>
+        <select
+          className="form-select"
+          value={form.supplierType}
+          onChange={(e) => setForm((prev) => ({ ...prev, supplierType: e.target.value }))}
+        >
+          {PERSON_TYPE_OPTIONS.map((option) => (
+            <option key={option.value} value={option.value}>
+              {option.label}
+            </option>
+          ))}
+        </select>
+      </div>
+      <div className="col-12">
+        <label className="form-label mb-1">آدرس</label>
+        <input
+          type="text"
+          className="form-control"
+          value={form.address}
+          onChange={(e) => setForm((prev) => ({ ...prev, address: e.target.value }))}
+        />
+      </div>
+      <div className="col-md-6">
+        <label className="form-label mb-1">شهر</label>
+        <input
+          type="text"
+          className="form-control"
+          value={form.city}
+          onChange={(e) => setForm((prev) => ({ ...prev, city: e.target.value }))}
+        />
+      </div>
+      <div className="col-md-6">
+        <label className="form-label mb-1">کشور</label>
+        <input
+          type="text"
+          className="form-control"
+          value={form.country}
+          onChange={(e) => setForm((prev) => ({ ...prev, country: e.target.value }))}
+        />
+      </div>
+      <div className="col-md-6">
+        <label className="form-label mb-1">موجودی اولیه</label>
+        <AmountField
+          symbol={baseCurrencySymbol}
+          step={100}
+          value={form.initialBalance}
+          onChange={(value) => setForm((prev) => ({ ...prev, initialBalance: value }))}
+        />
+      </div>
+      <div className="col-12">
+        <div className="form-check form-switch">
+          <input
+            className="form-check-input"
+            type="checkbox"
+            id={`${idPrefix}-is-active`}
+            checked={form.isActive}
+            onChange={(e) => setForm((prev) => ({ ...prev, isActive: e.target.checked }))}
+          />
+          <label className="form-check-label" htmlFor={`${idPrefix}-is-active`}>
+            فعال
+          </label>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 function SuppliersPage() {
   const navigate = useNavigate()
   const tableRef = useRef(null)
+  const createFormRef = useRef(null)
+  const editFormRef = useRef(null)
   const { canCreate, canEdit, canDelete, canView } = usePageCrud('/people/suppliers')
   const [loadError, setLoadError] = useState('')
   const [showCreate, setShowCreate] = useState(false)
@@ -159,8 +282,44 @@ function SuppliersPage() {
     setSubmitting(false)
   }
 
+  const triggerCreateSave = useCallback(() => {
+    if (!submitting) createFormRef.current?.requestSubmit()
+  }, [submitting])
+
+  const triggerEditSave = useCallback(() => {
+    if (!submitting) editFormRef.current?.requestSubmit()
+  }, [submitting])
+
+  useModalKeyboardShortcuts({
+    open: showCreate,
+    onClose: closeModals,
+    onSave: triggerCreateSave,
+    formRef: createFormRef,
+  })
+  useModalKeyboardShortcuts({
+    open: Boolean(editRow),
+    onClose: closeModals,
+    onSave: triggerEditSave,
+    formRef: editFormRef,
+  })
+  useModalKeyboardShortcuts({ open: Boolean(deleteRow), onClose: closeModals })
+  usePageCreateShortcut({
+    enabled: canCreate,
+    onNew: openCreate,
+    isBlocked: showCreate || Boolean(editRow) || Boolean(deleteRow),
+  })
+  useModalAutoFocus({ open: showCreate, formRef: createFormRef })
+  useModalAutoFocus({ open: Boolean(editRow), formRef: editFormRef })
+
   const handleCreateSubmit = async (event) => {
     event.preventDefault()
+    const formEl = event.currentTarget
+    const message = validateFormPersian(formEl)
+    if (message) {
+      showAppToast(message)
+      formEl.reportValidity()
+      return
+    }
 
     setSubmitting(true)
     setFormError('')
@@ -187,6 +346,13 @@ function SuppliersPage() {
 
   const handleEditSubmit = async (event) => {
     event.preventDefault()
+    const formEl = event.currentTarget
+    const message = validateFormPersian(formEl)
+    if (message) {
+      showAppToast(message)
+      formEl.reportValidity()
+      return
+    }
     if (!editRow) return
 
     setSubmitting(true)
@@ -349,7 +515,7 @@ function SuppliersPage() {
             <button
               type="button"
               className="btn btn-sm btn-accent btn-users-new d-inline-flex align-items-center gap-2"
-              title="تأمین‌کننده جدید"
+              title="تأمین‌کننده جدید (Ctrl+N)"
               onClick={openCreate}
             >
               <Icon name="plus" />
@@ -395,82 +561,20 @@ function SuppliersPage() {
         <>
           <div className="modal-backdrop show users-modal-backdrop" onClick={closeModals} />
           <div className="modal show d-block users-modal" tabIndex="-1" role="dialog">
-            <div className="modal-dialog modal-dialog-centered modal-dialog-scrollable">
-              <form className="modal-content" onSubmit={handleCreateSubmit}>
+            <div className="modal-dialog modal-dialog-centered modal-dialog-scrollable modal-lg">
+              <form ref={createFormRef} className="modal-content" onSubmit={handleCreateSubmit} noValidate>
                 <div className="modal-header">
                   <h5 className="modal-title">تأمین‌کننده جدید</h5>
                   <button type="button" className="btn-close" aria-label="بستن" onClick={closeModals} />
                 </div>
                 <div className="modal-body">
                   {formError && <div className="alert alert-danger py-2">{formError}</div>}
-                  <div className="mb-3">
-                    <label className="form-label">عنوان</label>
-                    <select
-                      className="form-select"
-                      value={createForm.title}
-                      onChange={(e) => setCreateForm((prev) => ({ ...prev, title: e.target.value }))}
-                    >
-                      {TITLE_OPTIONS.map((option) => (
-                        <option key={option.value} value={option.value}>{option.label}</option>
-                      ))}
-                    </select>
-                  </div>
-                  <div className="mb-3">
-                    <label className="form-label">نام</label>
-                    <input type="text" className="form-control" value={createForm.name}
-                      onChange={(e) => setCreateForm((prev) => ({ ...prev, name: e.target.value }))} required />
-                  </div>
-                  <div className="mb-3">
-                    <label className="form-label">تلفن</label>
-                    <input type="text" dir="ltr" className="form-control" value={createForm.phoneNumber}
-                      onChange={(e) => setCreateForm((prev) => ({ ...prev, phoneNumber: e.target.value }))} required />
-                  </div>
-                  <div className="mb-3">
-                    <label className="form-label">آدرس</label>
-                    <input type="text" className="form-control" value={createForm.address}
-                      onChange={(e) => setCreateForm((prev) => ({ ...prev, address: e.target.value }))} />
-                  </div>
-                  <div className="row g-3 mb-3">
-                    <div className="col-md-6">
-                      <label className="form-label">شهر</label>
-                      <input type="text" className="form-control" value={createForm.city}
-                        onChange={(e) => setCreateForm((prev) => ({ ...prev, city: e.target.value }))} />
-                    </div>
-                    <div className="col-md-6">
-                      <label className="form-label">کشور</label>
-                      <input type="text" className="form-control" value={createForm.country}
-                        onChange={(e) => setCreateForm((prev) => ({ ...prev, country: e.target.value }))} />
-                    </div>
-                  </div>
-                  <div className="mb-3">
-                    <label className="form-label">نوع</label>
-                    <select className="form-select" value={createForm.supplierType}
-                      onChange={(e) => setCreateForm((prev) => ({ ...prev, supplierType: e.target.value }))}>
-                      {PERSON_TYPE_OPTIONS.map((option) => (
-                        <option key={option.value} value={option.value}>{option.label}</option>
-                      ))}
-                    </select>
-                  </div>
-                  <div className="mb-3">
-                    <label className="form-label">موجودی اولیه</label>
-                    <AmountField
-                      symbol={baseCurrencySymbol}
-                      step={100}
-                      value={createForm.initialBalance}
-                      onChange={(value) =>
-                        setCreateForm((prev) => ({
-                          ...prev,
-                          initialBalance: value,
-                        }))
-                      }
-                    />
-                  </div>
-                  <div className="form-check form-switch">
-                    <input className="form-check-input" type="checkbox" id="create-supplier-is-active"
-                      checked={createForm.isActive}
-                      onChange={(e) => setCreateForm((prev) => ({ ...prev, isActive: e.target.checked }))} />
-                    <label className="form-check-label" htmlFor="create-supplier-is-active">فعال</label>
-                  </div>
+                  <SupplierFormFields
+                    form={createForm}
+                    setForm={setCreateForm}
+                    idPrefix="create-supplier"
+                    baseCurrencySymbol={baseCurrencySymbol}
+                  />
                 </div>
                 <div className="modal-footer">
                   <button type="button" className="btn btn-outline-secondary" onClick={closeModals}>انصراف</button>
@@ -488,8 +592,8 @@ function SuppliersPage() {
         <>
           <div className="modal-backdrop show users-modal-backdrop" onClick={closeModals} />
           <div className="modal show d-block users-modal" tabIndex="-1" role="dialog">
-            <div className="modal-dialog modal-dialog-centered modal-dialog-scrollable">
-              <form className="modal-content" onSubmit={handleEditSubmit}>
+            <div className="modal-dialog modal-dialog-centered modal-dialog-scrollable modal-lg">
+              <form ref={editFormRef} className="modal-content" onSubmit={handleEditSubmit} noValidate>
                 <div className="modal-header">
                   <h5 className="modal-title">ویرایش تأمین‌کننده</h5>
                   <button
@@ -503,126 +607,12 @@ function SuppliersPage() {
                   {formError && (
                     <div className="alert alert-danger py-2">{formError}</div>
                   )}
-                  <div className="mb-3">
-                    <label className="form-label">عنوان</label>
-                    <select
-                      className="form-select"
-                      value={editForm.title}
-                      onChange={(e) =>
-                        setEditForm((prev) => ({ ...prev, title: e.target.value }))
-                      }
-                    >
-                      {TITLE_OPTIONS.map((option) => (
-                        <option key={option.value} value={option.value}>
-                          {option.label}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                  <div className="mb-3">
-                    <label className="form-label">نام</label>
-                    <input
-                      type="text"
-                      className="form-control"
-                      value={editForm.name}
-                      onChange={(e) =>
-                        setEditForm((prev) => ({ ...prev, name: e.target.value }))
-                      }
-                      required
-                    />
-                  </div>
-                  <div className="mb-3">
-                    <label className="form-label">تلفن</label>
-                    <input
-                      type="text"
-                      dir="ltr"
-                      className="form-control"
-                      value={editForm.phoneNumber}
-                      onChange={(e) =>
-                        setEditForm((prev) => ({ ...prev, phoneNumber: e.target.value }))
-                      }
-                      required
-                    />
-                  </div>
-                  <div className="mb-3">
-                    <label className="form-label">آدرس</label>
-                    <input
-                      type="text"
-                      className="form-control"
-                      value={editForm.address}
-                      onChange={(e) =>
-                        setEditForm((prev) => ({ ...prev, address: e.target.value }))
-                      }
-                    />
-                  </div>
-                  <div className="row g-3 mb-3">
-                    <div className="col-md-6">
-                      <label className="form-label">شهر</label>
-                      <input
-                        type="text"
-                        className="form-control"
-                        value={editForm.city}
-                        onChange={(e) =>
-                          setEditForm((prev) => ({ ...prev, city: e.target.value }))
-                        }
-                      />
-                    </div>
-                    <div className="col-md-6">
-                      <label className="form-label">کشور</label>
-                      <input
-                        type="text"
-                        className="form-control"
-                        value={editForm.country}
-                        onChange={(e) =>
-                          setEditForm((prev) => ({ ...prev, country: e.target.value }))
-                        }
-                      />
-                    </div>
-                  </div>
-                  <div className="mb-3">
-                    <label className="form-label">نوع</label>
-                    <select
-                      className="form-select"
-                      value={editForm.supplierType}
-                      onChange={(e) =>
-                        setEditForm((prev) => ({ ...prev, supplierType: e.target.value }))
-                      }
-                    >
-                      {PERSON_TYPE_OPTIONS.map((option) => (
-                        <option key={option.value} value={option.value}>
-                          {option.label}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                  <div className="mb-3">
-                    <label className="form-label">موجودی اولیه</label>
-                    <AmountField
-                      symbol={baseCurrencySymbol}
-                      step={100}
-                      value={editForm.initialBalance}
-                      onChange={(value) =>
-                        setEditForm((prev) => ({
-                          ...prev,
-                          initialBalance: value,
-                        }))
-                      }
-                    />
-                  </div>
-                  <div className="form-check form-switch">
-                    <input
-                      className="form-check-input"
-                      type="checkbox"
-                      id="supplier-is-active"
-                      checked={editForm.isActive}
-                      onChange={(e) =>
-                        setEditForm((prev) => ({ ...prev, isActive: e.target.checked }))
-                      }
-                    />
-                    <label className="form-check-label" htmlFor="supplier-is-active">
-                      فعال
-                    </label>
-                  </div>
+                  <SupplierFormFields
+                    form={editForm}
+                    setForm={setEditForm}
+                    idPrefix="edit-supplier"
+                    baseCurrencySymbol={baseCurrencySymbol}
+                  />
                 </div>
                 <div className="modal-footer">
                   <button

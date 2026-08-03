@@ -14,6 +14,7 @@ function SearchableSelect({
   searchPlaceholder = 'جستجو...',
   disabled = false,
   required = false,
+  requiredMessage = 'لطفاً این فیلد را انتخاب کنید.',
   size = '',
   id: idProp,
   className = '',
@@ -129,6 +130,13 @@ function SearchableSelect({
           className="searchable-select-validator"
           value={value ?? ''}
           required
+          data-required-message={requiredMessage}
+          onInvalid={(event) => {
+            event.target.setCustomValidity(requiredMessage)
+          }}
+          onInput={(event) => {
+            event.target.setCustomValidity('')
+          }}
           onChange={() => {}}
         />
       )}
@@ -172,6 +180,14 @@ function SearchableSelect({
                 onKeyDown={(e) => {
                   if (e.key === 'Escape') {
                     setOpen(false)
+                    return
+                  }
+                  // Ctrl+S را اینجا نخور — handler سراسری/مدال باید ذخیره کند
+                  if (
+                    (e.ctrlKey || e.metaKey) &&
+                    (e.code === 'KeyS' || e.key === 's' || e.key === 'S')
+                  ) {
+                    e.preventDefault()
                   }
                 }}
               />

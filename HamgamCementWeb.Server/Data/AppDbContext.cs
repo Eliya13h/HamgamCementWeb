@@ -111,6 +111,8 @@ namespace HamgamCementWeb.Server.Data
         public DbSet<ProductionFormulaMaterialLine> ProductionFormulaMaterialLines { get; set; }
         public DbSet<ProductionFormulaCostLine> ProductionFormulaCostLines { get; set; }
         public DbSet<ProductionBatchCostLine> ProductionBatchCostLines { get; set; }
+        public DbSet<ProductionCostCategory> ProductionCostCategories { get; set; }
+        public DbSet<ProductionCostCategoryDepartment> ProductionCostCategoryDepartments { get; set; }
 
         public DbSet<GeneralSettings> GeneralSettings { get; set; }
 
@@ -1433,6 +1435,38 @@ namespace HamgamCementWeb.Server.Data
                 .HasOne(l => l.Account)
                 .WithMany()
                 .HasForeignKey(l => l.AccountId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            modelBuilder.Entity<ProductionFormulaCostLine>()
+                .HasOne(l => l.CostCategory)
+                .WithMany()
+                .HasForeignKey(l => l.ProductionCostCategoryId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            modelBuilder.Entity<ProductionCostCategory>()
+                .HasOne(c => c.Account)
+                .WithMany()
+                .HasForeignKey(c => c.AccountId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            modelBuilder.Entity<ProductionCostCategory>()
+                .HasIndex(c => c.Code)
+                .IsUnique()
+                .HasFilter("[Code] IS NOT NULL AND [IsDeleted] = 0");
+
+            modelBuilder.Entity<ProductionCostCategoryDepartment>()
+                .HasKey(x => new { x.ProductionCostCategoryId, x.DepartmentId });
+
+            modelBuilder.Entity<ProductionCostCategoryDepartment>()
+                .HasOne(x => x.Category)
+                .WithMany(c => c.Departments)
+                .HasForeignKey(x => x.ProductionCostCategoryId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            modelBuilder.Entity<ProductionCostCategoryDepartment>()
+                .HasOne(x => x.Department)
+                .WithMany()
+                .HasForeignKey(x => x.DepartmentId)
                 .OnDelete(DeleteBehavior.Restrict);
 
             modelBuilder.Entity<ProductionPlan>()

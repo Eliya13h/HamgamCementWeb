@@ -4,6 +4,7 @@ using HamgamCementWeb.Server.Authorization;
 using HamgamCementWeb.Server.Controllers.Transport;
 using HamgamCementWeb.Server.Data;
 using HamgamCementWeb.Server.Data.Models.Production;
+using HamgamCementWeb.Server.Services;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
@@ -17,15 +18,17 @@ public class ProductionPlanController : ControllerBase
 {
     private static readonly Dictionary<int, string> OrderColumns = new()
     {
-        [2] = nameof(ProductionPlan.PlanDate),
-        [3] = nameof(ProductionPlan.PlannedQuantity),
+        [2] = "PlanDate",
+        [3] = "PlannedQuantity",
     };
 
     private readonly AppDbContext _db;
+    private readonly IProductionPlanReadService _planRead;
 
-    public ProductionPlanController(AppDbContext db)
+    public ProductionPlanController(AppDbContext db, IProductionPlanReadService planRead)
     {
         _db = db;
+        _planRead = planRead;
     }
 
     private int? ResolveCurrentUserId()
@@ -42,44 +45,22 @@ public class ProductionPlanController : ControllerBase
     {
         var start = Math.Max(request.Start, 0);
         var length = request.Length <= 0 ? 10 : Math.Min(request.Length, 100);
+        var order = request.Order?.FirstOrDefault();
+        var orderColumn = order is not null && OrderColumns.TryGetValue(order.Column, out var col)
+            ? col
+            : "PlanDate";
+        // پیش‌فرض: تاریخ برنامه نزولی
+        var ascending = order is null
+            ? false
+            : !string.Equals(order.Dir, "desc", StringComparison.OrdinalIgnoreCase);
 
-        var query = _db.ProductionPlans
-            .AsNoTracking()
-            .Where(p => p.IsDeleted != true);
-
-        var recordsTotal = await query.CountAsync(cancellationToken);
-
-        var searchValue = request.Search?.Value?.Trim();
-        if (!string.IsNullOrWhiteSpace(searchValue))
-        {
-            query = query.Where(p =>
-                p.Product.Name.Contains(searchValue) ||
-                (p.Notes != null && p.Notes.Contains(searchValue)));
-        }
-
-        var recordsFiltered = await query.CountAsync(cancellationToken);
-
-        var rows = await query
-            .ApplyDataTableOrder(request.Order, OrderColumns, nameof(ProductionPlan.PlanDate), defaultDescending: true)
-            .Skip(start)
-            .Take(length)
-            .Select(p => new
-            {
-                productionPlanId = p.ProductionPlanID,
-                planDate = p.PlanDate,
-                productId = p.ProductId,
-                productName = p.Product.Name,
-                productCode = p.Product.Code,
-                meaurmentId = p.MeaurmentId,
-                meaurmentName = p.Meaurment.Name,
-                plannedQuantity = p.PlannedQuantity,
-                notes = p.Notes,
-                linkedBatchesCount = _db.ProductionBatches.Count(b =>
-                    b.IsDeleted != true && b.ProductionPlanId == p.ProductionPlanID),
-                postedBatchesCount = _db.ProductionBatches.Count(b =>
-                    b.IsDeleted != true && b.ProductionPlanId == p.ProductionPlanID && b.IsPosted),
-            })
-            .ToListAsync(cancellationToken);
+        var (recordsTotal, recordsFiltered, rows) = await _planRead.GetDataTableAsync(
+            start,
+            length,
+            request.Search?.Value,
+            orderColumn,
+            ascending,
+            cancellationToken);
 
         return Ok(new
         {
@@ -89,20 +70,20 @@ public class ProductionPlanController : ControllerBase
             data = rows.Select((r, i) => new
             {
                 rowNumber = start + i + 1,
-                r.productionPlanId,
-                planDate = r.planDate.ToString("yyyy-MM-dd"),
-                r.productId,
-                r.productName,
-                r.productCode,
-                r.meaurmentId,
-                r.meaurmentName,
-                r.plannedQuantity,
-                r.notes,
-                r.linkedBatchesCount,
-                r.postedBatchesCount,
-                statusLabel = r.postedBatchesCount > 0
+                productionPlanId = r.ProductionPlanId,
+                planDate = r.PlanDate.ToString("yyyy-MM-dd"),
+                productId = r.ProductId,
+                productName = r.ProductName,
+                productCode = r.ProductCode,
+                meaurmentId = r.MeaurmentId,
+                meaurmentName = r.MeaurmentName,
+                plannedQuantity = r.PlannedQuantity,
+                notes = r.Notes,
+                linkedBatchesCount = r.LinkedBatchesCount,
+                postedBatchesCount = r.PostedBatchesCount,
+                statusLabel = r.PostedBatchesCount > 0
                     ? "تولید شده"
-                    : r.linkedBatchesCount > 0
+                    : r.LinkedBatchesCount > 0
                         ? "در حال تولید"
                         : "برنامه‌ریزی",
             }),
@@ -113,77 +94,45 @@ public class ProductionPlanController : ControllerBase
     [HasPermission("production.plan.view")]
     public async Task<IActionResult> List(
         [FromQuery] int? productId,
-        CancellationToken cancellationToken)
+        [FromQuery] int start = 0,
+        [FromQuery] int length = 100,
+        CancellationToken cancellationToken = default)
     {
-        var query = _db.ProductionPlans
-            .AsNoTracking()
-            .Where(p => p.IsDeleted != true);
-
-        if (productId is > 0)
+        var items = await _planRead.GetListAsync(productId, start, length, cancellationToken);
+        return Ok(items.Select(p => new
         {
-            query = query.Where(p => p.ProductId == productId);
-        }
-
-        var items = await query
-            .OrderByDescending(p => p.PlanDate)
-            .Take(100)
-            .Select(p => new
-            {
-                value = p.ProductionPlanID,
-                label =
-                    p.Product.Name + " — " +
-                    p.PlanDate.ToString("yyyy-MM-dd") + " — " +
-                    p.PlannedQuantity.ToString("0.####") + " " + p.Meaurment.Name,
-                productId = p.ProductId,
-                meaurmentId = p.MeaurmentId,
-                plannedQuantity = p.PlannedQuantity,
-                planDate = p.PlanDate.ToString("yyyy-MM-dd"),
-                defaultFormulaId = _db.ProductionFormulas
-                    .Where(f =>
-                        f.IsDeleted != true &&
-                        f.ProductId == p.ProductId &&
-                        f.IsDefault)
-                    .Select(f => (int?)f.ProductionFormulaID)
-                    .FirstOrDefault(),
-            })
-            .ToListAsync(cancellationToken);
-
-        return Ok(items);
+            value = p.Value,
+            label = p.Label,
+            productId = p.ProductId,
+            meaurmentId = p.MeaurmentId,
+            plannedQuantity = p.PlannedQuantity,
+            planDate = p.PlanDate,
+            defaultFormulaId = p.DefaultFormulaId,
+        }));
     }
 
     [HttpGet("{id:int}")]
     [HasPermission("production.plan.view")]
     public async Task<IActionResult> GetById(int id, CancellationToken cancellationToken)
     {
-        var plan = await _db.ProductionPlans
-            .AsNoTracking()
-            .Where(p => p.ProductionPlanID == id && p.IsDeleted != true)
-            .Select(p => new
-            {
-                productionPlanId = p.ProductionPlanID,
-                planDate = p.PlanDate.ToString("yyyy-MM-dd"),
-                productId = p.ProductId,
-                productName = p.Product.Name,
-                meaurmentId = p.MeaurmentId,
-                meaurmentName = p.Meaurment.Name,
-                plannedQuantity = p.PlannedQuantity,
-                notes = p.Notes,
-                defaultFormulaId = _db.ProductionFormulas
-                    .Where(f =>
-                        f.IsDeleted != true &&
-                        f.ProductId == p.ProductId &&
-                        f.IsDefault)
-                    .Select(f => (int?)f.ProductionFormulaID)
-                    .FirstOrDefault(),
-            })
-            .FirstOrDefaultAsync(cancellationToken);
-
+        var plan = await _planRead.GetByIdAsync(id, cancellationToken);
         if (plan is null)
         {
             return NotFound(new { message = "برنامه تولید یافت نشد." });
         }
 
-        return Ok(plan);
+        return Ok(new
+        {
+            productionPlanId = plan.ProductionPlanId,
+            planDate = plan.PlanDate,
+            productId = plan.ProductId,
+            productName = plan.ProductName,
+            meaurmentId = plan.MeaurmentId,
+            meaurmentName = plan.MeaurmentName,
+            plannedQuantity = plan.PlannedQuantity,
+            notes = plan.Notes,
+            defaultFormulaId = plan.DefaultFormulaId,
+        });
     }
 
     [HttpPost]

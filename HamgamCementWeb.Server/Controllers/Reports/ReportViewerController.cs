@@ -78,7 +78,7 @@ public class ReportViewerController : Controller
     }
 
     [HttpGet]
-    public IActionResult Journal(string type, string? dateFrom, string? dateTo)
+    public async Task<IActionResult> Journal(string type, string? dateFrom, string? dateTo, CancellationToken cancellationToken)
     {
         var hasFrom = ReportInputHelper.TryParseReportDate(dateFrom, out var parsedFrom);
         var hasTo = ReportInputHelper.TryParseReportDate(dateTo, out var parsedTo);
@@ -96,7 +96,10 @@ public class ReportViewerController : Controller
             return BadRequest("نوع روزنامچه نامعتبر است.");
         }
 
-        if (journalType is not (JournalReportType.Purchase or JournalReportType.Sale))
+        if (journalType is not (
+            JournalReportType.Purchase or
+            JournalReportType.Sale or
+            JournalReportType.General))
         {
             if (!fromDate.HasValue || !toDate.HasValue)
             {
@@ -107,6 +110,25 @@ public class ReportViewerController : Controller
         HttpContext.Session.Remove(PurchaseInvoiceSessionKey);
         HttpContext.Session.Remove(SaleInvoiceSessionKey);
         ClearProductsSession();
+
+        // روزنامچه عمومی: چاپ HTML استاندارد A4 (بدون Stimulsoft)
+        if (journalType == JournalReportType.General)
+        {
+            try
+            {
+                var model = await _journalReports.BuildStandardJournalPrintModelAsync(fromDate, toDate, cancellationToken);
+                return View("StandardJournal", model);
+            }
+            catch (InvalidOperationException ex)
+            {
+                return BadRequest(ex.Message);
+            }
+            catch (FileNotFoundException ex)
+            {
+                return NotFound(ex.Message);
+            }
+        }
+
         HttpContext.Session.SetString(JournalReportTypeSessionKey, journalType.ToString());
         HttpContext.Session.SetString(
             JournalDateFromSessionKey,
@@ -278,7 +300,8 @@ public class ReportViewerController : Controller
             {
                 JournalReportType.Purchase => await _journalReports.BuildPurchaseJournalReportAsync(dateFrom, dateTo, cancellationToken),
                 JournalReportType.Sale => await _journalReports.BuildSaleJournalReportAsync(dateFrom, dateTo, cancellationToken),
-                JournalReportType.Revenue or JournalReportType.Expense or JournalReportType.Production or JournalReportType.General
+                JournalReportType.General => await _journalReports.BuildStandardGeneralJournalReportAsync(dateFrom, dateTo, cancellationToken),
+                JournalReportType.Revenue or JournalReportType.Expense or JournalReportType.Production
                     => await _journalReports.BuildOperationalJournalReportAsync(journalType, dateFrom, dateTo, cancellationToken),
                 _ => throw new InvalidOperationException("این نوع روزنامچه هنوز پیاده‌سازی نشده است."),
             };

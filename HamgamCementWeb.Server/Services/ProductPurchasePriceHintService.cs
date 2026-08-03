@@ -29,7 +29,8 @@ public interface IProductPurchasePriceHintService
 }
 
 /// <summary>
-/// پیشنهاد لحظه‌ای قیمت خرید از میانگین موزون لات‌های موجود، آخرین لات، یا آخرین فاکتور خرید.
+/// پیشنهاد لحظه‌ای بهای واحد از میانگین موزون لات‌های موجود (خرید یا تولید)،
+/// آخرین لات، یا آخرین فاکتور خرید. لات تولید هم UnitCost (= بهای تمام‌شده) دارد.
 /// روی Product ذخیره نمی‌شود.
 /// </summary>
 public sealed class ProductPurchasePriceHintService(AppDbContext db) : IProductPurchasePriceHintService

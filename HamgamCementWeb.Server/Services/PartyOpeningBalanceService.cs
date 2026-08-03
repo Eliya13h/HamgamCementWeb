@@ -29,7 +29,7 @@ public interface IPartyOpeningBalanceService
     Task ReverseCustomerOpeningAsync(int customerId, int? userId, CancellationToken cancellationToken = default);
     Task ReverseSupplierOpeningAsync(int supplierId, int? userId, CancellationToken cancellationToken = default);
 
-    // همگام‌سازی مانده اولیه با دفتر: reverse قبلی + post مبلغ جدید در صورت > 0
+    // همگام‌سازی مانده اولیه با دفتر: reverse قبلی + post مبلغ جدید در صورت ≠ 0
     Task SyncCustomerOpeningAsync(
         int customerId,
         string customerName,
@@ -88,7 +88,7 @@ public class PartyOpeningBalanceService : IPartyOpeningBalanceService
         CancellationToken cancellationToken = default)
     {
         await ReverseCustomerOpeningAsync(customerId, userId, cancellationToken);
-        if (amountInBase > 0)
+        if (amountInBase != 0)
         {
             await PostCustomerOpeningAsync(customerId, customerName, amountInBase, DateTime.Today, userId, cancellationToken);
         }
@@ -102,7 +102,7 @@ public class PartyOpeningBalanceService : IPartyOpeningBalanceService
         CancellationToken cancellationToken = default)
     {
         await ReverseSupplierOpeningAsync(supplierId, userId, cancellationToken);
-        if (amountInBase > 0)
+        if (amountInBase != 0)
         {
             await PostSupplierOpeningAsync(supplierId, supplierName, amountInBase, DateTime.Today, userId, cancellationToken);
         }
@@ -122,9 +122,9 @@ public class PartyOpeningBalanceService : IPartyOpeningBalanceService
         int? userId,
         CancellationToken cancellationToken = default)
     {
-        if (amountInBase <= 0)
+        if (amountInBase == 0)
         {
-            throw new InvalidOperationException("مانده اولیه باید بزرگ‌تر از صفر باشد.");
+            throw new InvalidOperationException("مانده اولیه برای ثبت در دفتر نمی‌تواند صفر باشد.");
         }
 
         if (await HasCustomerOpeningAsync(customerId, cancellationToken))
@@ -136,21 +136,40 @@ public class PartyOpeningBalanceService : IPartyOpeningBalanceService
         var partyAccount = await _accounts.EnsureCustomerAccountAsync(customerId, customerName, cancellationToken);
         var openingAccount = await _accounts.GetBySystemCodeAsync(AccountSystemCode.EquityOpening, cancellationToken);
         var date = (entryDate ?? DateTime.Today).Date;
+        var abs = Math.Abs(amountInBase);
+        var currencyId = baseCurrency.CurrencyID;
 
-        var lines = new List<JournalLineDraft>
+        // قرارداد بالانس مشتری: مثبت=طلبکار، منفی=بدهکار (مشتری به ما بدهکار است)
+        List<JournalLineDraft> lines;
+        if (amountInBase < 0)
         {
-            new(partyAccount.AccountID, amountInBase, 0, amountInBase, 0, baseCurrency.CurrencyID,
-                $"مانده اولیه مشتری — {customerName}", PartyId: customerId),
-            new(openingAccount.AccountID, 0, amountInBase, 0, amountInBase, baseCurrency.CurrencyID,
-                $"طرف مقابل مانده اولیه مشتری — {customerName}"),
-        };
+            // بدهکار: بدهکار دریافتنی مشتری — بستانکار افتتاحیه
+            lines =
+            [
+                new(partyAccount.AccountID, abs, 0, abs, 0, currencyId,
+                    $"مانده اولیه بدهکار مشتری — {customerName}", PartyId: customerId),
+                new(openingAccount.AccountID, 0, abs, 0, abs, currencyId,
+                    $"طرف مقابل مانده اولیه بدهکار مشتری — {customerName}"),
+            ];
+        }
+        else
+        {
+            // طلبکار: بدهکار افتتاحیه — بستانکار دریافتنی مشتری
+            lines =
+            [
+                new(openingAccount.AccountID, abs, 0, abs, 0, currencyId,
+                    $"طرف مقابل مانده اولیه طلبکار مشتری — {customerName}"),
+                new(partyAccount.AccountID, 0, abs, 0, abs, currencyId,
+                    $"مانده اولیه طلبکار مشتری — {customerName}", PartyId: customerId),
+            ];
+        }
 
         return await _journal.PostAsync(
             date,
             $"مانده اولیه مشتری — {customerName}",
             JournalSource.CustomerOpeningBalance,
             customerId,
-            baseCurrency.CurrencyID,
+            currencyId,
             lines,
             userId,
             cancellationToken);
@@ -164,9 +183,9 @@ public class PartyOpeningBalanceService : IPartyOpeningBalanceService
         int? userId,
         CancellationToken cancellationToken = default)
     {
-        if (amountInBase <= 0)
+        if (amountInBase == 0)
         {
-            throw new InvalidOperationException("مانده اولیه باید بزرگ‌تر از صفر باشد.");
+            throw new InvalidOperationException("مانده اولیه برای ثبت در دفتر نمی‌تواند صفر باشد.");
         }
 
         if (await HasSupplierOpeningAsync(supplierId, cancellationToken))
@@ -178,21 +197,40 @@ public class PartyOpeningBalanceService : IPartyOpeningBalanceService
         var partyAccount = await _accounts.EnsureSupplierAccountAsync(supplierId, supplierName, cancellationToken);
         var openingAccount = await _accounts.GetBySystemCodeAsync(AccountSystemCode.EquityOpening, cancellationToken);
         var date = (entryDate ?? DateTime.Today).Date;
+        var abs = Math.Abs(amountInBase);
+        var currencyId = baseCurrency.CurrencyID;
 
-        var lines = new List<JournalLineDraft>
+        // قرارداد بالانس تأمین‌کننده: مثبت=طلبکار (ما بدهکاریم)، منفی=بدهکار
+        List<JournalLineDraft> lines;
+        if (amountInBase > 0)
         {
-            new(openingAccount.AccountID, amountInBase, 0, amountInBase, 0, baseCurrency.CurrencyID,
-                $"طرف مقابل مانده اولیه تأمین‌کننده — {supplierName}"),
-            new(partyAccount.AccountID, 0, amountInBase, 0, amountInBase, baseCurrency.CurrencyID,
-                $"مانده اولیه تأمین‌کننده — {supplierName}", PartyId: supplierId),
-        };
+            // طلبکار: بدهکار افتتاحیه — بستانکار پرداختنی تأمین‌کننده
+            lines =
+            [
+                new(openingAccount.AccountID, abs, 0, abs, 0, currencyId,
+                    $"طرف مقابل مانده اولیه تأمین‌کننده — {supplierName}"),
+                new(partyAccount.AccountID, 0, abs, 0, abs, currencyId,
+                    $"مانده اولیه تأمین‌کننده — {supplierName}", PartyId: supplierId),
+            ];
+        }
+        else
+        {
+            // بدهکار: بدهکار پرداختنی تأمین‌کننده — بستانکار افتتاحیه
+            lines =
+            [
+                new(partyAccount.AccountID, abs, 0, abs, 0, currencyId,
+                    $"مانده اولیه بدهکار تأمین‌کننده — {supplierName}", PartyId: supplierId),
+                new(openingAccount.AccountID, 0, abs, 0, abs, currencyId,
+                    $"طرف مقابل مانده اولیه بدهکار تأمین‌کننده — {supplierName}"),
+            ];
+        }
 
         return await _journal.PostAsync(
             date,
             $"مانده اولیه تأمین‌کننده — {supplierName}",
             JournalSource.SupplierOpeningBalance,
             supplierId,
-            baseCurrency.CurrencyID,
+            currencyId,
             lines,
             userId,
             cancellationToken);

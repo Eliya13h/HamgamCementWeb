@@ -302,6 +302,12 @@ function CustomerDetailPage() {
               </span>
             </div>
             <div className="customer-detail-item">
+              <span className="customer-detail-label">بالانس</span>
+              <span className="customer-detail-value">
+                <AmountDisplay value={customer.balance} symbol={baseCurrencySymbol} />
+              </span>
+            </div>
+            <div className="customer-detail-item">
               <span className="customer-detail-label">وضعیت حساب</span>
               <span className="customer-detail-value">{customer.accountStatus}</span>
             </div>

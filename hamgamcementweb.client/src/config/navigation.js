@@ -114,6 +114,7 @@ export const navItems = [
           { path: '/accounting/expense-categories', label: 'دسته‌بندی مصارف' },
           { path: '/accounting/revenue-categories', label: 'دسته‌بندی عواید' },
           { path: '/accounting/fixed-asset-categories', label: 'دسته‌بندی دارایی ثابت' },
+          { path: '/accounting/production-cost-categories', label: 'هزینه‌های تولید' },
         ],
       },
       // میانبر به بخش سال مالی در تنظیمات — در درخت نقش‌ها تکرار نشود

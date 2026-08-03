@@ -1,6 +1,14 @@
 import { useCallback, useMemo, useRef, useState } from 'react'
 import Icon from '../../components/common/Icon'
+import {
+  useModalKeyboardShortcuts,
+  usePageCreateShortcut,
+  useModalAutoFocus,
+} from '../../hooks/useModalKeyboardShortcuts'
+import { showAppToast } from '../../lib/appToast'
 import DataTable from '../../lib/dataTableSetup'
+import { createServerSideTableOptions } from '../../lib/dataTableOptions'
+import { persianValidity, validateFormPersian } from '../../lib/persianFormValidity'
 import { usePageCrud } from '../../permissions/usePageCrud'
 import {
   createDriver,
@@ -13,24 +21,6 @@ const TITLE_OPTIONS = [
   { value: 0, label: 'آقا' },
   { value: 1, label: 'خانم' },
 ]
-
-const dataTableLanguage = {
-  emptyTable: 'داده‌ای برای نمایش وجود ندارد',
-  info: 'نمایش _START_ تا _END_ از _TOTAL_ ردیف',
-  infoEmpty: 'رکوردی یافت نشد',
-  infoFiltered: '(فیلتر شده از _MAX_ ردیف)',
-  lengthMenu: 'نمایش _MENU_ ردیف',
-  loadingRecords: 'در حال بارگذاری...',
-  processing: 'در حال پردازش...',
-  search: 'جستجو:',
-  zeroRecords: 'رکوردی یافت نشد',
-  paginate: {
-    first: 'اول',
-    last: 'آخر',
-    next: 'بعدی',
-    previous: 'قبلی',
-  },
-}
 
 const emptyForm = {
   title: 0,
@@ -46,9 +36,9 @@ const emptyForm = {
 
 function PersonFormFields({ form, setForm, idPrefix }) {
   return (
-    <>
-      <div className="mb-3">
-        <label className="form-label">عنوان</label>
+    <div className="row g-3">
+      <div className="col-md-4">
+        <label className="form-label mb-1">عنوان</label>
         <select
           className="form-select"
           value={form.title}
@@ -61,30 +51,36 @@ function PersonFormFields({ form, setForm, idPrefix }) {
           ))}
         </select>
       </div>
-      <div className="row g-3 mb-3">
-        <div className="col-md-6">
-          <label className="form-label">نام</label>
-          <input
-            type="text"
-            className="form-control"
-            value={form.name}
-            onChange={(e) => setForm((prev) => ({ ...prev, name: e.target.value }))}
-            required
-          />
-        </div>
-        <div className="col-md-6">
-          <label className="form-label">نام خانوادگی</label>
-          <input
-            type="text"
-            className="form-control"
-            value={form.family}
-            onChange={(e) => setForm((prev) => ({ ...prev, family: e.target.value }))}
-            required
-          />
-        </div>
+      <div className="col-md-4">
+        <label className="form-label mb-1">نام</label>
+        <input
+          type="text"
+          className="form-control"
+          value={form.name}
+          required
+          {...persianValidity('لطفاً نام را وارد کنید.')}
+          onChange={(e) => {
+            e.target.setCustomValidity('')
+            setForm((prev) => ({ ...prev, name: e.target.value }))
+          }}
+        />
       </div>
-      <div className="mb-3">
-        <label className="form-label">نام پدر</label>
+      <div className="col-md-4">
+        <label className="form-label mb-1">نام خانوادگی</label>
+        <input
+          type="text"
+          className="form-control"
+          value={form.family}
+          required
+          {...persianValidity('لطفاً نام خانوادگی را وارد کنید.')}
+          onChange={(e) => {
+            e.target.setCustomValidity('')
+            setForm((prev) => ({ ...prev, family: e.target.value }))
+          }}
+        />
+      </div>
+      <div className="col-md-6">
+        <label className="form-label mb-1">نام پدر</label>
         <input
           type="text"
           className="form-control"
@@ -92,29 +88,46 @@ function PersonFormFields({ form, setForm, idPrefix }) {
           onChange={(e) => setForm((prev) => ({ ...prev, fatherName: e.target.value }))}
         />
       </div>
-      <div className="row g-3 mb-3">
-        <div className="col-md-6">
-          <label className="form-label">شماره تذکره</label>
-          <input
-            type="text"
-            className="form-control"
-            value={form.nationalCode}
-            onChange={(e) => setForm((prev) => ({ ...prev, nationalCode: e.target.value }))}
-          />
-        </div>
-        <div className="col-md-6">
-          <label className="form-label">موبایل</label>
-          <input
-            type="text"
-            className="form-control"
-            value={form.mobile}
-            onChange={(e) => setForm((prev) => ({ ...prev, mobile: e.target.value }))}
-            required
-          />
-        </div>
+      <div className="col-md-6">
+        <label className="form-label mb-1">شماره تذکره</label>
+        <input
+          type="text"
+          className="form-control"
+          value={form.nationalCode}
+          onChange={(e) => setForm((prev) => ({ ...prev, nationalCode: e.target.value }))}
+        />
       </div>
-      <div className="mb-3">
-        <label className="form-label">آدرس</label>
+      <div className="col-md-6">
+        <label className="form-label mb-1">موبایل</label>
+        <input
+          type="text"
+          className="form-control"
+          value={form.mobile}
+          required
+          {...persianValidity('لطفاً موبایل را وارد کنید.')}
+          onChange={(e) => {
+            e.target.setCustomValidity('')
+            setForm((prev) => ({ ...prev, mobile: e.target.value }))
+          }}
+        />
+      </div>
+      <div className="col-md-6">
+        <label className="form-label mb-1">سهم پیش‌فرض</label>
+        <input
+          type="number"
+          step="0.01"
+          min="0"
+          className="form-control"
+          value={form.defaultShare}
+          {...persianValidity('لطفاً یک عدد معتبر وارد کنید.')}
+          onChange={(e) => {
+            e.target.setCustomValidity('')
+            setForm((prev) => ({ ...prev, defaultShare: e.target.value }))
+          }}
+        />
+      </div>
+      <div className="col-12">
+        <label className="form-label mb-1">آدرس</label>
         <input
           type="text"
           className="form-control"
@@ -122,35 +135,28 @@ function PersonFormFields({ form, setForm, idPrefix }) {
           onChange={(e) => setForm((prev) => ({ ...prev, address: e.target.value }))}
         />
       </div>
-      <div className="mb-3">
-        <label className="form-label">سهم پیش‌فرض</label>
-        <input
-          type="number"
-          step="0.01"
-          min="0"
-          className="form-control"
-          value={form.defaultShare}
-          onChange={(e) => setForm((prev) => ({ ...prev, defaultShare: e.target.value }))}
-        />
+      <div className="col-12">
+        <div className="form-check form-switch">
+          <input
+            className="form-check-input"
+            type="checkbox"
+            id={`${idPrefix}-is-active`}
+            checked={form.isActive}
+            onChange={(e) => setForm((prev) => ({ ...prev, isActive: e.target.checked }))}
+          />
+          <label className="form-check-label" htmlFor={`${idPrefix}-is-active`}>
+            فعال
+          </label>
+        </div>
       </div>
-      <div className="form-check form-switch">
-        <input
-          className="form-check-input"
-          type="checkbox"
-          id={`${idPrefix}-is-active`}
-          checked={form.isActive}
-          onChange={(e) => setForm((prev) => ({ ...prev, isActive: e.target.checked }))}
-        />
-        <label className="form-check-label" htmlFor={`${idPrefix}-is-active`}>
-          فعال
-        </label>
-      </div>
-    </>
+    </div>
   )
 }
 
 function DriversPage() {
   const tableRef = useRef(null)
+  const createFormRef = useRef(null)
+  const editFormRef = useRef(null)
   const { canCreate, canEdit, canDelete } = usePageCrud('/people/drivers')
   const [loadError, setLoadError] = useState('')
   const [showCreate, setShowCreate] = useState(false)
@@ -200,6 +206,35 @@ function DriversPage() {
     setSubmitting(false)
   }
 
+  const triggerCreateSave = useCallback(() => {
+    if (!submitting) createFormRef.current?.requestSubmit()
+  }, [submitting])
+
+  const triggerEditSave = useCallback(() => {
+    if (!submitting) editFormRef.current?.requestSubmit()
+  }, [submitting])
+
+  useModalKeyboardShortcuts({
+    open: showCreate,
+    onClose: closeModals,
+    onSave: triggerCreateSave,
+    formRef: createFormRef,
+  })
+  useModalKeyboardShortcuts({
+    open: Boolean(editRow),
+    onClose: closeModals,
+    onSave: triggerEditSave,
+    formRef: editFormRef,
+  })
+  useModalKeyboardShortcuts({ open: Boolean(deleteRow), onClose: closeModals })
+  usePageCreateShortcut({
+    enabled: canCreate,
+    onNew: openCreate,
+    isBlocked: showCreate || Boolean(editRow) || Boolean(deleteRow),
+  })
+  useModalAutoFocus({ open: showCreate, formRef: createFormRef })
+  useModalAutoFocus({ open: Boolean(editRow), formRef: editFormRef })
+
   const buildPayload = (form) => ({
     title: Number(form.title),
     name: form.name,
@@ -214,6 +249,13 @@ function DriversPage() {
 
   const handleCreateSubmit = async (event) => {
     event.preventDefault()
+    const formEl = event.currentTarget
+    const message = validateFormPersian(formEl)
+    if (message) {
+      showAppToast(message)
+      formEl.reportValidity()
+      return
+    }
     setSubmitting(true)
     setFormError('')
 
@@ -229,6 +271,13 @@ function DriversPage() {
 
   const handleEditSubmit = async (event) => {
     event.preventDefault()
+    const formEl = event.currentTarget
+    const message = validateFormPersian(formEl)
+    if (message) {
+      showAppToast(message)
+      formEl.reportValidity()
+      return
+    }
     if (!editRow) return
 
     setSubmitting(true)
@@ -261,72 +310,48 @@ function DriversPage() {
   }
 
   const tableOptions = useMemo(
-    () => ({
-      processing: true,
-      serverSide: true,
-      ajax: createDriversDataTableAjax(setLoadError),
-      paging: true,
-      searching: true,
-      ordering: true,
-      info: true,
-      scrollX: true,
-      autoWidth: false,
-      responsive: true,
-      stripeClasses: ['odd', 'even'],
-      order: [[1, 'asc']],
-      pageLength: 15,
-      lengthMenu: [10, 15, 25, 50, 100],
-      language: dataTableLanguage,
-      layout: {
-        topStart: {
-          search: { placeholder: 'جستجو...' },
-          pageLength: { menu: [10, 15, 25, 50, 100] },
-        },
-        topEnd: null,
-
-        bottomStart: 'info',
-        bottomEnd: {
-          paging: { firstLast: true, previousNext: true, numbers: 5 },
-        },
-      },
-      columns: [
-        { data: 'rowNumber', name: 'rowNumber' },
-        { data: 'fullName', name: 'fullName' },
-        { data: 'nationalCode', name: 'nationalCode' },
-        { data: 'mobile', name: 'mobile' },
-        {
-          data: 'defaultShare',
-          name: 'defaultShare',
-          render: (data) => (data != null ? Number(data).toFixed(2) : '0.00'),
-        },
-        {
-          data: 'isActive',
-          name: 'isActive',
-          render: (data) =>
-            data
-              ? '<span class="badge badge-active">فعال</span>'
-              : '<span class="badge badge-inactive">غیرفعال</span>',
-        },
-        { data: null, name: 'actions', defaultContent: '' },
-      ],
-      columnDefs: [
-        {
-          targets: 0,
-          orderable: false,
-          searchable: false,
-          width: '56px',
-          className: 'text-center',
-        },
-        { targets: 5, className: 'text-center' },
-        {
-          targets: 6,
-          orderable: false,
-          searchable: false,
-          className: 'text-center all dt-actions-col',
-          width: '100px',
-        },
-      ],
-    }),
+    () =>
+      createServerSideTableOptions({
+        ajax: createDriversDataTableAjax(setLoadError),
+        order: [[1, 'asc']],
+        columns: [
+          { data: 'rowNumber', name: 'rowNumber' },
+          { data: 'fullName', name: 'fullName' },
+          { data: 'nationalCode', name: 'nationalCode' },
+          { data: 'mobile', name: 'mobile' },
+          {
+            data: 'defaultShare',
+            name: 'defaultShare',
+            render: (data) => (data != null ? Number(data).toFixed(2) : '0.00'),
+          },
+          {
+            data: 'isActive',
+            name: 'isActive',
+            render: (data) =>
+              data
+                ? '<span class="badge badge-active">فعال</span>'
+                : '<span class="badge badge-inactive">غیرفعال</span>',
+          },
+          { data: null, name: 'actions', defaultContent: '' },
+        ],
+        columnDefs: [
+          {
+            targets: 0,
+            orderable: false,
+            searchable: false,
+            width: '56px',
+            className: 'text-center',
+          },
+          { targets: 5, className: 'text-center' },
+          {
+            targets: 6,
+            orderable: false,
+            searchable: false,
+            className: 'text-center all dt-actions-col',
+            width: '100px',
+          },
+        ],
+      }),
     [],
   )
 
@@ -369,7 +394,7 @@ function DriversPage() {
             <button
               type="button"
               className="btn btn-sm btn-accent btn-users-new d-inline-flex align-items-center gap-2"
-              title="راننده جدید"
+              title="راننده جدید (Ctrl+N)"
               onClick={openCreate}
             >
               <Icon name="plus" />
@@ -412,8 +437,8 @@ function DriversPage() {
         <>
           <div className="modal-backdrop show users-modal-backdrop" onClick={closeModals} />
           <div className="modal show d-block users-modal" tabIndex="-1" role="dialog">
-            <div className="modal-dialog modal-dialog-centered modal-dialog-scrollable">
-              <form className="modal-content" onSubmit={handleCreateSubmit}>
+            <div className="modal-dialog modal-dialog-centered modal-dialog-scrollable modal-lg">
+              <form ref={createFormRef} className="modal-content" onSubmit={handleCreateSubmit} noValidate>
                 <div className="modal-header">
                   <h5 className="modal-title">راننده جدید</h5>
                   <button type="button" className="btn-close" aria-label="بستن" onClick={closeModals} />
@@ -440,8 +465,8 @@ function DriversPage() {
         <>
           <div className="modal-backdrop show users-modal-backdrop" onClick={closeModals} />
           <div className="modal show d-block users-modal" tabIndex="-1" role="dialog">
-            <div className="modal-dialog modal-dialog-centered modal-dialog-scrollable">
-              <form className="modal-content" onSubmit={handleEditSubmit}>
+            <div className="modal-dialog modal-dialog-centered modal-dialog-scrollable modal-lg">
+              <form ref={editFormRef} className="modal-content" onSubmit={handleEditSubmit} noValidate>
                 <div className="modal-header">
                   <h5 className="modal-title">ویرایش راننده</h5>
                   <button type="button" className="btn-close" aria-label="بستن" onClick={closeModals} />

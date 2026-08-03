@@ -2,10 +2,12 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import AmountField from '../../components/common/AmountField'
 import Icon from '../../components/common/Icon'
-import { useModalKeyboardShortcuts, usePageCreateShortcut } from '../../hooks/useModalKeyboardShortcuts'
+import { useModalKeyboardShortcuts, usePageCreateShortcut, useModalAutoFocus } from '../../hooks/useModalKeyboardShortcuts'
+import { showAppToast } from '../../lib/appToast'
 import DataTable from '../../lib/dataTableSetup'
 import { createServerSideTableOptions } from '../../lib/dataTableOptions'
 import { makeAmountCurrencyRender, makeSignedBalanceRender } from '../../lib/currencyFormat'
+import { persianValidity, validateFormPersian } from '../../lib/persianFormValidity'
 import { usePageCrud } from '../../permissions/usePageCrud'
 import { fetchBaseCurrency } from '../../services/currenciesApi'
 import {
@@ -190,8 +192,18 @@ function CustomersPage() {
     isBlocked: showCreate || Boolean(editRow) || Boolean(deleteRow),
   })
 
+  useModalAutoFocus({ open: showCreate, formRef: createFormRef })
+  useModalAutoFocus({ open: Boolean(editRow), formRef: editFormRef })
+
   const handleCreateSubmit = async (event) => {
     event.preventDefault()
+    const formEl = event.currentTarget
+    const message = validateFormPersian(formEl)
+    if (message) {
+      showAppToast(message)
+      formEl.reportValidity()
+      return
+    }
 
     setSubmitting(true)
     setFormError('')
@@ -217,6 +229,13 @@ function CustomersPage() {
 
   const handleEditSubmit = async (event) => {
     event.preventDefault()
+    const formEl = event.currentTarget
+    const message = validateFormPersian(formEl)
+    if (message) {
+      showAppToast(message)
+      formEl.reportValidity()
+      return
+    }
     if (!editRow) return
 
     setSubmitting(true)
@@ -378,7 +397,7 @@ function CustomersPage() {
             <button
               type="button"
               className="btn btn-sm btn-accent btn-users-new d-inline-flex align-items-center gap-2"
-              title="مشتری جدید"
+              title="مشتری جدید (Ctrl+N)"
               onClick={openCreate}
             >
               <Icon name="plus" />
@@ -424,8 +443,8 @@ function CustomersPage() {
         <>
           <div className="modal-backdrop show users-modal-backdrop" onClick={closeModals} />
           <div className="modal show d-block users-modal" tabIndex="-1" role="dialog">
-            <div className="modal-dialog modal-dialog-centered modal-dialog-scrollable">
-              <form ref={createFormRef} className="modal-content" onSubmit={handleCreateSubmit}>
+            <div className="modal-dialog modal-dialog-centered modal-dialog-scrollable modal-lg">
+              <form ref={createFormRef} className="modal-content" onSubmit={handleCreateSubmit} noValidate>
                 <div className="modal-header">
                   <h5 className="modal-title">مشتری جدید</h5>
                   <button
@@ -439,45 +458,49 @@ function CustomersPage() {
                   {formError && (
                     <div className="alert alert-danger py-2">{formError}</div>
                   )}
-                  <div className="mb-3">
-                    <label className="form-label">نام</label>
-                    <input
-                      type="text"
-                      className="form-control"
-                      value={createForm.name}
-                      onChange={(e) =>
-                        setCreateForm((prev) => ({ ...prev, name: e.target.value }))
-                      }
-                      required
-                    />
-                  </div>
-                  <div className="mb-3">
-                    <label className="form-label">تلفن</label>
-                    <input
-                      type="text"
-                      dir="ltr"
-                      className="form-control"
-                      value={createForm.phoneNumber}
-                      onChange={(e) =>
-                        setCreateForm((prev) => ({ ...prev, phoneNumber: e.target.value }))
-                      }
-                      required
-                    />
-                  </div>
-                  <div className="mb-3">
-                    <label className="form-label">آدرس</label>
-                    <input
-                      type="text"
-                      className="form-control"
-                      value={createForm.address}
-                      onChange={(e) =>
-                        setCreateForm((prev) => ({ ...prev, address: e.target.value }))
-                      }
-                    />
-                  </div>
-                  <div className="row g-3 mb-3">
+                  <div className="row g-3">
                     <div className="col-md-6">
-                      <label className="form-label">شهر</label>
+                      <label className="form-label mb-1">نام</label>
+                      <input
+                        type="text"
+                        className="form-control"
+                        value={createForm.name}
+                        required
+                        {...persianValidity('لطفاً نام مشتری را وارد کنید.')}
+                        onChange={(e) => {
+                          e.target.setCustomValidity('')
+                          setCreateForm((prev) => ({ ...prev, name: e.target.value }))
+                        }}
+                      />
+                    </div>
+                    <div className="col-md-6">
+                      <label className="form-label mb-1">تلفن</label>
+                      <input
+                        type="text"
+                        dir="ltr"
+                        className="form-control"
+                        value={createForm.phoneNumber}
+                        required
+                        {...persianValidity('لطفاً تلفن مشتری را وارد کنید.')}
+                        onChange={(e) => {
+                          e.target.setCustomValidity('')
+                          setCreateForm((prev) => ({ ...prev, phoneNumber: e.target.value }))
+                        }}
+                      />
+                    </div>
+                    <div className="col-12">
+                      <label className="form-label mb-1">آدرس</label>
+                      <input
+                        type="text"
+                        className="form-control"
+                        value={createForm.address}
+                        onChange={(e) =>
+                          setCreateForm((prev) => ({ ...prev, address: e.target.value }))
+                        }
+                      />
+                    </div>
+                    <div className="col-md-6">
+                      <label className="form-label mb-1">شهر</label>
                       <input
                         type="text"
                         className="form-control"
@@ -488,7 +511,7 @@ function CustomersPage() {
                       />
                     </div>
                     <div className="col-md-6">
-                      <label className="form-label">کشور</label>
+                      <label className="form-label mb-1">کشور</label>
                       <input
                         type="text"
                         className="form-control"
@@ -498,50 +521,52 @@ function CustomersPage() {
                         }
                       />
                     </div>
-                  </div>
-                  <div className="mb-3">
-                    <label className="form-label">نوع</label>
-                    <select
-                      className="form-select"
-                      value={createForm.customerType}
-                      onChange={(e) =>
-                        setCreateForm((prev) => ({ ...prev, customerType: e.target.value }))
-                      }
-                    >
-                      {PERSON_TYPE_OPTIONS.map((option) => (
-                        <option key={option.value} value={option.value}>
-                          {option.label}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                  <div className="mb-3">
-                    <label className="form-label">موجودی اولیه</label>
-                    <AmountField
-                      symbol={baseCurrencySymbol}
-                      step={100}
-                      value={createForm.initialBalance}
-                      onChange={(value) =>
-                        setCreateForm((prev) => ({
-                          ...prev,
-                          initialBalance: value,
-                        }))
-                      }
-                    />
-                  </div>
-                  <div className="form-check form-switch">
-                    <input
-                      className="form-check-input"
-                      type="checkbox"
-                      id="create-customer-is-active"
-                      checked={createForm.isActive}
-                      onChange={(e) =>
-                        setCreateForm((prev) => ({ ...prev, isActive: e.target.checked }))
-                      }
-                    />
-                    <label className="form-check-label" htmlFor="create-customer-is-active">
-                      فعال
-                    </label>
+                    <div className="col-md-6">
+                      <label className="form-label mb-1">نوع</label>
+                      <select
+                        className="form-select"
+                        value={createForm.customerType}
+                        onChange={(e) =>
+                          setCreateForm((prev) => ({ ...prev, customerType: e.target.value }))
+                        }
+                      >
+                        {PERSON_TYPE_OPTIONS.map((option) => (
+                          <option key={option.value} value={option.value}>
+                            {option.label}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                    <div className="col-md-6">
+                      <label className="form-label mb-1">موجودی اولیه</label>
+                      <AmountField
+                        symbol={baseCurrencySymbol}
+                        step={100}
+                        value={createForm.initialBalance}
+                        onChange={(value) =>
+                          setCreateForm((prev) => ({
+                            ...prev,
+                            initialBalance: value,
+                          }))
+                        }
+                      />
+                    </div>
+                    <div className="col-12">
+                      <div className="form-check form-switch">
+                        <input
+                          className="form-check-input"
+                          type="checkbox"
+                          id="create-customer-is-active"
+                          checked={createForm.isActive}
+                          onChange={(e) =>
+                            setCreateForm((prev) => ({ ...prev, isActive: e.target.checked }))
+                          }
+                        />
+                        <label className="form-check-label" htmlFor="create-customer-is-active">
+                          فعال
+                        </label>
+                      </div>
+                    </div>
                   </div>
                 </div>
                 <div className="modal-footer">
@@ -566,8 +591,8 @@ function CustomersPage() {
         <>
           <div className="modal-backdrop show users-modal-backdrop" onClick={closeModals} />
           <div className="modal show d-block users-modal" tabIndex="-1" role="dialog">
-            <div className="modal-dialog modal-dialog-centered modal-dialog-scrollable">
-              <form ref={editFormRef} className="modal-content" onSubmit={handleEditSubmit}>
+            <div className="modal-dialog modal-dialog-centered modal-dialog-scrollable modal-lg">
+              <form ref={editFormRef} className="modal-content" onSubmit={handleEditSubmit} noValidate>
                 <div className="modal-header">
                   <h5 className="modal-title">ویرایش مشتری</h5>
                   <button
@@ -581,45 +606,49 @@ function CustomersPage() {
                   {formError && (
                     <div className="alert alert-danger py-2">{formError}</div>
                   )}
-                  <div className="mb-3">
-                    <label className="form-label">نام</label>
-                    <input
-                      type="text"
-                      className="form-control"
-                      value={editForm.name}
-                      onChange={(e) =>
-                        setEditForm((prev) => ({ ...prev, name: e.target.value }))
-                      }
-                      required
-                    />
-                  </div>
-                  <div className="mb-3">
-                    <label className="form-label">تلفن</label>
-                    <input
-                      type="text"
-                      dir="ltr"
-                      className="form-control"
-                      value={editForm.phoneNumber}
-                      onChange={(e) =>
-                        setEditForm((prev) => ({ ...prev, phoneNumber: e.target.value }))
-                      }
-                      required
-                    />
-                  </div>
-                  <div className="mb-3">
-                    <label className="form-label">آدرس</label>
-                    <input
-                      type="text"
-                      className="form-control"
-                      value={editForm.address}
-                      onChange={(e) =>
-                        setEditForm((prev) => ({ ...prev, address: e.target.value }))
-                      }
-                    />
-                  </div>
-                  <div className="row g-3 mb-3">
+                  <div className="row g-3">
                     <div className="col-md-6">
-                      <label className="form-label">شهر</label>
+                      <label className="form-label mb-1">نام</label>
+                      <input
+                        type="text"
+                        className="form-control"
+                        value={editForm.name}
+                        required
+                        {...persianValidity('لطفاً نام مشتری را وارد کنید.')}
+                        onChange={(e) => {
+                          e.target.setCustomValidity('')
+                          setEditForm((prev) => ({ ...prev, name: e.target.value }))
+                        }}
+                      />
+                    </div>
+                    <div className="col-md-6">
+                      <label className="form-label mb-1">تلفن</label>
+                      <input
+                        type="text"
+                        dir="ltr"
+                        className="form-control"
+                        value={editForm.phoneNumber}
+                        required
+                        {...persianValidity('لطفاً تلفن مشتری را وارد کنید.')}
+                        onChange={(e) => {
+                          e.target.setCustomValidity('')
+                          setEditForm((prev) => ({ ...prev, phoneNumber: e.target.value }))
+                        }}
+                      />
+                    </div>
+                    <div className="col-12">
+                      <label className="form-label mb-1">آدرس</label>
+                      <input
+                        type="text"
+                        className="form-control"
+                        value={editForm.address}
+                        onChange={(e) =>
+                          setEditForm((prev) => ({ ...prev, address: e.target.value }))
+                        }
+                      />
+                    </div>
+                    <div className="col-md-6">
+                      <label className="form-label mb-1">شهر</label>
                       <input
                         type="text"
                         className="form-control"
@@ -630,7 +659,7 @@ function CustomersPage() {
                       />
                     </div>
                     <div className="col-md-6">
-                      <label className="form-label">کشور</label>
+                      <label className="form-label mb-1">کشور</label>
                       <input
                         type="text"
                         className="form-control"
@@ -640,50 +669,52 @@ function CustomersPage() {
                         }
                       />
                     </div>
-                  </div>
-                  <div className="mb-3">
-                    <label className="form-label">نوع</label>
-                    <select
-                      className="form-select"
-                      value={editForm.customerType}
-                      onChange={(e) =>
-                        setEditForm((prev) => ({ ...prev, customerType: e.target.value }))
-                      }
-                    >
-                      {PERSON_TYPE_OPTIONS.map((option) => (
-                        <option key={option.value} value={option.value}>
-                          {option.label}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                  <div className="mb-3">
-                    <label className="form-label">موجودی اولیه</label>
-                    <AmountField
-                      symbol={baseCurrencySymbol}
-                      step={100}
-                      value={editForm.initialBalance}
-                      onChange={(value) =>
-                        setEditForm((prev) => ({
-                          ...prev,
-                          initialBalance: value,
-                        }))
-                      }
-                    />
-                  </div>
-                  <div className="form-check form-switch">
-                    <input
-                      className="form-check-input"
-                      type="checkbox"
-                      id="customer-is-active"
-                      checked={editForm.isActive}
-                      onChange={(e) =>
-                        setEditForm((prev) => ({ ...prev, isActive: e.target.checked }))
-                      }
-                    />
-                    <label className="form-check-label" htmlFor="customer-is-active">
-                      فعال
-                    </label>
+                    <div className="col-md-6">
+                      <label className="form-label mb-1">نوع</label>
+                      <select
+                        className="form-select"
+                        value={editForm.customerType}
+                        onChange={(e) =>
+                          setEditForm((prev) => ({ ...prev, customerType: e.target.value }))
+                        }
+                      >
+                        {PERSON_TYPE_OPTIONS.map((option) => (
+                          <option key={option.value} value={option.value}>
+                            {option.label}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                    <div className="col-md-6">
+                      <label className="form-label mb-1">موجودی اولیه</label>
+                      <AmountField
+                        symbol={baseCurrencySymbol}
+                        step={100}
+                        value={editForm.initialBalance}
+                        onChange={(value) =>
+                          setEditForm((prev) => ({
+                            ...prev,
+                            initialBalance: value,
+                          }))
+                        }
+                      />
+                    </div>
+                    <div className="col-12">
+                      <div className="form-check form-switch">
+                        <input
+                          className="form-check-input"
+                          type="checkbox"
+                          id="customer-is-active"
+                          checked={editForm.isActive}
+                          onChange={(e) =>
+                            setEditForm((prev) => ({ ...prev, isActive: e.target.checked }))
+                          }
+                        />
+                        <label className="form-check-label" htmlFor="customer-is-active">
+                          فعال
+                        </label>
+                      </div>
+                    </div>
                   </div>
                 </div>
                 <div className="modal-footer">

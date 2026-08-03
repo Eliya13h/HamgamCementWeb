@@ -1,12 +1,21 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import Icon from '../../components/common/Icon'
+import AmountDisplay from '../../components/common/AmountDisplay'
 import AmountField from '../../components/common/AmountField'
 import JalaliDateField from '../../components/common/JalaliDateField'
 import SearchableSelect from '../../components/common/SearchableSelect'
 import DataTable from '../../lib/dataTableSetup'
+import { makeAmountCurrencyRender } from '../../lib/currencyFormat'
+import { showAppToast } from '../../lib/appToast'
+import { persianValidity, validateFormPersian } from '../../lib/persianFormValidity'
+import {
+  useModalKeyboardShortcuts,
+  usePageCreateShortcut,
+} from '../../hooks/useModalKeyboardShortcuts'
 import { usePageCrud } from '../../permissions/usePageCrud'
 import { todayGregorianIso } from '../../lib/afghanSolarCalendar'
+import { fetchBaseCurrency } from '../../services/currenciesApi'
 import { fetchProcessedWarehouseOptions, fetchProductionMaterialWarehouses } from '../../services/inventoryApi'
 import { fetchMeaurmentOptions, fetchProductOptions } from '../../services/productsApi'
 import {
@@ -20,7 +29,7 @@ import {
 } from '../../services/productionApi'
 import { dataTableLanguage, formatAmount, formatJalaliDate } from '../Transport/CrudTablePage'
 
-const emptyInputLine = { warehouseId: '', productId: '', meaurmentId: '', quantity: '' }
+const emptyInputLine = { warehouseId: '', productId: '', meaurmentId: '', quantity: '', materialCostInBase: null }
 const emptyCostLine = { costType: '', description: '', amount: '' }
 const emptyForm = () => ({
   productionDate: todayGregorianIso(),
@@ -34,7 +43,29 @@ const emptyForm = () => ({
   description: '',
   inputLines: [],
   costLines: [],
+  totalMaterialCostInBase: null,
+  totalConversionCostInBase: null,
+  totalCostInBase: null,
+  unitCostInBase: null,
 })
+
+function resolveProductLabel(line, products) {
+  return line.productName
+    ?? products.find((item) => String(item.value) === String(line.productId))?.label
+    ?? '—'
+}
+
+function resolveMeaurmentLabel(line, meaurments) {
+  return line.meaurmentName
+    ?? meaurments.find((item) => String(item.value) === String(line.meaurmentId))?.label
+    ?? ''
+}
+
+function resolveWarehouseLabel(line, warehouses) {
+  return line.warehouseName
+    ?? warehouses.find((item) => String(item.value) === String(line.warehouseId))?.label
+    ?? '—'
+}
 
 const batchColumns = [
   { data: 'batchNumber', title: 'شماره سند' },
@@ -51,6 +82,7 @@ function costTypeLabel(value) {
 
 function DailyProductionPage() {
   const tableRef = useRef(null)
+  const formRef = useRef(null)
   const [searchParams, setSearchParams] = useSearchParams()
   const { canCreate, canEdit, canDelete } = usePageCrud('/production/daily')
   const [loadError, setLoadError] = useState('')
@@ -71,6 +103,8 @@ function DailyProductionPage() {
   const [meaurments, setMeaurments] = useState([])
   const [formula, setFormula] = useState(null)
   const [form, setForm] = useState(emptyForm)
+  const [baseCurrencySymbol, setBaseCurrencySymbol] = useState('')
+  const currencySymbolRef = useRef('')
   const planBootstrapDone = useRef(false)
 
   useEffect(() => {
@@ -80,7 +114,31 @@ function DailyProductionPage() {
     fetchProcessedWarehouseOptions().then(setProcessedWarehouses).catch(() => setProcessedWarehouses([]))
     fetchProductOptions().then(setProducts).catch(() => setProducts([]))
     fetchMeaurmentOptions().then(setMeaurments).catch(() => setMeaurments([]))
+    let cancelled = false
+    fetchBaseCurrency()
+      .then((currency) => {
+        if (!cancelled) setBaseCurrencySymbol(currency?.symbol ?? '')
+      })
+      .catch(() => {
+        if (!cancelled) setBaseCurrencySymbol('')
+      })
+    return () => {
+      cancelled = true
+    }
   }, [])
+
+  useEffect(() => {
+    currencySymbolRef.current = baseCurrencySymbol
+    const dt = tableRef.current?.dt()
+    if (dt && baseCurrencySymbol) {
+      dt.rows().invalidate('data').draw(false)
+    }
+  }, [baseCurrencySymbol])
+
+  const amountCurrencyRender = useMemo(
+    () => makeAmountCurrencyRender(() => currencySymbolRef.current),
+    [],
+  )
 
   const meaurmentsForProduct = useCallback((productId) => {
     const product = products.find((item) => String(item.value) === String(productId))
@@ -95,6 +153,34 @@ function DailyProductionPage() {
     () => (form.costLines || []).reduce((sum, line) => sum + (Number(line.amount) || 0), 0),
     [form.costLines],
   )
+
+  const materialCostPreview = useMemo(() => {
+    if (form.totalMaterialCostInBase != null && form.totalMaterialCostInBase !== '') {
+      return Number(form.totalMaterialCostInBase) || 0
+    }
+    const lines = form.inputLines || []
+    if (!lines.length || lines.some((line) => line.materialCostInBase == null || line.materialCostInBase === '')) {
+      return null
+    }
+    return lines.reduce((sum, line) => sum + (Number(line.materialCostInBase) || 0), 0)
+  }, [form.inputLines, form.totalMaterialCostInBase])
+
+  const totalCostPreview = useMemo(() => {
+    if (form.totalCostInBase != null && form.totalCostInBase !== '') {
+      return Number(form.totalCostInBase) || 0
+    }
+    if (materialCostPreview == null) return null
+    return materialCostPreview + conversionCostPreview
+  }, [conversionCostPreview, form.totalCostInBase, materialCostPreview])
+
+  const unitCostPreview = useMemo(() => {
+    if (form.unitCostInBase != null && form.unitCostInBase !== '') {
+      return Number(form.unitCostInBase) || 0
+    }
+    const qty = Number(form.producedQuantity) || 0
+    if (!qty || totalCostPreview == null) return null
+    return totalCostPreview / qty
+  }, [form.producedQuantity, form.unitCostInBase, totalCostPreview])
 
   const closeModals = useCallback(() => {
     setShowForm(false)
@@ -118,6 +204,10 @@ function DailyProductionPage() {
       outputProductName: scaled.outputProductName ?? '',
       outputMeaurmentName: scaled.outputMeaurmentName ?? '',
       formulaMode: scaled.mode,
+      totalMaterialCostInBase: null,
+      totalConversionCostInBase: null,
+      totalCostInBase: null,
+      unitCostInBase: null,
     }))
   }, [])
 
@@ -132,6 +222,10 @@ function DailyProductionPage() {
       outputProductName: '',
       outputMeaurmentName: '',
       formulaMode: null,
+      totalMaterialCostInBase: null,
+      totalConversionCostInBase: null,
+      totalCostInBase: null,
+      unitCostInBase: null,
     }))
     if (!productionFormulaId) return
     try {
@@ -206,11 +300,13 @@ function DailyProductionPage() {
         description: batch.description ?? '',
         inputLines: (batch.inputLines ?? []).map((line) => ({
           warehouseId: line.warehouseId,
+          warehouseName: line.warehouseName,
           productId: line.productId,
           meaurmentId: line.meaurmentId,
           quantity: line.quantity,
           productName: line.productName,
           meaurmentName: line.meaurmentName,
+          materialCostInBase: line.materialCostInBase ?? null,
         })),
         costLines: (batch.costLines ?? []).map((line) => ({
           costType: line.costType,
@@ -218,6 +314,10 @@ function DailyProductionPage() {
           amount: line.amount,
           accountId: line.accountId ?? '',
         })),
+        totalMaterialCostInBase: batch.isPosted ? (batch.totalMaterialCostInBase ?? null) : null,
+        totalConversionCostInBase: batch.isPosted ? (batch.totalConversionCostInBase ?? null) : null,
+        totalCostInBase: batch.isPosted ? (batch.totalCostInBase ?? null) : null,
+        unitCostInBase: batch.isPosted ? (output?.unitCostInBase ?? null) : null,
       })
       setEditId(batch.productionBatchId)
       setViewPosted(readOnly || batch.isPosted)
@@ -320,6 +420,17 @@ function DailyProductionPage() {
   const handleSubmit = async (event) => {
     event.preventDefault()
     if (viewPosted) return
+
+    const formEl = formRef.current
+    if (formEl) {
+      const message = validateFormPersian(formEl)
+      if (message) {
+        showAppToast(message)
+        formEl.reportValidity()
+        return
+      }
+    }
+
     setSubmitting(true)
     setFormError('')
     try {
@@ -328,9 +439,11 @@ function DailyProductionPage() {
       else await productionBatchesApi.create(payload)
       closeModals()
       reloadTable()
+      showAppToast(editId ? 'پیش‌نویس ذخیره شد.' : 'پیش‌نویس ایجاد شد.', 'success')
     } catch (error) {
       setFormError(error.message)
       setSubmitting(false)
+      showAppToast(error.message)
     }
   }
 
@@ -402,7 +515,7 @@ function DailyProductionPage() {
         data: 'totalCostInBase',
         name: 'totalCostInBase',
         title: 'بهای تمام‌شده',
-        render: (data) => formatAmount(data),
+        render: amountCurrencyRender,
       },
       { data: null, name: 'actions', defaultContent: '', title: 'عملیات' },
     ],
@@ -411,7 +524,7 @@ function DailyProductionPage() {
       { targets: [4, 5, 6], orderable: false },
       { targets: 7, orderable: false, searchable: false, className: 'text-center all dt-actions-col', width: '180px' },
     ],
-  }), [])
+  }), [amountCurrencyRender])
 
   const actionSlots = useMemo(() => ({
     7: (_data, _type, row) => (
@@ -445,6 +558,34 @@ function DailyProductionPage() {
     ),
   }), [canDelete, canEdit, handleUnpost, openEdit, openPostPreview, openTrace])
 
+  useModalKeyboardShortcuts({
+    open: showForm,
+    onClose: closeModals,
+    onSave: !viewPosted && !submitting ? () => formRef.current?.requestSubmit() : undefined,
+    formRef,
+  })
+
+  useModalKeyboardShortcuts({
+    open: Boolean(deleteRow),
+    onClose: closeModals,
+  })
+
+  useModalKeyboardShortcuts({
+    open: Boolean(postPreview),
+    onClose: () => { setPostPreview(null); setPostTargetId(null) },
+  })
+
+  useModalKeyboardShortcuts({
+    open: Boolean(traceData),
+    onClose: () => setTraceData(null),
+  })
+
+  usePageCreateShortcut({
+    enabled: canCreate,
+    onNew: openCreate,
+    isBlocked: showForm || Boolean(deleteRow) || Boolean(postPreview) || Boolean(traceData),
+  })
+
   return (
     <div className="content-card card border-0 production-page">
       <div className="card-body p-4">
@@ -454,7 +595,12 @@ function DailyProductionPage() {
             <p className="text-muted mb-0 small">پیش‌نویس → بررسی هزینه → ثبت نهایی (اثر روی موجودی و دفتر)</p>
           </div>
           {canCreate && (
-            <button type="button" className="btn btn-primary d-inline-flex align-items-center gap-2" onClick={openCreate}>
+            <button
+              type="button"
+              className="btn btn-primary d-inline-flex align-items-center gap-2"
+              onClick={openCreate}
+              title="سند جدید (Ctrl+Space)"
+            >
               <Icon name="plus" />
               <span>سند جدید</span>
             </button>
@@ -479,7 +625,7 @@ function DailyProductionPage() {
           <div className="modal show d-block production-modal" tabIndex={-1} style={{ backgroundColor: 'rgba(0,0,0,0.5)' }}>
             <div className="modal-dialog modal-xl modal-dialog-scrollable">
               <div className="modal-content">
-                <form onSubmit={handleSubmit}>
+                <form ref={formRef} onSubmit={handleSubmit} noValidate>
                   <div className="modal-header">
                     <h5 className="modal-title">
                       {viewPosted ? 'مشاهده سند تولید' : editId ? 'ویرایش سند تولید' : 'سند تولید جدید'}
@@ -496,6 +642,7 @@ function DailyProductionPage() {
                         <JalaliDateField
                           value={form.productionDate}
                           required
+                          requiredMessage="لطفاً تاریخ تولید را انتخاب کنید."
                           disabled={viewPosted}
                           onChange={(value) => setForm((prev) => ({ ...prev, productionDate: value }))}
                         />
@@ -515,6 +662,7 @@ function DailyProductionPage() {
                           options={formulaOptions}
                           value={form.productionFormulaId}
                           required
+                          requiredMessage="لطفاً فرمول ساخت را انتخاب کنید."
                           disabled={viewPosted}
                           onChange={handleFormulaChange}
                         />
@@ -530,6 +678,7 @@ function DailyProductionPage() {
                           required
                           disabled={viewPosted}
                           onChange={(event) => handleProducedQuantityChange(event.target.value)}
+                          {...persianValidity('لطفاً مقدار تولید معتبر وارد کنید.')}
                         />
                       </div>
                       <div className="col-md-4">
@@ -546,6 +695,7 @@ function DailyProductionPage() {
                           options={processedWarehouses}
                           value={form.outputWarehouseId}
                           required
+                          requiredMessage="لطفاً انبار مقصد را انتخاب کنید."
                           disabled={viewPosted}
                           onChange={(value) => setForm((prev) => ({ ...prev, outputWarehouseId: value }))}
                         />
@@ -577,10 +727,10 @@ function DailyProductionPage() {
                       <table className="table table-sm align-middle production-lines-table">
                         <thead>
                           <tr>
-                            <th>انبار</th>
                             <th>محصول</th>
-                            <th>واحد</th>
                             <th>مقدار</th>
+                            <th>واحد</th>
+                            <th>انبار</th>
                             {!viewPosted && !isFixedFormula && <th />}
                           </tr>
                         </thead>
@@ -588,21 +738,11 @@ function DailyProductionPage() {
                           {form.inputLines.map((line, index) => (
                             <tr key={`input-${index}`}>
                               <td>
-                                <SearchableSelect
-                                  options={materialWarehouses}
-                                  value={line.warehouseId}
-                                  size="sm"
-                                  required
-                                  disabled={viewPosted}
-                                  onChange={(value) => updateLine('inputLines', index, 'warehouseId', value)}
-                                />
-                              </td>
-                              <td>
                                 {isFixedFormula ? (
                                   <input
                                     className="form-control form-control-sm"
                                     readOnly
-                                    value={line.productName ?? products.find((item) => String(item.value) === String(line.productId))?.label ?? ''}
+                                    value={resolveProductLabel(line, products)}
                                   />
                                 ) : (
                                   <SearchableSelect
@@ -610,31 +750,10 @@ function DailyProductionPage() {
                                     value={line.productId}
                                     size="sm"
                                     required
+                                    requiredMessage="لطفاً محصول مصرفی را انتخاب کنید."
                                     disabled={viewPosted}
                                     onChange={(value) => updateLine('inputLines', index, 'productId', value)}
                                   />
-                                )}
-                              </td>
-                              <td>
-                                {isFixedFormula ? (
-                                  <input
-                                    className="form-control form-control-sm"
-                                    readOnly
-                                    value={line.meaurmentName ?? meaurments.find((item) => String(item.value) === String(line.meaurmentId))?.label ?? ''}
-                                  />
-                                ) : (
-                                  <select
-                                    className="form-select form-select-sm"
-                                    value={line.meaurmentId}
-                                    required
-                                    disabled={viewPosted}
-                                    onChange={(event) => updateLine('inputLines', index, 'meaurmentId', event.target.value)}
-                                  >
-                                    <option value="">—</option>
-                                    {meaurmentsForProduct(line.productId).map((item) => (
-                                      <option key={item.value} value={item.value}>{item.label}</option>
-                                    ))}
-                                  </select>
                                 )}
                               </td>
                               <td>
@@ -648,6 +767,41 @@ function DailyProductionPage() {
                                   readOnly={isFixedFormula}
                                   disabled={viewPosted}
                                   onChange={(event) => updateLine('inputLines', index, 'quantity', event.target.value)}
+                                  {...persianValidity('لطفاً مقدار مصرف را وارد کنید.')}
+                                />
+                              </td>
+                              <td>
+                                {isFixedFormula ? (
+                                  <input
+                                    className="form-control form-control-sm"
+                                    readOnly
+                                    value={resolveMeaurmentLabel(line, meaurments)}
+                                  />
+                                ) : (
+                                  <select
+                                    className="form-select form-select-sm"
+                                    value={line.meaurmentId}
+                                    required
+                                    disabled={viewPosted}
+                                    onChange={(event) => updateLine('inputLines', index, 'meaurmentId', event.target.value)}
+                                    {...persianValidity('لطفاً واحد ماده را انتخاب کنید.')}
+                                  >
+                                    <option value="">—</option>
+                                    {meaurmentsForProduct(line.productId).map((item) => (
+                                      <option key={item.value} value={item.value}>{item.label}</option>
+                                    ))}
+                                  </select>
+                                )}
+                              </td>
+                              <td>
+                                <SearchableSelect
+                                  options={materialWarehouses}
+                                  value={line.warehouseId}
+                                  size="sm"
+                                  required
+                                  requiredMessage="لطفاً انبار مصرف را انتخاب کنید."
+                                  disabled={viewPosted}
+                                  onChange={(value) => updateLine('inputLines', index, 'warehouseId', value)}
                                 />
                               </td>
                               {!viewPosted && !isFixedFormula && (
@@ -718,6 +872,7 @@ function DailyProductionPage() {
                                 <AmountField
                                   value={line.amount}
                                   min="0"
+                                  symbol={baseCurrencySymbol}
                                   className="amount-field-sm"
                                   readOnly={isFixedFormula}
                                   disabled={viewPosted}
@@ -748,15 +903,79 @@ function DailyProductionPage() {
                     </div>
 
                     <div className="production-summary">
+                      <div className="production-summary-section-title">مواد اولیه</div>
+                      {(form.inputLines || []).length === 0 && (
+                        <div className="production-summary-row text-muted small">
+                          <span>ماده مصرفی تعریف نشده است</span>
+                          <span>—</span>
+                        </div>
+                      )}
+                      {(form.inputLines || []).map((line, index) => (
+                        <div key={`summary-mat-${index}`} className="production-summary-row">
+                          <span>
+                            {resolveProductLabel(line, products)}
+                            {' — '}
+                            {formatAmount(line.quantity)} {resolveMeaurmentLabel(line, meaurments)}
+                            {' / '}
+                            {resolveWarehouseLabel(line, materialWarehouses)}
+                          </span>
+                          <span>
+                            {line.materialCostInBase != null && line.materialCostInBase !== ''
+                              ? <AmountDisplay value={line.materialCostInBase} symbol={baseCurrencySymbol} />
+                              : <span className="text-muted small">پس از ثبت نهایی</span>}
+                          </span>
+                        </div>
+                      ))}
                       <div className="production-summary-row">
-                        <span>هزینه تبدیل (از خطوط هزینه)</span>
-                        <span>{formatAmount(conversionCostPreview)}</span>
+                        <span>جمع بهای مواد</span>
+                        <span>
+                          {materialCostPreview != null
+                            ? <AmountDisplay value={materialCostPreview} symbol={baseCurrencySymbol} />
+                            : <span className="text-muted small">پس از ثبت نهایی از FIFO</span>}
+                        </span>
                       </div>
-                      <div className="production-summary-row text-muted small">
-                        <span>بهای مواد</span>
-                        <span>پس از ثبت نهایی از FIFO محاسبه می‌شود</span>
+
+                      <div className="production-summary-section-title mt-2">هزینه‌ها</div>
+                      {(form.costLines || []).length === 0 && (
+                        <div className="production-summary-row text-muted small">
+                          <span>هزینه‌ای تعریف نشده است</span>
+                          <span>—</span>
+                        </div>
+                      )}
+                      {(form.costLines || []).map((line, index) => (
+                        <div key={`summary-cost-${index}`} className="production-summary-row">
+                          <span>
+                            {costTypeLabel(line.costType)}
+                            {line.description ? ` — ${line.description}` : ''}
+                          </span>
+                          <AmountDisplay value={line.amount} symbol={baseCurrencySymbol} />
+                        </div>
+                      ))}
+                      <div className="production-summary-row">
+                        <span>جمع هزینه‌های تبدیل</span>
+                        <AmountDisplay value={conversionCostPreview} symbol={baseCurrencySymbol} />
+                      </div>
+
+                      <div className="production-summary-row total">
+                        <span>بهای تمام‌شده کل</span>
+                        <span>
+                          {totalCostPreview != null
+                            ? <AmountDisplay value={totalCostPreview} symbol={baseCurrencySymbol} />
+                            : <span className="text-muted small">پس از ثبت نهایی</span>}
+                        </span>
                       </div>
                       <div className="production-summary-row total">
+                        <span>
+                          تمام شد یک واحد
+                          {form.outputMeaurmentName ? ` (${form.outputMeaurmentName})` : ''}
+                        </span>
+                        <span>
+                          {unitCostPreview != null
+                            ? <AmountDisplay value={unitCostPreview} symbol={baseCurrencySymbol} />
+                            : <span className="text-muted small">پس از ثبت نهایی</span>}
+                        </span>
+                      </div>
+                      <div className="production-summary-row text-muted small">
                         <span>خروجی</span>
                         <span>
                           {formatAmount(form.producedQuantity)} {form.outputMeaurmentName || ''}
@@ -810,12 +1029,12 @@ function DailyProductionPage() {
                   <h6>مصرف مواد (برآورد FIFO)</h6>
                   <ul className="list-group mb-3">
                     {(postPreview.inputLines ?? []).map((line, index) => (
-                      <li key={index} className={`list-group-item d-flex justify-content-between ${line.hasEnoughStock ? '' : 'list-group-item-danger'}`}>
+                      <li key={index} className={`list-group-item d-flex justify-content-between gap-3 ${line.hasEnoughStock ? '' : 'list-group-item-danger'}`}>
                         <span>
                           {line.productName} ({line.warehouseName}) — {formatAmount(line.quantity)} {line.meaurmentName}
                           <span className="d-block small text-muted">موجود: {formatAmount(line.availableQuantityInBase)}</span>
                         </span>
-                        <span>{formatAmount(line.estimatedMaterialCostInBase)}</span>
+                        <AmountDisplay value={line.estimatedMaterialCostInBase} symbol={baseCurrencySymbol} />
                       </li>
                     ))}
                   </ul>
@@ -826,9 +1045,9 @@ function DailyProductionPage() {
                       <li className="list-group-item text-muted">بدون هزینه تبدیل</li>
                     )}
                     {(postPreview.costLines ?? []).map((line, index) => (
-                      <li key={index} className="list-group-item d-flex justify-content-between">
+                      <li key={index} className="list-group-item d-flex justify-content-between gap-3">
                         <span>{costTypeLabel(line.costType)}{line.description ? ` — ${line.description}` : ''}</span>
-                        <span>{formatAmount(line.amount)}</span>
+                        <AmountDisplay value={line.amount} symbol={baseCurrencySymbol} />
                       </li>
                     ))}
                   </ul>
@@ -844,17 +1063,57 @@ function DailyProductionPage() {
                   </ul>
 
                   <div className="production-summary">
+                    <div className="production-summary-section-title">مواد اولیه</div>
+                    {(postPreview.inputLines ?? []).map((line, index) => (
+                      <div key={`preview-mat-${index}`} className="production-summary-row">
+                        <span>
+                          {line.productName} — {formatAmount(line.quantity)} {line.meaurmentName} / {line.warehouseName}
+                        </span>
+                        <AmountDisplay value={line.estimatedMaterialCostInBase} symbol={baseCurrencySymbol} />
+                      </div>
+                    ))}
                     <div className="production-summary-row">
-                      <span>بهای مواد (برآورد)</span>
-                      <span>{formatAmount(postPreview.estimatedMaterialCostInBase)}</span>
+                      <span>جمع بهای مواد (برآورد)</span>
+                      <AmountDisplay value={postPreview.estimatedMaterialCostInBase} symbol={baseCurrencySymbol} />
                     </div>
+
+                    <div className="production-summary-section-title mt-2">هزینه‌ها</div>
+                    {(postPreview.costLines ?? []).length === 0 && (
+                      <div className="production-summary-row text-muted small">
+                        <span>بدون هزینه تبدیل</span>
+                        <span>—</span>
+                      </div>
+                    )}
+                    {(postPreview.costLines ?? []).map((line, index) => (
+                      <div key={`preview-cost-${index}`} className="production-summary-row">
+                        <span>{costTypeLabel(line.costType)}{line.description ? ` — ${line.description}` : ''}</span>
+                        <AmountDisplay value={line.amount} symbol={baseCurrencySymbol} />
+                      </div>
+                    ))}
                     <div className="production-summary-row">
-                      <span>هزینه تبدیل</span>
-                      <span>{formatAmount(postPreview.conversionCostInBase)}</span>
+                      <span>جمع هزینه تبدیل</span>
+                      <AmountDisplay value={postPreview.conversionCostInBase} symbol={baseCurrencySymbol} />
                     </div>
+
                     <div className="production-summary-row total">
                       <span>بهای تمام‌شده برآوردی</span>
-                      <span>{formatAmount(postPreview.estimatedTotalCostInBase)}</span>
+                      <AmountDisplay value={postPreview.estimatedTotalCostInBase} symbol={baseCurrencySymbol} />
+                    </div>
+                    <div className="production-summary-row total">
+                      <span>
+                        تمام شد یک واحد
+                        {(postPreview.outputLines?.[0]?.meaurmentName)
+                          ? ` (${postPreview.outputLines[0].meaurmentName})`
+                          : ''}
+                      </span>
+                      <AmountDisplay
+                        value={
+                          (Number(postPreview.outputLines?.[0]?.quantity) || 0) > 0
+                            ? Number(postPreview.estimatedTotalCostInBase) / Number(postPreview.outputLines[0].quantity)
+                            : 0
+                        }
+                        symbol={baseCurrencySymbol}
+                      />
                     </div>
                   </div>
                 </div>
@@ -887,32 +1146,60 @@ function DailyProductionPage() {
                 <div className="modal-body">
                   <p className="small text-muted">
                     تاریخ: {formatJalaliDate(traceData.productionDate)} — انبار: {traceData.outputWarehouseName} — بهای تمام‌شده:{' '}
-                    {formatAmount(traceData.totalCostInBase)}
+                    <AmountDisplay value={traceData.totalCostInBase} symbol={baseCurrencySymbol} />
                   </p>
                   <h6>مصرف مواد</h6>
                   <ul className="list-group mb-3">
                     {(traceData.inputLines ?? []).map((line, index) => (
-                      <li key={index} className="list-group-item d-flex justify-content-between">
+                      <li key={index} className="list-group-item d-flex justify-content-between gap-3">
                         <span>{line.productName} ({line.warehouseName}) — {formatAmount(line.quantity)} {line.meaurmentName}</span>
-                        <span>{formatAmount(line.materialCostInBase)}</span>
+                        <AmountDisplay value={line.materialCostInBase} symbol={baseCurrencySymbol} />
                       </li>
                     ))}
                   </ul>
                   <h6>هزینه‌ها</h6>
                   <ul className="list-group mb-3">
                     {(traceData.costLines ?? []).map((line, index) => (
-                      <li key={index} className="list-group-item d-flex justify-content-between">
+                      <li key={index} className="list-group-item d-flex justify-content-between gap-3">
                         <span>{line.description || costTypeLabel(line.costType)}</span>
-                        <span>{formatAmount(line.amount)}</span>
+                        <AmountDisplay value={line.amount} symbol={baseCurrencySymbol} />
                       </li>
                     ))}
                   </ul>
+
+                  <div className="production-summary mb-3">
+                    <div className="production-summary-row">
+                      <span>جمع بهای مواد</span>
+                      <AmountDisplay value={traceData.totalMaterialCostInBase} symbol={baseCurrencySymbol} />
+                    </div>
+                    <div className="production-summary-row">
+                      <span>جمع هزینه‌های تبدیل</span>
+                      <AmountDisplay value={traceData.totalConversionCostInBase} symbol={baseCurrencySymbol} />
+                    </div>
+                    <div className="production-summary-row total">
+                      <span>بهای تمام‌شده کل</span>
+                      <AmountDisplay value={traceData.totalCostInBase} symbol={baseCurrencySymbol} />
+                    </div>
+                    <div className="production-summary-row total">
+                      <span>تمام شد یک واحد</span>
+                      <AmountDisplay
+                        value={
+                          (Number(traceData.outputLines?.[0]?.quantity) || 0) > 0
+                            ? Number(traceData.totalCostInBase) / Number(traceData.outputLines[0].quantity)
+                            : (traceData.outputLines?.[0]?.unitCostInBase ?? 0)
+                        }
+                        symbol={baseCurrencySymbol}
+                      />
+                    </div>
+                  </div>
+
                   <h6>محصول و Lotهای خروجی</h6>
                   <ul className="list-group mb-3">
                     {(traceData.inventoryLots ?? []).map((lot) => (
                       <li key={lot.inventoryLotId} className="list-group-item">
                         <strong>{lot.lotCode}</strong> — {lot.productName} — تولید: {formatAmount(lot.receivedQuantityInBase)}، باقی‌مانده:{' '}
-                        {formatAmount(lot.remainingQuantityInBase)}
+                        {formatAmount(lot.remainingQuantityInBase)} — بها:{' '}
+                        <AmountDisplay value={lot.unitCost} symbol={baseCurrencySymbol} />
                       </li>
                     ))}
                   </ul>
@@ -928,8 +1215,9 @@ function DailyProductionPage() {
                   <h6>Lotهای مصرف‌شده</h6>
                   <ul className="list-group">
                     {(traceData.consumedLots ?? []).map((lot, index) => (
-                      <li key={`${lot.inventoryLotId}-${index}`} className="list-group-item">
-                        {lot.productName} — {lot.lotCode} — مقدار: {formatAmount(lot.quantityInBase)} — بها: {formatAmount(lot.lineCostInBase)}
+                      <li key={`${lot.inventoryLotId}-${index}`} className="list-group-item d-flex justify-content-between gap-3">
+                        <span>{lot.productName} — {lot.lotCode} — مقدار: {formatAmount(lot.quantityInBase)}</span>
+                        <AmountDisplay value={lot.lineCostInBase} symbol={baseCurrencySymbol} />
                       </li>
                     ))}
                     {!(traceData.consumedLots ?? []).length && <li className="list-group-item text-muted">Lot مصرفی موجود نیست.</li>}

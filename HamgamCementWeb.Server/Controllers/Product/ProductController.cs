@@ -19,7 +19,16 @@ public class ProductController : ProductControllerBase
     {
         [1] = nameof(Data.Models.Product.Product.Code),
         [2] = nameof(Data.Models.Product.Product.Name),
-        [5] = nameof(Data.Models.Product.Product.DefaultSalePrice),
+        [3] = nameof(Data.Models.Product.Product.ProductKind),
+        [6] = nameof(Data.Models.Product.Product.DefaultSalePrice),
+    };
+
+    private static string ProductKindLabel(ProductKind kind) => kind switch
+    {
+        ProductKind.Raw => "خام",
+        ProductKind.SemiFinished => "نیمه پروسس",
+        ProductKind.Processed => "پروسس شده",
+        _ => kind.ToString(),
     };
 
     private readonly IMeaurmentConversionService _conversion;
@@ -69,7 +78,10 @@ public class ProductController : ProductControllerBase
                 productId = p.ProductID,
                 code = p.Code,
                 name = p.Name,
+                productKind = p.ProductKind,
                 baseMeaurmentName = p.BaseMeaurment.Name,
+                salePriceMode = p.SalePriceMode,
+                saleProfitPercent = p.SaleProfitPercent,
                 defaultSalePrice = p.DefaultSalePrice,
                 minStockQuantity = p.MinStockQuantity,
                 totalStockQuantity = Db.InventoryStocks
@@ -100,9 +112,13 @@ public class ProductController : ProductControllerBase
                     r.productId,
                     r.code,
                     r.name,
+                    r.productKind,
+                    productKindText = ProductKindLabel(r.productKind),
                     r.baseMeaurmentName,
                     suggestedPurchasePrice = hint?.UnitCostInBase,
                     purchasePriceSource = hint?.Source.ToString(),
+                    r.salePriceMode,
+                    r.saleProfitPercent,
                     r.defaultSalePrice,
                     r.minStockQuantity,
                     r.totalStockQuantity,
@@ -115,11 +131,22 @@ public class ProductController : ProductControllerBase
 
     // چرا بدون HasPermission: دراپ‌داون محصولات در فاکتورها، تولید و انبارگردانی استفاده می‌شود.
     [HttpGet("list")]
-    public async Task<IActionResult> List(CancellationToken cancellationToken)
+    public async Task<IActionResult> List(
+        [FromQuery] string? kinds,
+        CancellationToken cancellationToken)
     {
-        var items = await Db.Products
+        var kindFilter = ParseKinds(kinds);
+
+        var query = Db.Products
             .AsNoTracking()
-            .Where(p => p.IsDeleted != true && p.IsActive == true)
+            .Where(p => p.IsDeleted != true && p.IsActive == true);
+
+        if (kindFilter.Count > 0)
+        {
+            query = query.Where(p => kindFilter.Contains(p.ProductKind));
+        }
+
+        var items = await query
             .OrderBy(p => p.Name)
             .Select(p => new
             {
@@ -127,6 +154,9 @@ public class ProductController : ProductControllerBase
                 label = $"{p.Code} — {p.Name}",
                 baseMeaurmentId = p.BaseMeaurmentId,
                 defaultMeaurmentId = p.DefaultMeaurmentId,
+                productKind = p.ProductKind,
+                salePriceMode = p.SalePriceMode,
+                saleProfitPercent = p.SaleProfitPercent,
                 defaultSalePrice = p.DefaultSalePrice,
             })
             .ToListAsync(cancellationToken);
@@ -189,6 +219,9 @@ public class ProductController : ProductControllerBase
                 description = p.Description,
                 baseMeaurmentId = p.BaseMeaurmentId,
                 defaultMeaurmentId = p.DefaultMeaurmentId,
+                productKind = p.ProductKind,
+                salePriceMode = p.SalePriceMode,
+                saleProfitPercent = p.SaleProfitPercent,
                 defaultSalePrice = p.DefaultSalePrice,
                 minStockQuantity = p.MinStockQuantity,
                 categoryIds = p.ProductCategories
@@ -208,7 +241,25 @@ public class ProductController : ProductControllerBase
             return NotFound(new { message = "محصول یافت نشد." });
         }
 
-        return Ok(product);
+        var isProductKindLocked = await IsProductUsedAsync(id, cancellationToken);
+        return Ok(new
+        {
+            product.productId,
+            product.code,
+            product.name,
+            product.description,
+            product.baseMeaurmentId,
+            product.defaultMeaurmentId,
+            product.productKind,
+            product.salePriceMode,
+            product.saleProfitPercent,
+            product.defaultSalePrice,
+            product.minStockQuantity,
+            product.categoryIds,
+            product.meaurmentIds,
+            product.isActive,
+            isProductKindLocked,
+        });
     }
 
     [HttpPost]
@@ -222,7 +273,7 @@ public class ProductController : ProductControllerBase
             return ValidationProblem(ModelState);
         }
 
-        var validationError = await ValidateMeaurmentsAsync(request, cancellationToken);
+        var validationError = await ValidateSaveRequestAsync(request, cancellationToken);
         if (validationError is not null)
         {
             return BadRequest(new { message = validationError });
@@ -246,11 +297,18 @@ public class ProductController : ProductControllerBase
             Description = request.Description?.Trim(),
             BaseMeaurmentId = request.BaseMeaurmentId,
             DefaultMeaurmentId = request.DefaultMeaurmentId,
+            ProductKind = request.ProductKind,
+            SalePriceMode = request.SalePriceMode,
+            SaleProfitPercent = request.SalePriceMode == ProductSalePriceMode.ProfitPercent
+                ? request.SaleProfitPercent
+                : 0,
             // قیمت خرید دیگر روی محصول ذخیره نمی‌شود؛ از FIFO/آخرین خرید پیشنهاد می‌شود
             DefaultPurchasePrice = 0,
-            DefaultSalePrice = request.DefaultSalePrice,
+            DefaultSalePrice = request.SalePriceMode == ProductSalePriceMode.Fixed
+                ? request.DefaultSalePrice
+                : 0,
             MinStockQuantity = request.MinStockQuantity,
-            IsActive = request.IsActive,
+            IsActive = true,
             IsDeleted = false,
             CreatedAt = DateTime.Now,
             CreatedBy = ResolveCurrentUserId(),
@@ -296,7 +354,16 @@ public class ProductController : ProductControllerBase
             return BadRequest(new { message = "تغییر واحد پایه محصول پس از ثبت مجاز نیست." });
         }
 
-        var validationError = await ValidateMeaurmentsAsync(request, cancellationToken);
+        if (entity.ProductKind != request.ProductKind &&
+            await IsProductUsedAsync(id, cancellationToken))
+        {
+            return BadRequest(new
+            {
+                message = "به‌خاطر سابقه خرید، فروش، تولید یا موجودی، تغییر نوع محصول مجاز نیست.",
+            });
+        }
+
+        var validationError = await ValidateSaveRequestAsync(request, cancellationToken);
         if (validationError is not null)
         {
             return BadRequest(new { message = validationError });
@@ -305,7 +372,14 @@ public class ProductController : ProductControllerBase
         entity.Name = request.Name.Trim();
         entity.Description = request.Description?.Trim();
         entity.DefaultMeaurmentId = request.DefaultMeaurmentId;
-        entity.DefaultSalePrice = request.DefaultSalePrice;
+        entity.ProductKind = request.ProductKind;
+        entity.SalePriceMode = request.SalePriceMode;
+        entity.SaleProfitPercent = request.SalePriceMode == ProductSalePriceMode.ProfitPercent
+            ? request.SaleProfitPercent
+            : 0;
+        entity.DefaultSalePrice = request.SalePriceMode == ProductSalePriceMode.Fixed
+            ? request.DefaultSalePrice
+            : 0;
         entity.MinStockQuantity = request.MinStockQuantity;
         entity.IsActive = request.IsActive;
         entity.IsUpdated = true;
@@ -386,10 +460,26 @@ public class ProductController : ProductControllerBase
         }
     }
 
-    private async Task<string?> ValidateMeaurmentsAsync(
+    private async Task<string?> ValidateSaveRequestAsync(
         SaveProductRequest request,
         CancellationToken cancellationToken)
     {
+        if (!Enum.IsDefined(request.ProductKind))
+        {
+            return "نوع محصول نامعتبر است.";
+        }
+
+        if (!Enum.IsDefined(request.SalePriceMode))
+        {
+            return "حالت قیمت فروش نامعتبر است.";
+        }
+
+        if (request.SalePriceMode == ProductSalePriceMode.ProfitPercent &&
+            request.SaleProfitPercent <= 0)
+        {
+            return "در حالت متغیر، درصد سود باید بزرگ‌تر از صفر باشد.";
+        }
+
         if (request.MeaurmentIds is null || request.MeaurmentIds.Count == 0)
         {
             return "حداقل یک واحد اندازه‌گیری برای محصول انتخاب کنید.";
@@ -417,6 +507,73 @@ public class ProductController : ProductControllerBase
         }
 
         return null;
+    }
+
+    private async Task<bool> IsProductUsedAsync(int productId, CancellationToken cancellationToken)
+    {
+        if (await Db.PurchaseItems.AnyAsync(
+                i => i.ProductId == productId && i.IsDeleted != true, cancellationToken))
+        {
+            return true;
+        }
+
+        if (await Db.SalesItems.AnyAsync(
+                i => i.ProductId == productId && i.IsDeleted != true, cancellationToken))
+        {
+            return true;
+        }
+
+        if (await Db.ProductionFormulas.AnyAsync(
+                f => f.ProductId == productId && f.IsDeleted != true, cancellationToken))
+        {
+            return true;
+        }
+
+        if (await Db.ProductionFormulaMaterialLines.AnyAsync(
+                l => l.ProductId == productId && l.IsDeleted != true, cancellationToken))
+        {
+            return true;
+        }
+
+        if (await Db.ProductionInputLines.AnyAsync(
+                l => l.ProductId == productId && l.IsDeleted != true, cancellationToken))
+        {
+            return true;
+        }
+
+        if (await Db.ProductionOutputLines.AnyAsync(
+                l => l.ProductId == productId && l.IsDeleted != true, cancellationToken))
+        {
+            return true;
+        }
+
+        if (await Db.ProductionPlans.AnyAsync(
+                p => p.ProductId == productId && p.IsDeleted != true, cancellationToken))
+        {
+            return true;
+        }
+
+        return await Db.InventoryLots.AnyAsync(
+            l => l.ProductId == productId && l.IsDeleted != true, cancellationToken);
+    }
+
+    private static List<ProductKind> ParseKinds(string? kinds)
+    {
+        if (string.IsNullOrWhiteSpace(kinds))
+        {
+            return [];
+        }
+
+        var result = new List<ProductKind>();
+        foreach (var part in kinds.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+        {
+            if (int.TryParse(part, out var value) && Enum.IsDefined(typeof(ProductKind), value))
+            {
+                result.Add((ProductKind)value);
+            }
+        }
+
+        return result;
     }
 
     private async Task SyncProductRelationsAsync(
@@ -518,6 +675,14 @@ public class ProductController : ProductControllerBase
         public int BaseMeaurmentId { get; set; }
 
         public int? DefaultMeaurmentId { get; set; }
+
+        [Required]
+        public ProductKind ProductKind { get; set; } = ProductKind.Processed;
+
+        [Required]
+        public ProductSalePriceMode SalePriceMode { get; set; } = ProductSalePriceMode.Fixed;
+
+        public decimal SaleProfitPercent { get; set; }
 
         public decimal DefaultSalePrice { get; set; }
 

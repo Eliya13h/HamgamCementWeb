@@ -216,7 +216,7 @@ public class CustomerController : ControllerBase
             _db.Customers.Add(customer);
             await _db.SaveChangesAsync(cancellationToken);
 
-            if (customer.InitialBalance > 0)
+            if (customer.InitialBalance != 0)
             {
                 await _opening.PostCustomerOpeningAsync(
                     customer.CustomerID,

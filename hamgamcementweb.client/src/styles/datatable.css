@@ -547,15 +547,25 @@
   position: sticky;
   top: 0;
   z-index: 2;
-  background: var(--bs-body-bg, #fff);
-  box-shadow: 0 1px 0 rgba(0, 0, 0, 0.08);
+  background: var(--hc-bg-elevated, var(--bs-body-bg, #fff));
+  color: var(--hc-text, inherit);
+  box-shadow: 0 1px 0 var(--hc-border, rgba(0, 0, 0, 0.08));
 }
 
 .production-page .production-summary {
-  border: 1px solid rgba(0, 0, 0, 0.08);
+  border: 1px solid var(--hc-border, rgba(0, 0, 0, 0.08));
   border-radius: 0.5rem;
   padding: 0.85rem 1rem;
-  background: rgba(0, 0, 0, 0.02);
+  background: var(--hc-bg-surface, rgba(0, 0, 0, 0.02));
+  color: var(--hc-text, inherit);
+}
+
+.production-page .production-summary-section-title {
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: var(--hc-text, #1a1f2e);
+  margin-bottom: 0.35rem;
+  letter-spacing: 0.01em;
 }
 
 .production-page .production-summary-row {
@@ -563,13 +573,20 @@
   justify-content: space-between;
   gap: 1rem;
   padding: 0.2rem 0;
+  color: var(--hc-text, inherit);
 }
 
 .production-page .production-summary-row.total {
   font-weight: 700;
-  border-top: 1px solid rgba(0, 0, 0, 0.1);
+  border-top: 1px solid var(--hc-border, rgba(0, 0, 0, 0.1));
   margin-top: 0.35rem;
   padding-top: 0.45rem;
+  color: var(--hc-text, inherit);
+}
+
+.production-page .production-summary-row.text-muted,
+.production-page .production-summary .text-muted {
+  color: var(--hc-text-muted, #6b7280) !important;
 }
 
 .btn-accent {

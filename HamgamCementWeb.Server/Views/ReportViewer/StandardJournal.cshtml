@@ -1,0 +1,344 @@
+@model HamgamCementWeb.Server.Services.StandardJournalPrintModel
+@using System.Globalization
+@{
+    Layout = null;
+    string Money(decimal value) => value.ToString("#,##0.##", CultureInfo.InvariantCulture);
+}
+<!DOCTYPE html>
+<html lang="fa" dir="rtl">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>@Model.ReportTitle</title>
+    <style>
+        @@font-face {
+            font-family: 'NotoNastaliq';
+            src: url('/report-fonts/NotoNastaliqUrdu-SemiBold.ttf') format('truetype');
+            font-weight: 600;
+            font-style: normal;
+        }
+
+        :root {
+            --ink: #111;
+            --muted: #003060;
+            --line: #222;
+            --soft: #f3f3f3;
+            --softer: #ebebeb;
+        }
+
+        * { box-sizing: border-box; }
+
+        html, body {
+            margin: 0;
+            padding: 0;
+            background: #5a5a5a;
+            color: var(--ink);
+            font-family: Tahoma, 'Segoe UI', sans-serif;
+        }
+
+        .toolbar {
+            position: sticky;
+            top: 0;
+            z-index: 20;
+            display: flex;
+            gap: 8px;
+            justify-content: center;
+            padding: 12px;
+            background: #222;
+        }
+
+        .toolbar button {
+            border: 0;
+            border-radius: 8px;
+            padding: 10px 18px;
+            font-family: Tahoma, sans-serif;
+            font-size: 14px;
+            cursor: pointer;
+            background: #0f766e;
+            color: #fff;
+        }
+
+        .toolbar button.secondary {
+            background: #444;
+        }
+
+        .sheet-wrap {
+            padding: 20px 0 40px;
+        }
+
+        .page {
+            width: 210mm;
+            min-height: 297mm;
+            margin: 0 auto 16px;
+            padding: 8mm 8mm 10mm;
+            background: #fff;
+            box-shadow: 0 8px 24px rgba(0, 0, 0, 0.28);
+            display: flex;
+            flex-direction: column;
+        }
+
+        .page-header {
+            margin-bottom: 4mm;
+        }
+
+        .brand-row {
+            display: grid;
+            grid-template-columns: 26mm 1fr 26mm;
+            gap: 4mm;
+            align-items: center;
+        }
+
+        .brand-row img {
+            width: 26mm;
+            height: 26mm;
+            object-fit: contain;
+        }
+
+        .brand-center {
+            text-align: center;
+        }
+
+        .brand-fa {
+            font-family: 'NotoNastaliq', Tahoma, serif;
+            font-size: 18px;
+            line-height: 1.5;
+            margin: 0;
+        }
+
+        .brand-en {
+            font-family: Georgia, 'Times New Roman', serif;
+            font-style: italic;
+            font-size: 14px;
+            margin: 2px 0 0;
+            color: #222;
+        }
+
+        .header-rule {
+            height: 2px;
+            margin: 3mm 0 2mm;
+            background: linear-gradient(90deg, transparent, #333 12%, #333 88%, transparent);
+        }
+
+        .meta-row {
+            display: grid;
+            grid-template-columns: 1fr 1.4fr 1fr;
+            gap: 2mm;
+            align-items: end;
+            font-size: 12px;
+        }
+
+        .meta-row .center {
+            text-align: center;
+        }
+
+        .meta-row .title {
+            font-weight: 700;
+            font-size: 15px;
+            margin: 0;
+        }
+
+        .meta-row .range {
+            margin: 2px 0 0;
+            font-size: 12px;
+        }
+
+        .journal-table {
+            width: 100%;
+            border-collapse: collapse;
+            table-layout: fixed;
+            font-size: 11px;
+            margin-top: 2mm;
+        }
+
+        .journal-table th,
+        .journal-table td {
+            border: 1px solid var(--line);
+            padding: 2.2mm 1.5mm;
+            vertical-align: top;
+        }
+
+        .journal-table th {
+            background: #fff;
+            color: var(--muted);
+            font-weight: 700;
+            text-align: center;
+            font-size: 12px;
+        }
+
+        .col-num { width: 8%; text-align: center; }
+        .col-date { width: 12%; text-align: center; }
+        .col-code { width: 8%; text-align: center; }
+        .col-desc { width: 38%; text-align: right; }
+        .col-ref { width: 8%; text-align: center; }
+        .col-debit { width: 13%; text-align: center; }
+        .col-credit { width: 13%; text-align: center; }
+
+        .credit-desc {
+            padding-right: 8mm !important;
+        }
+
+        .row-special {
+            background: var(--soft);
+            font-weight: 700;
+        }
+
+        .row-total {
+            background: var(--softer);
+            font-weight: 700;
+        }
+
+        .page-body {
+            flex: 1;
+        }
+
+        .empty-note {
+            text-align: center;
+            color: #666;
+            padding: 8mm 0;
+            font-size: 13px;
+        }
+
+        @@media print {
+            html, body {
+                background: #fff;
+            }
+
+            .toolbar {
+                display: none !important;
+            }
+
+            .sheet-wrap {
+                padding: 0;
+            }
+
+            .page {
+                width: 210mm;
+                min-height: auto;
+                height: 297mm;
+                margin: 0;
+                padding: 8mm;
+                box-shadow: none;
+                page-break-after: always;
+                break-after: page;
+            }
+
+            .page:last-child {
+                page-break-after: auto;
+                break-after: auto;
+            }
+
+            @@page {
+                size: A4 portrait;
+                margin: 0;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="toolbar no-print">
+        <button type="button" onclick="window.print()">چاپ / خروجی PDF</button>
+        <button type="button" class="secondary" onclick="window.close()">بستن</button>
+    </div>
+
+    <div class="sheet-wrap">
+        @for (var i = 0; i < Model.Pages.Count; i++)
+        {
+            var page = Model.Pages[i];
+            var showFullHeader = i == 0;
+            <section class="page">
+                <header class="page-header">
+                    @if (showFullHeader)
+                    {
+                        <div class="brand-row">
+                            <div>
+                                @if (!string.IsNullOrWhiteSpace(Model.CompanyLogoDataUri))
+                                {
+                                    <img src="@Model.CompanyLogoDataUri" alt="لوگو شرکت" />
+                                }
+                            </div>
+                            <div class="brand-center">
+                                <p class="brand-fa">@Model.PersianCompanyName</p>
+                                <p class="brand-en">@Model.EnglishCompanyName</p>
+                            </div>
+                            <div>
+                                @if (!string.IsNullOrWhiteSpace(Model.ZmLogoDataUri))
+                                {
+                                    <img src="@Model.ZmLogoDataUri" alt="لوگو" />
+                                }
+                            </div>
+                        </div>
+                        <div class="header-rule"></div>
+                    }
+                    <div class="meta-row">
+                        <div>صفحه @(page.PageNumber) از @(page.TotalPages)</div>
+                        <div class="center">
+                            <p class="title">@Model.ReportTitle</p>
+                            <p class="range">@Model.ReportRangeDate</p>
+                        </div>
+                        <div style="text-align:left">تاریخ چاپ : @Model.PrintDate</div>
+                    </div>
+                </header>
+
+                <div class="page-body">
+                    <table class="journal-table">
+                        <thead>
+                            <tr>
+                                <th class="col-num">#</th>
+                                <th class="col-date">تاریخ</th>
+                                <th class="col-code">کد کل</th>
+                                <th class="col-desc">شرح</th>
+                                <th class="col-ref">عطف</th>
+                                <th class="col-debit">بدهکار</th>
+                                <th class="col-credit">بستانکار</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr class="row-special">
+                                <td class="col-num"></td>
+                                <td class="col-date"></td>
+                                <td class="col-code"></td>
+                                <td class="col-desc">مانده از صفحه قبل</td>
+                                <td class="col-ref"></td>
+                                <td class="col-debit">@Money(page.BroughtForwardDebit)</td>
+                                <td class="col-credit">@Money(page.BroughtForwardCredit)</td>
+                            </tr>
+
+                            @if (page.Rows.Count == 0)
+                            {
+                                <tr>
+                                    <td colspan="7" class="empty-note">در این بازه سندی ثبت نشده است.</td>
+                                </tr>
+                            }
+                            else
+                            {
+                                foreach (var row in page.Rows)
+                                {
+                                    <tr>
+                                        <td class="col-num">@(row.IsFirstLineOfEntry ? row.RowNumber.ToString(CultureInfo.InvariantCulture) : "")</td>
+                                        <td class="col-date">@(row.IsFirstLineOfEntry ? row.ShamsiDate : "")</td>
+                                        <td class="col-code">@row.AccountCode</td>
+                                        <td class="col-desc @(row.IsCredit ? "credit-desc" : "")">@row.Description</td>
+                                        <td class="col-ref">@row.PostRefNumber</td>
+                                        <td class="col-debit">@(row.Debet > 0 ? Money(row.Debet) : "")</td>
+                                        <td class="col-credit">@(row.Credit > 0 ? Money(row.Credit) : "")</td>
+                                    </tr>
+                                }
+                            }
+
+                            <tr class="row-total">
+                                <td class="col-num"></td>
+                                <td class="col-date"></td>
+                                <td class="col-code"></td>
+                                <td class="col-desc">جمع کل</td>
+                                <td class="col-ref"></td>
+                                <td class="col-debit">@Money(page.TotalDebit)</td>
+                                <td class="col-credit">@Money(page.TotalCredit)</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </section>
+        }
+    </div>
+</body>
+</html>

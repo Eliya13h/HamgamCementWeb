@@ -42,7 +42,8 @@ const journalSections = [
 ]
 
 function JournalSection({ section, dateFrom, dateTo, onDateFromChange, onDateToChange, onError }) {
-  const isPurchaseOrSale = section.type === 'purchase' || section.type === 'sale'
+  const allowsOptionalDates =
+    section.type === 'purchase' || section.type === 'sale' || section.type === 'general'
 
   const handleGenerate = () => {
     if (!section.enabled) {
@@ -53,7 +54,7 @@ function JournalSection({ section, dateFrom, dateTo, onDateFromChange, onDateToC
     const hasTo = Boolean(dateTo)
     const hasBothDates = hasFrom && hasTo
 
-    if (!isPurchaseOrSale && !hasBothDates) {
+    if (!allowsOptionalDates && !hasBothDates) {
       onError('لطفاً بازه تاریخ را انتخاب کنید.')
       return
     }
@@ -123,9 +124,9 @@ function JournalPage() {
       <div className="card-body p-4">
         <h2 className="card-title mb-2">روزنامچه</h2>
         <p className="text-muted mb-4">
-          برای روزنامچه خرید و فروش می‌توانید بازه تاریخ را خالی بگذارید (کل دوره)، فقط «از تاریخ» (تا
-          انتها)، فقط «تا تاریخ» (از ابتدا)، یا هر دو را انتخاب کنید. برای سایر بخش‌ها بازه تاریخ
-          الزامی است.
+          برای روزنامچه خرید، فروش و عمومی می‌توانید بازه تاریخ را خالی بگذارید (کل دوره)، فقط «از
+          تاریخ» (تا انتها)، فقط «تا تاریخ» (از ابتدا)، یا هر دو را انتخاب کنید. برای سایر بخش‌ها بازه
+          تاریخ الزامی است. روزنامچه عمومی دفتر روزنامه استاندارد دوطرفه است.
         </p>
 
         {error && <div className="alert alert-danger py-2 mb-3">{error}</div>}

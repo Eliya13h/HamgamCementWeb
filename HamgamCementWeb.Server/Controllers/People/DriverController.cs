@@ -3,6 +3,7 @@ using System.Security.Claims;
 using HamgamCementWeb.Server.Authorization;
 using HamgamCementWeb.Server.Data;
 using HamgamCementWeb.Server.Data.Models.People;
+using HamgamCementWeb.Server.Services;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
@@ -14,20 +15,13 @@ namespace HamgamCementWeb.Server.Controllers.People;
 [Authorize]
 public class DriverController : ControllerBase
 {
-    private static readonly Dictionary<int, string> OrderColumns = new()
-    {
-        [1] = "FullName",
-        [2] = nameof(Driver.NationalCode),
-        [3] = nameof(Driver.Mobile),
-        [4] = nameof(Driver.DefaultShare),
-        [5] = nameof(Driver.IsActive),
-    };
-
     private readonly AppDbContext _db;
+    private readonly IDriverReadService _reads;
 
-    public DriverController(AppDbContext db)
+    public DriverController(AppDbContext db, IDriverReadService reads)
     {
         _db = db;
+        _reads = reads;
     }
 
     [HttpPost("datatable")]
@@ -36,63 +30,28 @@ public class DriverController : ControllerBase
         [FromBody] DataTableRequest request,
         CancellationToken cancellationToken)
     {
-        var draw = request.Draw;
-        var start = Math.Max(request.Start, 0);
-        var length = request.Length <= 0 ? 10 : Math.Min(request.Length, 100);
-
-        var query = _db.Drivers
-            .AsNoTracking()
-            .Where(d => d.IsDeleted != true);
-
-        var recordsTotal = await query.CountAsync(cancellationToken);
-
-        var searchValue = request.Search?.Value?.Trim();
-        if (!string.IsNullOrWhiteSpace(searchValue))
-        {
-            query = query.Where(d =>
-                d.Name.Contains(searchValue) ||
-                d.Family.Contains(searchValue) ||
-                d.NationalCode.Contains(searchValue) ||
-                d.Mobile.Contains(searchValue));
-        }
-
-        var recordsFiltered = await query.CountAsync(cancellationToken);
-
-        var orderedQuery = ApplyOrdering(query, request.Order);
-        var rows = await orderedQuery
-            .Skip(start)
-            .Take(length)
-            .Select(d => new DriverTableRow
+        var result = await _reads.QueryDataTableAsync(
+            new DriverDataTableQuery
             {
-                DriverId = d.DriverID,
-                Title = d.Title,
-                Name = d.Name,
-                FatherName = d.FatherName,
-                Family = d.Family,
-                NationalCode = d.NationalCode,
-                Mobile = d.Mobile,
-                Address = d.Address,
-                DefaultShare = d.DefaultShare,
-                IsActive = d.IsActive == true,
-            })
-            .ToListAsync(cancellationToken);
-
-        for (var i = 0; i < rows.Count; i++)
-        {
-            rows[i].RowNumber = start + i + 1;
-            rows[i].FullName = $"{rows[i].Name} {rows[i].Family}".Trim();
-        }
+                Start = request.Start,
+                Length = request.Length,
+                Search = request.Search?.Value,
+                Order = request.Order?
+                    .Select(o => new DataTableOrderItem { Column = o.Column, Dir = o.Dir })
+                    .ToList(),
+            },
+            cancellationToken);
 
         return Ok(new
         {
-            draw,
-            recordsTotal,
-            recordsFiltered,
-            data = rows.Select(r => new
+            draw = request.Draw,
+            recordsTotal = result.RecordsTotal,
+            recordsFiltered = result.RecordsFiltered,
+            data = result.Rows.Select(r => new
             {
                 r.RowNumber,
                 r.DriverId,
-                title = (int)r.Title,
+                title = r.Title,
                 r.Name,
                 r.FatherName,
                 r.Family,
@@ -109,20 +68,13 @@ public class DriverController : ControllerBase
     [HttpGet("list")]
     public async Task<IActionResult> List(CancellationToken cancellationToken)
     {
-        var items = await _db.Drivers
-            .AsNoTracking()
-            .Where(d => d.IsDeleted != true && d.IsActive == true)
-            .OrderBy(d => d.Name)
-            .ThenBy(d => d.Family)
-            .Select(d => new
-            {
-                value = d.DriverID,
-                label = d.Name + " " + d.Family,
-                defaultVehicleId = d.DefaultVehicleId,
-            })
-            .ToListAsync(cancellationToken);
-
-        return Ok(items);
+        var items = await _reads.ListActiveAsync(cancellationToken);
+        return Ok(items.Select(d => new
+        {
+            value = d.Value,
+            label = d.Label,
+            defaultVehicleId = d.DefaultVehicleId,
+        }));
     }
 
     [HttpPost]
@@ -221,64 +173,6 @@ public class DriverController : ControllerBase
         return Ok(new { message = "راننده با موفقیت حذف شد." });
     }
 
-    private static IQueryable<Driver> ApplyOrdering(
-        IQueryable<Driver> query,
-        List<DataTableOrder>? orders)
-    {
-        if (orders is null || orders.Count == 0)
-        {
-            return query.OrderByDescending(d => d.CreatedAt);
-        }
-
-        IOrderedQueryable<Driver>? ordered = null;
-        foreach (var order in orders)
-        {
-            if (!OrderColumns.TryGetValue(order.Column, out var column))
-            {
-                continue;
-            }
-
-            var descending = string.Equals(order.Dir, "desc", StringComparison.OrdinalIgnoreCase);
-
-            ordered = column switch
-            {
-                "FullName" when ordered is null => descending
-                    ? query.OrderByDescending(d => d.Family).ThenByDescending(d => d.Name)
-                    : query.OrderBy(d => d.Family).ThenBy(d => d.Name),
-                "FullName" => descending
-                    ? ordered!.ThenByDescending(d => d.Family).ThenByDescending(d => d.Name)
-                    : ordered!.ThenBy(d => d.Family).ThenBy(d => d.Name),
-                nameof(Driver.NationalCode) when ordered is null => descending
-                    ? query.OrderByDescending(d => d.NationalCode)
-                    : query.OrderBy(d => d.NationalCode),
-                nameof(Driver.NationalCode) => descending
-                    ? ordered!.ThenByDescending(d => d.NationalCode)
-                    : ordered!.ThenBy(d => d.NationalCode),
-                nameof(Driver.Mobile) when ordered is null => descending
-                    ? query.OrderByDescending(d => d.Mobile)
-                    : query.OrderBy(d => d.Mobile),
-                nameof(Driver.Mobile) => descending
-                    ? ordered!.ThenByDescending(d => d.Mobile)
-                    : ordered!.ThenBy(d => d.Mobile),
-                nameof(Driver.DefaultShare) when ordered is null => descending
-                    ? query.OrderByDescending(d => d.DefaultShare)
-                    : query.OrderBy(d => d.DefaultShare),
-                nameof(Driver.DefaultShare) => descending
-                    ? ordered!.ThenByDescending(d => d.DefaultShare)
-                    : ordered!.ThenBy(d => d.DefaultShare),
-                nameof(Driver.IsActive) when ordered is null => descending
-                    ? query.OrderByDescending(d => d.IsActive)
-                    : query.OrderBy(d => d.IsActive),
-                nameof(Driver.IsActive) => descending
-                    ? ordered!.ThenByDescending(d => d.IsActive)
-                    : ordered!.ThenBy(d => d.IsActive),
-                _ => ordered,
-            };
-        }
-
-        return ordered ?? query.OrderByDescending(d => d.CreatedAt);
-    }
-
     private int? ResolveCurrentUserId()
     {
         var userIdClaim = User.FindFirstValue(ClaimTypes.NameIdentifier);
@@ -304,22 +198,6 @@ public class DriverController : ControllerBase
     {
         public int Column { get; set; }
         public string Dir { get; set; } = "asc";
-    }
-
-    public class DriverTableRow
-    {
-        public int RowNumber { get; set; }
-        public int DriverId { get; set; }
-        public PersonTitle Title { get; set; }
-        public string Name { get; set; } = string.Empty;
-        public string FatherName { get; set; } = string.Empty;
-        public string Family { get; set; } = string.Empty;
-        public string FullName { get; set; } = string.Empty;
-        public string NationalCode { get; set; } = string.Empty;
-        public string Mobile { get; set; } = string.Empty;
-        public string Address { get; set; } = string.Empty;
-        public decimal DefaultShare { get; set; }
-        public bool IsActive { get; set; }
     }
 
     public class SaveDriverRequest
