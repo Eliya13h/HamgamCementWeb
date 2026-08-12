@@ -15,7 +15,6 @@ public static class ChartOfAccountsSeeder
             await EnsureProductionCostAccountsAsync(db, cancellationToken);
             await EnsureFixedAssetAccountsAsync(db, cancellationToken);
             await EnsureEquityAccountsAsync(db, cancellationToken);
-            await EnsureTransportRevenueAccountAsync(db, cancellationToken);
             await EnsureFxAccountsAsync(db, cancellationToken);
             await EnsureCompletenessAccountsAsync(db, cancellationToken);
             await MapCategoryAccountsAsync(db, cancellationToken);
@@ -118,7 +117,6 @@ public static class ChartOfAccountsSeeder
         Add("411", "فروش کالا", AccountLevel.Moein, AccountType.Revenue, AccountNature.Credit, salesKol, AccountSystemCode.ProductSales, postable: true);
         Add("421", "سایر درآمدها", AccountLevel.Moein, AccountType.Revenue, AccountNature.Credit, otherRevKol, AccountSystemCode.OtherRevenue, postable: true);
         Add("422", "سود فروش دارایی ثابت", AccountLevel.Moein, AccountType.Revenue, AccountNature.Credit, otherRevKol, AccountSystemCode.FixedAssetDisposalGain, postable: true);
-        Add("423", "درآمد حمل‌ونقل", AccountLevel.Moein, AccountType.Revenue, AccountNature.Credit, otherRevKol, AccountSystemCode.TransportRevenue, postable: true);
         Add("424", "سود تسعیر ارز", AccountLevel.Moein, AccountType.Revenue, AccountNature.Credit, otherRevKol, AccountSystemCode.FxGain, postable: true);
         await db.SaveChangesAsync(cancellationToken);
 
@@ -139,12 +137,10 @@ public static class ChartOfAccountsSeeder
         await db.SaveChangesAsync(cancellationToken);
 
         var opexKol = Add("61", "هزینه‌های عملیاتی", AccountLevel.Kol, AccountType.Expense, AccountNature.Debit, expenses, null);
-        var transportKol = Add("62", "حمل‌ونقل", AccountLevel.Kol, AccountType.Expense, AccountNature.Debit, expenses, null);
         var miscKol = Add("69", "متفرقه", AccountLevel.Kol, AccountType.Expense, AccountNature.Debit, expenses, null);
         await db.SaveChangesAsync(cancellationToken);
 
         var opex = Add("611", "هزینه عملیاتی", AccountLevel.Moein, AccountType.Expense, AccountNature.Debit, opexKol, AccountSystemCode.OperatingExpense, postable: true);
-        var transport = Add("621", "هزینه حمل‌ونقل", AccountLevel.Moein, AccountType.Expense, AccountNature.Debit, transportKol, AccountSystemCode.TransportExpense, postable: true);
         var misc = Add("691", "هزینه متفرقه", AccountLevel.Moein, AccountType.Expense, AccountNature.Debit, miscKol, AccountSystemCode.MiscExpense, postable: true);
         Add("612", "دستمزد مستقیم تولید", AccountLevel.Moein, AccountType.Expense, AccountNature.Debit, opexKol, AccountSystemCode.ProductionWage, postable: true);
         Add("613", "سربار تولید", AccountLevel.Moein, AccountType.Expense, AccountNature.Debit, opexKol, AccountSystemCode.ProductionOverhead, postable: true);
@@ -166,7 +162,7 @@ public static class ChartOfAccountsSeeder
         await MapCategoryAccountsAsync(db, cancellationToken);
         await EnsureCompletenessAccountsAsync(db, cancellationToken);
 
-        _ = (opex, transport, misc, banks, invRaw, invSemi, invFg);
+        _ = (opex, misc, banks, invRaw, invSemi, invFg);
     }
 
     // حساب‌های مالیات، کسورات حقوق و ذخیره مطالبات برای تمامی پایگاه‌های داده
@@ -371,45 +367,6 @@ public static class ChartOfAccountsSeeder
             await EnsureMoein("692", "زیان فروش دارایی ثابت", AccountSystemCode.FixedAssetDisposalLoss, miscKol, AccountNature.Debit, AccountType.Expense);
         }
 
-        await db.SaveChangesAsync(cancellationToken);
-    }
-
-    // حساب درآمد حمل‌ونقل برای دیتابیس‌های از قبل seedشده
-    private static async Task EnsureTransportRevenueAccountAsync(AppDbContext db, CancellationToken cancellationToken)
-    {
-        var otherRevKol = await db.Accounts
-            .FirstOrDefaultAsync(
-                a => a.Code == "42" && a.Level == AccountLevel.Kol && a.IsDeleted != true,
-                cancellationToken);
-        if (otherRevKol is null)
-        {
-            return;
-        }
-
-        var exists = await db.Accounts.AnyAsync(
-            a => (a.SystemCode == AccountSystemCode.TransportRevenue || a.Code == "423")
-                 && a.IsDeleted != true,
-            cancellationToken);
-        if (exists)
-        {
-            return;
-        }
-
-        db.Accounts.Add(new Account
-        {
-            Code = "423",
-            Name = "درآمد حمل‌ونقل",
-            Level = AccountLevel.Moein,
-            ParentAccountId = otherRevKol.AccountID,
-            AccountType = AccountType.Revenue,
-            Nature = AccountNature.Credit,
-            IsPostable = true,
-            IsSystem = true,
-            SystemCode = AccountSystemCode.TransportRevenue,
-            IsActive = true,
-            IsDeleted = false,
-            CreatedAt = DateTime.Now,
-        });
         await db.SaveChangesAsync(cancellationToken);
     }
 
@@ -670,10 +627,8 @@ public static class ChartOfAccountsSeeder
 
         // خرید محصولات به موجودی محصول ساخته نگاشت می‌شود (نه هزینه) — دسته برای لایه عملیاتی می‌ماند
         await MapExpense(FinanceCategoryCode.MiscellaneousExpense, AccountSystemCode.MiscExpense);
-        await MapExpense(FinanceCategoryCode.TransportExpense, AccountSystemCode.TransportExpense);
         await MapRevenue(FinanceCategoryCode.ProductSale, AccountSystemCode.ProductSales);
         await MapRevenue(FinanceCategoryCode.MiscellaneousRevenue, AccountSystemCode.OtherRevenue);
-        await MapRevenue(FinanceCategoryCode.TransportRevenue, AccountSystemCode.TransportRevenue);
 
         // دسته خرید: حساب موجودی FG به‌عنوان مرجع پیش‌فرض (ثبت واقعی در Posting جداگانه است)
         var purchaseCat = await db.ExpenseCategories

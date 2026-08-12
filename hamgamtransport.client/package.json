@@ -1,0 +1,53 @@
+{
+  "name": "hamgamtransport.client",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "lint": "eslint .",
+    "preview": "vite preview",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "bootstrap": "^5.3.8",
+    "datatables.net": "2.3.8",
+    "datatables.net-bs5": "^2.3.8",
+    "datatables.net-buttons-bs5": "^3.2.6",
+    "datatables.net-fixedcolumns-bs5": "^5.0.5",
+    "datatables.net-fixedheader-bs5": "^4.0.6",
+    "datatables.net-react": "^1.0.2",
+    "datatables.net-responsive-bs5": "^3.0.8",
+    "datatables.net-scroller-bs5": "^2.4.3",
+    "datatables.net-searchbuilder-bs5": "^1.8.4",
+    "datatables.net-searchpanes-bs5": "^2.3.5",
+    "datatables.net-select-bs5": "^3.1.3",
+    "jquery": "^3.7.1",
+    "jszip": "^3.10.1",
+    "pdfmake": "^0.3.10",
+    "react": "^19.2.6",
+    "react-date-object": "^2.1.9",
+    "react-dom": "^19.2.6",
+    "react-multi-date-picker": "^4.5.2",
+    "react-router-dom": "^7.15.1",
+    "recharts": "^3.9.2"
+  },
+  "overrides": {
+    "datatables.net": "2.3.8",
+    "jquery": "$jquery"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@types/react": "^19.2.14",
+    "@types/react-dom": "^19.2.3",
+    "@vitejs/plugin-react": "^6.0.1",
+    "eslint": "^10.3.0",
+    "eslint-plugin-react-hooks": "^7.1.1",
+    "eslint-plugin-react-refresh": "^0.5.2",
+    "globals": "^17.6.0",
+    "vite": "^8.0.12",
+    "vitest": "^3.2.7"
+  }
+}

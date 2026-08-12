@@ -4,9 +4,12 @@ using HamgamCementWeb.Server.Authorization;
 using HamgamCementWeb.Server.Data;
 using HamgamCementWeb.Server.Data.Models.Finance;
 using HamgamCementWeb.Server.Services;
+using Hamgam.Shared.CurrencySync;
+using Hamgam.Shared.Services;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
 
 namespace HamgamCementWeb.Server.Controllers.Finance;
 
@@ -37,20 +40,28 @@ public class CurrencyController : ControllerBase
     private readonly AppDbContext _db;
     private readonly ICurrencyConversionService _currency;
     private readonly ICurrencyExchangeRateService _exchangeRates;
+    private readonly ICurrencyReferenceSyncService _currencySync;
+    private readonly CurrencySyncOptions _syncOptions;
 
     public CurrencyController(
         AppDbContext db,
         ICurrencyConversionService currency,
-        ICurrencyExchangeRateService exchangeRates)
+        ICurrencyExchangeRateService exchangeRates,
+        ICurrencyReferenceSyncService currencySync,
+        IOptions<CurrencySyncOptions> syncOptions)
     {
         _db = db;
         _currency = currency;
         _exchangeRates = exchangeRates;
+        _currencySync = currencySync;
+        _syncOptions = syncOptions.Value;
     }
 
     [HttpGet("list")]
     public async Task<IActionResult> List(CancellationToken cancellationToken)
     {
+        await _currencySync.SyncFromReferenceToLocalAsync(cancellationToken);
+
         var items = await _db.Currencies
             .AsNoTracking()
             .Where(c => c.IsDeleted != true && c.IsActive == true)
@@ -64,6 +75,7 @@ public class CurrencyController : ControllerBase
                 c.CurrencyCode,
                 c.IsBaseCurrency,
                 c.DecimalPlaces,
+                c.UseInBothSystems,
             })
             .ToListAsync(cancellationToken);
 
@@ -145,6 +157,8 @@ public class CurrencyController : ControllerBase
         [FromBody] DataTableRequest request,
         CancellationToken cancellationToken)
     {
+        await _currencySync.SyncFromReferenceToLocalAsync(cancellationToken);
+
         var draw = request.Draw;
         var start = Math.Max(request.Start, 0);
         var length = request.Length <= 0 ? 10 : Math.Min(request.Length, 100);
@@ -181,6 +195,7 @@ public class CurrencyController : ControllerBase
                 IsBaseCurrency = c.IsBaseCurrency,
                 DecimalPlaces = c.DecimalPlaces,
                 IsActive = c.IsActive == true,
+                UseInBothSystems = c.UseInBothSystems,
                 CurrentRate = _db.CurrencyExchangeRates
                     .Where(r => r.CurrencyID == c.CurrencyID)
                     .Select(r => (decimal?)r.BaseUnitsPerUnit)
@@ -313,6 +328,8 @@ public class CurrencyController : ControllerBase
             Description = request.Description?.Trim(),
             DecimalPlaces = request.DecimalPlaces,
             IsBaseCurrency = request.IsBaseCurrency,
+            UseInBothSystems = request.UseInBothSystems,
+            OriginSystem = _syncOptions.SystemCode,
             CreatedBy = userId,
             CreatedAt = now,
             IsActive = request.IsActive,
@@ -339,6 +356,8 @@ public class CurrencyController : ControllerBase
                 userId,
                 cancellationToken);
         }
+
+        await _currencySync.PushLocalCurrencyToReferenceAsync(currency.CurrencyCode, cancellationToken);
 
         return CreatedAtAction(
             nameof(Update),
@@ -390,11 +409,14 @@ public class CurrencyController : ControllerBase
         currency.DecimalPlaces = request.DecimalPlaces;
         currency.IsBaseCurrency = request.IsBaseCurrency;
         currency.IsActive = request.IsActive;
+        currency.UseInBothSystems = request.UseInBothSystems;
         currency.UpdatedAt = DateTime.Now;
         currency.IsUpdated = true;
         currency.UpdatedBy = ResolveCurrentUserId();
 
         await _db.SaveChangesAsync(cancellationToken);
+
+        await _currencySync.PushLocalCurrencyToReferenceAsync(currency.CurrencyCode, cancellationToken);
 
         return Ok(new { message = "ارز با موفقیت ویرایش شد." });
     }
@@ -505,6 +527,8 @@ public class CurrencyController : ControllerBase
 
         await setBaseTransaction.CommitAsync(cancellationToken);
 
+        await _currencySync.PushLocalCurrencyToReferenceAsync(currency.CurrencyCode, cancellationToken);
+
         return Ok(new { message = "ارز پایه با موفقیت تغییر کرد و نرخ سایر ارزها بازمحاسبه شد." });
     }
 
@@ -551,6 +575,8 @@ public class CurrencyController : ControllerBase
             ResolveCurrentUserId(),
             cancellationToken);
 
+        await _currencySync.PushLocalCurrencyToReferenceAsync(currency.CurrencyCode, cancellationToken);
+
         return Ok(new { message = "نرخ ارز با موفقیت ثبت شد." });
     }
 
@@ -583,6 +609,8 @@ public class CurrencyController : ControllerBase
         currency.DeletedBy = ResolveCurrentUserId();
 
         await _db.SaveChangesAsync(cancellationToken);
+
+        await _currencySync.PushLocalCurrencyToReferenceAsync(currency.CurrencyCode, cancellationToken);
 
         return Ok(new { message = "ارز با موفقیت حذف شد." });
     }
@@ -792,6 +820,7 @@ public class CurrencyController : ControllerBase
         public bool IsBaseCurrency { get; set; }
         public byte DecimalPlaces { get; set; }
         public bool IsActive { get; set; }
+        public bool UseInBothSystems { get; set; }
         public decimal? CurrentRate { get; set; }
         public DateTime? RateEffectiveFrom { get; set; }
     }
@@ -833,6 +862,8 @@ public class CurrencyController : ControllerBase
         public byte DecimalPlaces { get; set; }
 
         public bool IsBaseCurrency { get; set; }
+
+        public bool UseInBothSystems { get; set; }
 
         public bool IsActive { get; set; } = true;
 

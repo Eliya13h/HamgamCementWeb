@@ -1,0 +1,571 @@
+﻿<?xml version="1.0" encoding="utf-8" standalone="yes"?>
+<StiSerializer version="1.02" type="Net" application="StiReport">
+  <Dictionary Ref="1" type="Dictionary" isKey="true">
+    <BusinessObjects isList="true" count="5">
+      <Info Ref="2" type="Stimulsoft.Report.Dictionary.StiBusinessObject" isKey="true">
+        <Alias>Info</Alias>
+        <BusinessObjects isList="true" count="0" />
+        <Category />
+        <Columns isList="true" count="11">
+          <value>CompanyLogo,System.String</value>
+          <value>EnglishCompanyName,System.String</value>
+          <value>PersianCompanyName,System.String</value>
+          <value>ZmLogo,System.String</value>
+          <value>PrintDate,System.String</value>
+          <value>ReportTitle,System.String</value>
+          <value>ReportRangeDate,System.String</value>
+          <value>TotalMaterialCost,System.String</value>
+          <value>TotalConversionCost,System.String</value>
+          <value>GrandTotal,System.String</value>
+          <value>RowCount,System.String</value>
+        </Columns>
+        <Dictionary isRef="1" />
+        <Guid>7163322895064661866268f391670d7b</Guid>
+        <Name>Info</Name>
+      </Info>
+      <Batch Ref="3" type="Stimulsoft.Report.Dictionary.StiBusinessObject" isKey="true">
+        <Alias>Batch</Alias>
+        <BusinessObjects isList="true" count="0" />
+        <Category />
+        <Columns isList="true" count="11">
+          <value>BatchNumber,System.String</value>
+          <value>ShamsiDate,System.String</value>
+          <value>FormulaName,System.String</value>
+          <value>WarehouseName,System.String</value>
+          <value>PlanLabel,System.String</value>
+          <value>Description,System.String</value>
+          <value>MaterialCost,System.String</value>
+          <value>ConversionCost,System.String</value>
+          <value>TotalCost,System.String</value>
+          <value>StatusLabel,System.String</value>
+          <value>JournalEntryNumber,System.String</value>
+        </Columns>
+        <Dictionary isRef="1" />
+        <Guid>a1111111111111111111111111111111</Guid>
+        <Name>Batch</Name>
+      </Batch>
+      <InputLines Ref="4" type="Stimulsoft.Report.Dictionary.StiBusinessObject" isKey="true">
+        <Alias>InputLines</Alias>
+        <BusinessObjects isList="true" count="0" />
+        <Category />
+        <Columns isList="true" count="6">
+          <value>RowNumber,System.Int32</value>
+          <value>ProductName,System.String</value>
+          <value>WarehouseName,System.String</value>
+          <value>Quantity,System.String</value>
+          <value>UnitName,System.String</value>
+          <value>MaterialCost,System.String</value>
+        </Columns>
+        <Dictionary isRef="1" />
+        <Guid>b2222222222222222222222222222222</Guid>
+        <Name>InputLines</Name>
+      </InputLines>
+      <CostLines Ref="51" type="Stimulsoft.Report.Dictionary.StiBusinessObject" isKey="true">
+        <Alias>CostLines</Alias>
+        <BusinessObjects isList="true" count="0" />
+        <Category />
+        <Columns isList="true" count="4">
+          <value>RowNumber,System.Int32</value>
+          <value>CostTypeLabel,System.String</value>
+          <value>Description,System.String</value>
+          <value>Amount,System.String</value>
+        </Columns>
+        <Dictionary isRef="1" />
+        <Guid>c3333333333333333333333333333333</Guid>
+        <Name>CostLines</Name>
+      </CostLines>
+      <OutputLines Ref="52" type="Stimulsoft.Report.Dictionary.StiBusinessObject" isKey="true">
+        <Alias>OutputLines</Alias>
+        <BusinessObjects isList="true" count="0" />
+        <Category />
+        <Columns isList="true" count="6">
+          <value>RowNumber,System.Int32</value>
+          <value>ProductName,System.String</value>
+          <value>Quantity,System.String</value>
+          <value>UnitName,System.String</value>
+          <value>UnitCost,System.String</value>
+          <value>LotCode,System.String</value>
+        </Columns>
+        <Dictionary isRef="1" />
+        <Guid>d4444444444444444444444444444444</Guid>
+        <Name>OutputLines</Name>
+      </OutputLines>
+    </BusinessObjects>
+    <Databases isList="true" count="0" />
+    <DataSources isList="true" count="0" />
+    <Relations isList="true" count="0" />
+    <Report isRef="0" />
+    <Resources isList="true" count="0" />
+    <Variables isList="true" count="0" />
+  </Dictionary>
+  <EngineVersion>EngineV2</EngineVersion>
+  <GlobalizationStrings isList="true" count="0" />
+  <MetaTags isList="true" count="0" />
+  <Pages isList="true" count="1">
+    <Page1 Ref="5" type="Page" isKey="true">
+      <Border>None;Black;2;Solid;False;4;Black</Border>
+      <Brush>Transparent</Brush>
+      <Components isList="true" count="8">
+        <PageHeaderBand1 Ref="6" type="PageHeaderBand" isKey="true">
+          <Brush>Transparent</Brush>
+          <ClientRectangle>0,4,200,40</ClientRectangle>
+          <Components isList="true" count="10">
+            <Text1 Ref="7" type="Text" isKey="true">
+              <Brush>Transparent</Brush>
+              <ClientRectangle>26,0,148,16</ClientRectangle>
+              <Conditions isList="true" count="0" />
+              <Font>Noto Nastaliq Urdu SemiBold,14</Font>
+              <HorAlignment>Center</HorAlignment>
+              <Margins>0,0,0,0</Margins>
+              <Name>Text1</Name>
+              <Page isRef="5" />
+              <Parent isRef="6" />
+              <Text>{Info.PersianCompanyName}</Text>
+              <TextBrush>Black</TextBrush>
+              <Type>DataColumn</Type>
+              <VertAlignment>Center</VertAlignment>
+            </Text1>
+            <CompanyLogo Ref="8" type="Image" isKey="true">
+              <AspectRatio>True</AspectRatio>
+              <Brush>Transparent</Brush>
+              <ClientRectangle>0,0,26,26</ClientRectangle>
+              <Conditions isList="true" count="0" />
+              <DataColumn>Info.ZmLogo</DataColumn>
+              <Margins>0,0,0,0</Margins>
+              <Name>CompanyLogo</Name>
+              <Page isRef="5" />
+              <Parent isRef="6" />
+              <Stretch>True</Stretch>
+            </CompanyLogo>
+            <ZmLogo Ref="9" type="Image" isKey="true">
+              <AspectRatio>True</AspectRatio>
+              <Brush>Transparent</Brush>
+              <ClientRectangle>174,0,26,26</ClientRectangle>
+              <Conditions isList="true" count="0" />
+              <DataColumn>Info.CompanyLogo</DataColumn>
+              <Guid>46675aeb826c40148ba990250d1ae4cc</Guid>
+              <Margins>0,0,0,0</Margins>
+              <Name>ZmLogo</Name>
+              <Page isRef="5" />
+              <Parent isRef="6" />
+              <Stretch>True</Stretch>
+            </ZmLogo>
+            <Text2 Ref="10" type="Text" isKey="true">
+              <Brush>Transparent</Brush>
+              <ClientRectangle>26,16,148,10</ClientRectangle>
+              <Conditions isList="true" count="0" />
+              <Font>Parisienne,12</Font>
+              <HorAlignment>Center</HorAlignment>
+              <Margins>0,0,0,0</Margins>
+              <Name>Text2</Name>
+              <Page isRef="5" />
+              <Parent isRef="6" />
+              <Text>{Info.EnglishCompanyName}</Text>
+              <TextBrush>Black</TextBrush>
+              <Type>DataColumn</Type>
+              <VertAlignment>Center</VertAlignment>
+            </Text2>
+            <Image1 Ref="11" type="Image" isKey="true">
+              <Brush>Transparent</Brush>
+              <ClientRectangle>10,26,180,2</ClientRectangle>
+              <Conditions isList="true" count="0" />
+              <HorAlignment>Center</HorAlignment>
+              <ImageBytes>iVBORw0KGgoAAAANSUhEUgAACQQAAAAoCAYAAACi0mW2AAAACXBIWXMAAC4jAAAuIwF4pT92AAAE
+7mlUWHRYTUw6Y29tLmFkb2JlLnhtcAAAAAAAPD94cGFja2V0IGJlZ2luPSLvu78iIGlkPSJXNU0w
+TXBDZWhpSHpyZVN6TlRjemtjOWQiPz4gPHg6eG1wbWV0YSB4bWxuczp4PSJhZG9iZTpuczptZXRh
+LyIgeDp4bXB0az0iQWRvYmUgWE1QIENvcmUgOS4xLWMwMDMgNzkuOTY5MGE4NywgMjAyNS8wMy8w
+Ni0xOToxMjowMyAgICAgICAgIj4gPHJkZjpSREYgeG1sbnM6cmRmPSJodHRwOi8vd3d3LnczLm9y
+Zy8xOTk5LzAyLzIyLXJkZi1zeW50YXgtbnMjIj4gPHJkZjpEZXNjcmlwdGlvbiByZGY6YWJvdXQ9
+IiIgeG1sbnM6eG1wPSJodHRwOi8vbnMuYWRvYmUuY29tL3hhcC8xLjAvIiB4bWxuczpkYz0iaHR0
+cDovL3B1cmwub3JnL2RjL2VsZW1lbnRzLzEuMS8iIHhtbG5zOnhtcE1NPSJodHRwOi8vbnMuYWRv
+YmUuY29tL3hhcC8xLjAvbW0vIiB4bWxuczpzdEV2dD0iaHR0cDovL25zLmFkb2JlLmNvbS94YXAv
+MS4wL3NUeXBlL1Jlc291cmNlRXZlbnQjIiB4bWxuczpwaG90b3Nob3A9Imh0dHA6Ly9ucy5hZG9i
+ZS5jb20vcGhvdG9zaG9wLzEuMC8iIHhtcDpDcmVhdG9yVG9vbD0iQWRvYmUgUGhvdG9zaG9wIDI2
+LjkgKFdpbmRvd3MpIiB4bXA6Q3JlYXRlRGF0ZT0iMjAyNi0wNy0wNFQyMzoxNzo0OCswNDozMCIg
+eG1wOk1ldGFkYXRhRGF0ZT0iMjAyNi0wNy0wNFQyMzoxNzo0OCswNDozMCIgeG1wOk1vZGlmeURh
+dGU9IjIwMjYtMDctMDRUMjM6MTc6NDgrMDQ6MzAiIGRjOmZvcm1hdD0iaW1hZ2UvcG5nIiB4bXBN
+TTpJbnN0YW5jZUlEPSJ4bXAuaWlkOjlhYjM5OTY4LTg1OWEtODE0Ny04ZTUxLWJhNjM0ZjM5YjVk
+NyIgeG1wTU06RG9jdW1lbnRJRD0ieG1wLmRpZDo5YWIzOTk2OC04NTlhLTgxNDctOGU1MS1iYTYz
+NGYzOWI1ZDciIHhtcE1NOk9yaWdpbmFsRG9jdW1lbnRJRD0ieG1wLmRpZDo5YWIzOTk2OC04NTlh
+LTgxNDctOGU1MS1iYTYzNGYzOWI1ZDciIHBob3Rvc2hvcDpDb2xvck1vZGU9IjMiPiA8eG1wTU06
+SGlzdG9yeT4gPHJkZjpTZXE+IDxyZGY6bGkgc3RFdnQ6YWN0aW9uPSJjcmVhdGVkIiBzdEV2dDpp
+bnN0YW5jZUlEPSJ4bXAuaWlkOjlhYjM5OTY4LTg1OWEtODE0Ny04ZTUxLWJhNjM0ZjM5YjVkNyIg
+c3RFdnQ6d2hlbj0iMjAyNi0wNy0wNFQyMzoxNzo0OCswNDozMCIgc3RFdnQ6c29mdHdhcmVBZ2Vu
+dD0iQWRvYmUgUGhvdG9zaG9wIDI2LjkgKFdpbmRvd3MpIi8+IDwvcmRmOlNlcT4gPC94bXBNTTpI
+aXN0b3J5PiA8L3JkZjpEZXNjcmlwdGlvbj4gPC9yZGY6UkRGPiA8L3g6eG1wbWV0YT4gPD94cGFj
+a2V0IGVuZD0iciI/PtxCrVwAAAI9SURBVHja7drBCcAgFERBb7ZhASnSTj1axvqbCCQyC1PEwmt9
+PwEAAAAAAK6yykjSvqo2SwAAgBc4RQAAAAAAIAoSBQEAgCAIAAAAAAAQBYmCAABAEAQAAAAAAIiC
+REEAACAIAgAAAAAAREEAAIAgCAAAAAAAEAUBAIAgCAAAAAAAEAWJggAAQBAEAAAAAACIgkRBAAAg
+CAIAAAAAAERBoiAAABAEAQAAAAAAoiAAAEAQBAAAAAAAiIIAAEAQBAAAAAAAiIJEQQAAIAgCAAAA
+AABEQaIgAAAQBAEAAAAAAKIgURAAAAiCAAAAAAAAURAAACAIAgAAAAAAREEAACAIAgAAAAAAREGi
+IAAAEAQBAAAAAACiIFEQAAAIggAAAAAAAFGQKAgAAARBAAAAAACAKAgAAARBAAAAAAAAoiAAABAE
+AQAAAAAAoiBREAAACIIAAAAAAABRkCgIAAAEQQAAAAAAgChIFAQAAIIgAAAAAABAFAQAAIIgAAAA
+AAAAURAAAAiCAAAAAAAAUZAoCAAABEEAAAAAAIAoSBQEAACCIAAAAAAAQBQkCgIAAEEQAAAAAAAg
+CgIAAEEQAAAAAACAKAgAAARBAAAAAACAKEgUBAAAgiAAAAAAAEAUJAoCAABBEAAAAAAAIAoSBQEA
+IAgCAAAAAAAQBQEAgCAIAAAAAABAFAQAAIIgAAAAAABAFCQKAgAAQRAAAAAAACAKEgUBAIAgCAAA
+AAAAEAWJggAAEAQBAAAAAACIggAA4G8O6XEsOh1Q6AsAAAAASUVORK5CYII=</ImageBytes>
+              <Margins>0,0,0,0</Margins>
+              <Name>Image1</Name>
+              <Page isRef="5" />
+              <Parent isRef="6" />
+              <Stretch>True</Stretch>
+            </Image1>
+            <Text3 Ref="12" type="Text" isKey="true">
+              <Brush>Transparent</Brush>
+              <ClientRectangle>170,34,20,6</ClientRectangle>
+              <Conditions isList="true" count="0" />
+              <Font>B Nazanin,14</Font>
+              <HorAlignment>Center</HorAlignment>
+              <Margins>0,0,0,0</Margins>
+              <Name>Text3</Name>
+              <Page isRef="5" />
+              <Parent isRef="6" />
+              <Text>تاریخ چاپ : </Text>
+              <TextBrush>[0:0:0]</TextBrush>
+              <TextOptions>,,RightToLeft=True,,WordWrap=True,A=0</TextOptions>
+              <Type>Expression</Type>
+              <VertAlignment>Center</VertAlignment>
+            </Text3>
+            <Text4 Ref="13" type="Text" isKey="true">
+              <Brush>Transparent</Brush>
+              <ClientRectangle>148,34,22,6</ClientRectangle>
+              <Conditions isList="true" count="0" />
+              <Font>B Nazanin,14</Font>
+              <Guid>54ff5853e41945a7b03cc26495bff71f</Guid>
+              <HorAlignment>Center</HorAlignment>
+              <Margins>0,0,0,0</Margins>
+              <Name>Text4</Name>
+              <Page isRef="5" />
+              <Parent isRef="6" />
+              <Text>{Info.PrintDate}</Text>
+              <TextBrush>[0:0:0]</TextBrush>
+              <TextOptions>,,RightToLeft=True,,WordWrap=True,A=0</TextOptions>
+              <Type>DataColumn</Type>
+              <VertAlignment>Center</VertAlignment>
+            </Text4>
+            <Text5 Ref="14" type="Text" isKey="true">
+              <Brush>Transparent</Brush>
+              <ClientRectangle>10,34,38,6</ClientRectangle>
+              <Conditions isList="true" count="0" />
+              <Font>B Nazanin,14</Font>
+              <HorAlignment>Center</HorAlignment>
+              <Margins>0,0,0,0</Margins>
+              <Name>Text5</Name>
+              <Page isRef="5" />
+              <Parent isRef="6" />
+              <Text>صفحه {PageNumberThrough} از {TotalPageCountThrough}</Text>
+              <TextBrush>[0:0:0]</TextBrush>
+              <Type>Expression</Type>
+              <VertAlignment>Center</VertAlignment>
+            </Text5>
+            <Text6 Ref="15" type="Text" isKey="true">
+              <Brush>Transparent</Brush>
+              <ClientRectangle>48,28,100,6</ClientRectangle>
+              <Conditions isList="true" count="0" />
+              <Font>B Titr,11</Font>
+              <Guid>b9857d7ac860475288f4c795fa33dc10</Guid>
+              <HorAlignment>Center</HorAlignment>
+              <Margins>0,0,0,0</Margins>
+              <Name>Text6</Name>
+              <Page isRef="5" />
+              <Parent isRef="6" />
+              <Text>{Info.ReportTitle}</Text>
+              <TextBrush>[0:0:0]</TextBrush>
+              <Type>DataColumn</Type>
+            </Text6>
+            <Text7 Ref="16" type="Text" isKey="true">
+              <Brush>Transparent</Brush>
+              <ClientRectangle>48,34,100,6</ClientRectangle>
+              <Conditions isList="true" count="0" />
+              <Font>B Nazanin,12</Font>
+              <Guid>2b44e084cce74413925464a498e77e90</Guid>
+              <HorAlignment>Center</HorAlignment>
+              <Margins>0,0,0,0</Margins>
+              <Name>Text7</Name>
+              <Page isRef="5" />
+              <Parent isRef="6" />
+              <Text>{Info.ReportRangeDate}</Text>
+              <TextBrush>[0:0:0]</TextBrush>
+              <Type>DataColumn</Type>
+            </Text7>
+          </Components>
+          <Conditions isList="true" count="0" />
+          <Name>PageHeaderBand1</Name>
+          <Page isRef="5" />
+          <Parent isRef="5" />
+          <PrintOn>OnlyFirstPage</PrintOn>
+        </PageHeaderBand1>
+                <BatchHeaderBand Ref="17" type="DataBand" isKey="true">
+          <Brush>Transparent</Brush>
+          <BusinessObjectGuid>a1111111111111111111111111111111</BusinessObjectGuid>
+          <ClientRectangle>0,52,200,22</ClientRectangle>
+          <Components isList="true" count="6">
+            <Bh1 Ref="60" type="Text" isKey="true">
+              <Brush>Transparent</Brush>
+              <ClientRectangle>100,0,100,5</ClientRectangle>
+              <Font>B Nazanin,10</Font>
+              <HorAlignment>Right</HorAlignment>
+              <Margins>0,0,0,0</Margins>
+              <Name>Bh1</Name>
+              <Page isRef="5" />
+              <Parent isRef="17" />
+              <Text>شماره سند: {Batch.BatchNumber}</Text>
+              <TextBrush>[0:0:0]</TextBrush>
+              <TextOptions>,,RightToLeft=True,,,A=0</TextOptions>
+              <Type>Expression</Type>
+            </Bh1>
+            <Bh2 Ref="61" type="Text" isKey="true">
+              <Brush>Transparent</Brush>
+              <ClientRectangle>0,0,100,5</ClientRectangle>
+              <Font>B Nazanin,10</Font>
+              <HorAlignment>Right</HorAlignment>
+              <Margins>0,0,0,0</Margins>
+              <Name>Bh2</Name>
+              <Page isRef="5" />
+              <Parent isRef="17" />
+              <Text>تاریخ: {Batch.ShamsiDate} — وضعیت: {Batch.StatusLabel}</Text>
+              <TextBrush>[0:0:0]</TextBrush>
+              <TextOptions>,,RightToLeft=True,,,A=0</TextOptions>
+              <Type>Expression</Type>
+            </Bh2>
+            <Bh3 Ref="62" type="Text" isKey="true">
+              <Brush>Transparent</Brush>
+              <ClientRectangle>100,5,100,5</ClientRectangle>
+              <Font>B Nazanin,10</Font>
+              <HorAlignment>Right</HorAlignment>
+              <Margins>0,0,0,0</Margins>
+              <Name>Bh3</Name>
+              <Page isRef="5" />
+              <Parent isRef="17" />
+              <Text>فرمول: {Batch.FormulaName}</Text>
+              <TextBrush>[0:0:0]</TextBrush>
+              <TextOptions>,,RightToLeft=True,,,A=0</TextOptions>
+              <Type>Expression</Type>
+            </Bh3>
+            <Bh4 Ref="63" type="Text" isKey="true">
+              <Brush>Transparent</Brush>
+              <ClientRectangle>0,5,100,5</ClientRectangle>
+              <Font>B Nazanin,10</Font>
+              <HorAlignment>Right</HorAlignment>
+              <Margins>0,0,0,0</Margins>
+              <Name>Bh4</Name>
+              <Page isRef="5" />
+              <Parent isRef="17" />
+              <Text>انبار: {Batch.WarehouseName}</Text>
+              <TextBrush>[0:0:0]</TextBrush>
+              <TextOptions>,,RightToLeft=True,,,A=0</TextOptions>
+              <Type>Expression</Type>
+            </Bh4>
+            <Bh5 Ref="64" type="Text" isKey="true">
+              <Brush>Transparent</Brush>
+              <ClientRectangle>0,10,200,5</ClientRectangle>
+              <Font>B Nazanin,10</Font>
+              <HorAlignment>Right</HorAlignment>
+              <Margins>0,0,0,0</Margins>
+              <Name>Bh5</Name>
+              <Page isRef="5" />
+              <Parent isRef="17" />
+              <Text>برنامه: {Batch.PlanLabel} — سند دفتر: {Batch.JournalEntryNumber} — {Batch.Description}</Text>
+              <TextBrush>[0:0:0]</TextBrush>
+              <TextOptions>,,RightToLeft=True,,,A=0</TextOptions>
+              <Type>Expression</Type>
+            </Bh5>
+            <Bh6 Ref="65" type="Text" isKey="true">
+              <Brush>[230:230:230]</Brush>
+              <ClientRectangle>0,16,200,5</ClientRectangle>
+              <Font>B Titr,9</Font>
+              <HorAlignment>Center</HorAlignment>
+              <Margins>0,0,0,0</Margins>
+              <Name>Bh6</Name>
+              <Page isRef="5" />
+              <Parent isRef="17" />
+              <Text>مواد {Info.TotalMaterialCost} | تبدیل {Info.TotalConversionCost} | جمع {Info.GrandTotal}</Text>
+              <TextBrush>[0:0:64]</TextBrush>
+              <TextOptions>,,RightToLeft=True,,,A=0</TextOptions>
+              <Type>Expression</Type>
+              <VertAlignment>Center</VertAlignment>
+            </Bh6>
+          </Components>
+          <Conditions isList="true" count="0" />
+          <Name>BatchHeaderBand</Name>
+          <Page isRef="5" />
+          <Parent isRef="5" />
+          <Sort isList="true" count="0" />
+        </BatchHeaderBand>
+        <InputHeaderBand Ref="18" type="HeaderBand" isKey="true">
+          <Brush>Transparent</Brush>
+          <ClientRectangle>0,82,200,10</ClientRectangle>
+          <Components isList="true" count="7">
+            <IhTitle Ref="70" type="Text" isKey="true">
+              <Brush>[64:64:64]</Brush>
+              <ClientRectangle>0,0,200,4</ClientRectangle>
+              <Font>B Titr,9</Font>
+              <HorAlignment>Center</HorAlignment>
+              <Margins>0,0,0,0</Margins>
+              <Name>IhTitle</Name>
+              <Page isRef="5" />
+              <Parent isRef="18" />
+              <Text>مواد مصرفی</Text>
+              <TextBrush>White</TextBrush>
+              <Type>Expression</Type>
+              <VertAlignment>Center</VertAlignment>
+            </IhTitle>
+            <Ih1 Ref="71" type="Text" isKey="true"><Brush>[192:192:192]</Brush><ClientRectangle>188,4,12,6</ClientRectangle><Font>B Titr,8</Font><HorAlignment>Center</HorAlignment><Margins>0,0,0,0</Margins><Name>Ih1</Name><Page isRef="5" /><Parent isRef="18" /><Text>#</Text><TextBrush>[0:0:64]</TextBrush><Type>Expression</Type></Ih1>
+            <Ih2 Ref="72" type="Text" isKey="true"><Brush>[192:192:192]</Brush><ClientRectangle>130,4,58,6</ClientRectangle><Font>B Titr,8</Font><HorAlignment>Center</HorAlignment><Margins>0,0,0,0</Margins><Name>Ih2</Name><Page isRef="5" /><Parent isRef="18" /><Text>محصول</Text><TextBrush>[0:0:64]</TextBrush><Type>Expression</Type></Ih2>
+            <Ih3 Ref="73" type="Text" isKey="true"><Brush>[192:192:192]</Brush><ClientRectangle>90,4,40,6</ClientRectangle><Font>B Titr,8</Font><HorAlignment>Center</HorAlignment><Margins>0,0,0,0</Margins><Name>Ih3</Name><Page isRef="5" /><Parent isRef="18" /><Text>انبار</Text><TextBrush>[0:0:64]</TextBrush><Type>Expression</Type></Ih3>
+            <Ih4 Ref="74" type="Text" isKey="true"><Brush>[192:192:192]</Brush><ClientRectangle>60,4,30,6</ClientRectangle><Font>B Titr,8</Font><HorAlignment>Center</HorAlignment><Margins>0,0,0,0</Margins><Name>Ih4</Name><Page isRef="5" /><Parent isRef="18" /><Text>مقدار</Text><TextBrush>[0:0:64]</TextBrush><Type>Expression</Type></Ih4>
+            <Ih5 Ref="75" type="Text" isKey="true"><Brush>[192:192:192]</Brush><ClientRectangle>36,4,24,6</ClientRectangle><Font>B Titr,8</Font><HorAlignment>Center</HorAlignment><Margins>0,0,0,0</Margins><Name>Ih5</Name><Page isRef="5" /><Parent isRef="18" /><Text>واحد</Text><TextBrush>[0:0:64]</TextBrush><Type>Expression</Type></Ih5>
+            <Ih6 Ref="76" type="Text" isKey="true"><Brush>[192:192:192]</Brush><ClientRectangle>0,4,36,6</ClientRectangle><Font>B Titr,8</Font><HorAlignment>Center</HorAlignment><Margins>0,0,0,0</Margins><Name>Ih6</Name><Page isRef="5" /><Parent isRef="18" /><Text>بهای مواد</Text><TextBrush>[0:0:64]</TextBrush><Type>Expression</Type></Ih6>
+          </Components>
+          <Conditions isList="true" count="0" />
+          <Name>InputHeaderBand</Name>
+          <Page isRef="5" />
+          <Parent isRef="5" />
+        </InputHeaderBand>
+        <InputDataBand Ref="27" type="DataBand" isKey="true">
+          <Brush>Transparent</Brush>
+          <BusinessObjectGuid>b2222222222222222222222222222222</BusinessObjectGuid>
+          <ClientRectangle>0,100,200,5</ClientRectangle>
+          <Components isList="true" count="6">
+            <Id1 Ref="80" type="Text" isKey="true"><Brush>Transparent</Brush><ClientRectangle>188,0,12,5</ClientRectangle><Font>B Nazanin,8</Font><HorAlignment>Center</HorAlignment><Margins>0,0,0,0</Margins><Name>Id1</Name><Page isRef="5" /><Parent isRef="27" /><Text>{InputLines.RowNumber}</Text><TextBrush>[0:0:0]</TextBrush><Type>DataColumn</Type><VertAlignment>Center</VertAlignment></Id1>
+            <Id2 Ref="81" type="Text" isKey="true"><Brush>Transparent</Brush><ClientRectangle>130,0,58,5</ClientRectangle><Font>B Nazanin,8</Font><Margins>0,0,0,0</Margins><Name>Id2</Name><Page isRef="5" /><Parent isRef="27" /><Text>{InputLines.ProductName}</Text><TextBrush>[0:0:0]</TextBrush><TextOptions>,,RightToLeft=True,,WordWrap=True,A=0</TextOptions><Type>DataColumn</Type><VertAlignment>Center</VertAlignment></Id2>
+            <Id3 Ref="82" type="Text" isKey="true"><Brush>Transparent</Brush><ClientRectangle>90,0,40,5</ClientRectangle><Font>B Nazanin,8</Font><Margins>0,0,0,0</Margins><Name>Id3</Name><Page isRef="5" /><Parent isRef="27" /><Text>{InputLines.WarehouseName}</Text><TextBrush>[0:0:0]</TextBrush><TextOptions>,,RightToLeft=True,,WordWrap=True,A=0</TextOptions><Type>DataColumn</Type><VertAlignment>Center</VertAlignment></Id3>
+            <Id4 Ref="83" type="Text" isKey="true"><Brush>Transparent</Brush><ClientRectangle>60,0,30,5</ClientRectangle><Font>B Nazanin,8</Font><HorAlignment>Center</HorAlignment><Margins>0,0,0,0</Margins><Name>Id4</Name><Page isRef="5" /><Parent isRef="27" /><Text>{InputLines.Quantity}</Text><TextBrush>[0:0:0]</TextBrush><Type>DataColumn</Type><VertAlignment>Center</VertAlignment></Id4>
+            <Id5 Ref="84" type="Text" isKey="true"><Brush>Transparent</Brush><ClientRectangle>36,0,24,5</ClientRectangle><Font>B Nazanin,8</Font><HorAlignment>Center</HorAlignment><Margins>0,0,0,0</Margins><Name>Id5</Name><Page isRef="5" /><Parent isRef="27" /><Text>{InputLines.UnitName}</Text><TextBrush>[0:0:0]</TextBrush><Type>DataColumn</Type><VertAlignment>Center</VertAlignment></Id5>
+            <Id6 Ref="85" type="Text" isKey="true"><Brush>Transparent</Brush><ClientRectangle>0,0,36,5</ClientRectangle><Font>B Nazanin,8</Font><HorAlignment>Center</HorAlignment><Margins>0,0,0,0</Margins><Name>Id6</Name><Page isRef="5" /><Parent isRef="27" /><Text>{InputLines.MaterialCost}</Text><TextBrush>[0:0:0]</TextBrush><Type>DataColumn</Type><VertAlignment>Center</VertAlignment></Id6>
+          </Components>
+          <Conditions isList="true" count="0" />
+          <Name>InputDataBand</Name>
+          <Page isRef="5" />
+          <Parent isRef="5" />
+          <Sort isList="true" count="0" />
+        </InputDataBand>
+        <CostHeaderBand Ref="90" type="HeaderBand" isKey="true">
+          <Brush>Transparent</Brush>
+          <ClientRectangle>0,113,200,10</ClientRectangle>
+          <Components isList="true" count="5">
+            <ChTitle Ref="91" type="Text" isKey="true"><Brush>[64:64:64]</Brush><ClientRectangle>0,0,200,4</ClientRectangle><Font>B Titr,9</Font><HorAlignment>Center</HorAlignment><Margins>0,0,0,0</Margins><Name>ChTitle</Name><Page isRef="5" /><Parent isRef="90" /><Text>هزینه‌های تبدیل</Text><TextBrush>White</TextBrush><Type>Expression</Type><VertAlignment>Center</VertAlignment></ChTitle>
+            <Ch1 Ref="92" type="Text" isKey="true"><Brush>[192:192:192]</Brush><ClientRectangle>188,4,12,6</ClientRectangle><Font>B Titr,8</Font><HorAlignment>Center</HorAlignment><Margins>0,0,0,0</Margins><Name>Ch1</Name><Page isRef="5" /><Parent isRef="90" /><Text>#</Text><TextBrush>[0:0:64]</TextBrush><Type>Expression</Type></Ch1>
+            <Ch2 Ref="93" type="Text" isKey="true"><Brush>[192:192:192]</Brush><ClientRectangle>120,4,68,6</ClientRectangle><Font>B Titr,8</Font><HorAlignment>Center</HorAlignment><Margins>0,0,0,0</Margins><Name>Ch2</Name><Page isRef="5" /><Parent isRef="90" /><Text>نوع هزینه</Text><TextBrush>[0:0:64]</TextBrush><Type>Expression</Type></Ch2>
+            <Ch3 Ref="94" type="Text" isKey="true"><Brush>[192:192:192]</Brush><ClientRectangle>40,4,80,6</ClientRectangle><Font>B Titr,8</Font><HorAlignment>Center</HorAlignment><Margins>0,0,0,0</Margins><Name>Ch3</Name><Page isRef="5" /><Parent isRef="90" /><Text>شرح</Text><TextBrush>[0:0:64]</TextBrush><Type>Expression</Type></Ch3>
+            <Ch4 Ref="95" type="Text" isKey="true"><Brush>[192:192:192]</Brush><ClientRectangle>0,4,40,6</ClientRectangle><Font>B Titr,8</Font><HorAlignment>Center</HorAlignment><Margins>0,0,0,0</Margins><Name>Ch4</Name><Page isRef="5" /><Parent isRef="90" /><Text>مبلغ</Text><TextBrush>[0:0:64]</TextBrush><Type>Expression</Type></Ch4>
+          </Components>
+          <Conditions isList="true" count="0" />
+          <Name>CostHeaderBand</Name>
+          <Page isRef="5" />
+          <Parent isRef="5" />
+        </CostHeaderBand>
+        <CostDataBand Ref="96" type="DataBand" isKey="true">
+          <Brush>Transparent</Brush>
+          <BusinessObjectGuid>c3333333333333333333333333333333</BusinessObjectGuid>
+          <ClientRectangle>0,131,200,5</ClientRectangle>
+          <Components isList="true" count="4">
+            <Cd1 Ref="97" type="Text" isKey="true"><Brush>Transparent</Brush><ClientRectangle>188,0,12,5</ClientRectangle><Font>B Nazanin,8</Font><HorAlignment>Center</HorAlignment><Margins>0,0,0,0</Margins><Name>Cd1</Name><Page isRef="5" /><Parent isRef="96" /><Text>{CostLines.RowNumber}</Text><TextBrush>[0:0:0]</TextBrush><Type>DataColumn</Type><VertAlignment>Center</VertAlignment></Cd1>
+            <Cd2 Ref="98" type="Text" isKey="true"><Brush>Transparent</Brush><ClientRectangle>120,0,68,5</ClientRectangle><Font>B Nazanin,8</Font><Margins>0,0,0,0</Margins><Name>Cd2</Name><Page isRef="5" /><Parent isRef="96" /><Text>{CostLines.CostTypeLabel}</Text><TextBrush>[0:0:0]</TextBrush><TextOptions>,,RightToLeft=True,,WordWrap=True,A=0</TextOptions><Type>DataColumn</Type><VertAlignment>Center</VertAlignment></Cd2>
+            <Cd3 Ref="99" type="Text" isKey="true"><Brush>Transparent</Brush><ClientRectangle>40,0,80,5</ClientRectangle><Font>B Nazanin,8</Font><Margins>0,0,0,0</Margins><Name>Cd3</Name><Page isRef="5" /><Parent isRef="96" /><Text>{CostLines.Description}</Text><TextBrush>[0:0:0]</TextBrush><TextOptions>,,RightToLeft=True,,WordWrap=True,A=0</TextOptions><Type>DataColumn</Type><VertAlignment>Center</VertAlignment></Cd3>
+            <Cd4 Ref="100" type="Text" isKey="true"><Brush>Transparent</Brush><ClientRectangle>0,0,40,5</ClientRectangle><Font>B Nazanin,8</Font><HorAlignment>Center</HorAlignment><Margins>0,0,0,0</Margins><Name>Cd4</Name><Page isRef="5" /><Parent isRef="96" /><Text>{CostLines.Amount}</Text><TextBrush>[0:0:0]</TextBrush><Type>DataColumn</Type><VertAlignment>Center</VertAlignment></Cd4>
+          </Components>
+          <Conditions isList="true" count="0" />
+          <Name>CostDataBand</Name>
+          <Page isRef="5" />
+          <Parent isRef="5" />
+          <Sort isList="true" count="0" />
+        </CostDataBand>
+        <OutputHeaderBand Ref="101" type="HeaderBand" isKey="true">
+          <Brush>Transparent</Brush>
+          <ClientRectangle>0,144,200,10</ClientRectangle>
+          <Components isList="true" count="7">
+            <OhTitle Ref="102" type="Text" isKey="true"><Brush>[64:64:64]</Brush><ClientRectangle>0,0,200,4</ClientRectangle><Font>B Titr,9</Font><HorAlignment>Center</HorAlignment><Margins>0,0,0,0</Margins><Name>OhTitle</Name><Page isRef="5" /><Parent isRef="101" /><Text>خروجی تولید</Text><TextBrush>White</TextBrush><Type>Expression</Type><VertAlignment>Center</VertAlignment></OhTitle>
+            <Oh1 Ref="103" type="Text" isKey="true"><Brush>[192:192:192]</Brush><ClientRectangle>188,4,12,6</ClientRectangle><Font>B Titr,8</Font><HorAlignment>Center</HorAlignment><Margins>0,0,0,0</Margins><Name>Oh1</Name><Page isRef="5" /><Parent isRef="101" /><Text>#</Text><TextBrush>[0:0:64]</TextBrush><Type>Expression</Type></Oh1>
+            <Oh2 Ref="104" type="Text" isKey="true"><Brush>[192:192:192]</Brush><ClientRectangle>120,4,68,6</ClientRectangle><Font>B Titr,8</Font><HorAlignment>Center</HorAlignment><Margins>0,0,0,0</Margins><Name>Oh2</Name><Page isRef="5" /><Parent isRef="101" /><Text>محصول</Text><TextBrush>[0:0:64]</TextBrush><Type>Expression</Type></Oh2>
+            <Oh3 Ref="105" type="Text" isKey="true"><Brush>[192:192:192]</Brush><ClientRectangle>90,4,30,6</ClientRectangle><Font>B Titr,8</Font><HorAlignment>Center</HorAlignment><Margins>0,0,0,0</Margins><Name>Oh3</Name><Page isRef="5" /><Parent isRef="101" /><Text>مقدار</Text><TextBrush>[0:0:64]</TextBrush><Type>Expression</Type></Oh3>
+            <Oh4 Ref="106" type="Text" isKey="true"><Brush>[192:192:192]</Brush><ClientRectangle>66,4,24,6</ClientRectangle><Font>B Titr,8</Font><HorAlignment>Center</HorAlignment><Margins>0,0,0,0</Margins><Name>Oh4</Name><Page isRef="5" /><Parent isRef="101" /><Text>واحد</Text><TextBrush>[0:0:64]</TextBrush><Type>Expression</Type></Oh4>
+            <Oh5 Ref="107" type="Text" isKey="true"><Brush>[192:192:192]</Brush><ClientRectangle>36,4,30,6</ClientRectangle><Font>B Titr,8</Font><HorAlignment>Center</HorAlignment><Margins>0,0,0,0</Margins><Name>Oh5</Name><Page isRef="5" /><Parent isRef="101" /><Text>بهای واحد</Text><TextBrush>[0:0:64]</TextBrush><Type>Expression</Type></Oh5>
+            <Oh6 Ref="108" type="Text" isKey="true"><Brush>[192:192:192]</Brush><ClientRectangle>0,4,36,6</ClientRectangle><Font>B Titr,8</Font><HorAlignment>Center</HorAlignment><Margins>0,0,0,0</Margins><Name>Oh6</Name><Page isRef="5" /><Parent isRef="101" /><Text>کد لات</Text><TextBrush>[0:0:64]</TextBrush><Type>Expression</Type></Oh6>
+          </Components>
+          <Conditions isList="true" count="0" />
+          <Name>OutputHeaderBand</Name>
+          <Page isRef="5" />
+          <Parent isRef="5" />
+        </OutputHeaderBand>
+        <OutputDataBand Ref="109" type="DataBand" isKey="true">
+          <Brush>Transparent</Brush>
+          <BusinessObjectGuid>d4444444444444444444444444444444</BusinessObjectGuid>
+          <ClientRectangle>0,162,200,5</ClientRectangle>
+          <Components isList="true" count="6">
+            <Od1 Ref="110" type="Text" isKey="true"><Brush>Transparent</Brush><ClientRectangle>188,0,12,5</ClientRectangle><Font>B Nazanin,8</Font><HorAlignment>Center</HorAlignment><Margins>0,0,0,0</Margins><Name>Od1</Name><Page isRef="5" /><Parent isRef="109" /><Text>{OutputLines.RowNumber}</Text><TextBrush>[0:0:0]</TextBrush><Type>DataColumn</Type><VertAlignment>Center</VertAlignment></Od1>
+            <Od2 Ref="111" type="Text" isKey="true"><Brush>Transparent</Brush><ClientRectangle>120,0,68,5</ClientRectangle><Font>B Nazanin,8</Font><Margins>0,0,0,0</Margins><Name>Od2</Name><Page isRef="5" /><Parent isRef="109" /><Text>{OutputLines.ProductName}</Text><TextBrush>[0:0:0]</TextBrush><TextOptions>,,RightToLeft=True,,WordWrap=True,A=0</TextOptions><Type>DataColumn</Type><VertAlignment>Center</VertAlignment></Od2>
+            <Od3 Ref="112" type="Text" isKey="true"><Brush>Transparent</Brush><ClientRectangle>90,0,30,5</ClientRectangle><Font>B Nazanin,8</Font><HorAlignment>Center</HorAlignment><Margins>0,0,0,0</Margins><Name>Od3</Name><Page isRef="5" /><Parent isRef="109" /><Text>{OutputLines.Quantity}</Text><TextBrush>[0:0:0]</TextBrush><Type>DataColumn</Type><VertAlignment>Center</VertAlignment></Od3>
+            <Od4 Ref="113" type="Text" isKey="true"><Brush>Transparent</Brush><ClientRectangle>66,0,24,5</ClientRectangle><Font>B Nazanin,8</Font><HorAlignment>Center</HorAlignment><Margins>0,0,0,0</Margins><Name>Od4</Name><Page isRef="5" /><Parent isRef="109" /><Text>{OutputLines.UnitName}</Text><TextBrush>[0:0:0]</TextBrush><Type>DataColumn</Type><VertAlignment>Center</VertAlignment></Od4>
+            <Od5 Ref="114" type="Text" isKey="true"><Brush>Transparent</Brush><ClientRectangle>36,0,30,5</ClientRectangle><Font>B Nazanin,8</Font><HorAlignment>Center</HorAlignment><Margins>0,0,0,0</Margins><Name>Od5</Name><Page isRef="5" /><Parent isRef="109" /><Text>{OutputLines.UnitCost}</Text><TextBrush>[0:0:0]</TextBrush><Type>DataColumn</Type><VertAlignment>Center</VertAlignment></Od5>
+            <Od6 Ref="115" type="Text" isKey="true"><Brush>Transparent</Brush><ClientRectangle>0,0,36,5</ClientRectangle><Font>B Nazanin,8</Font><HorAlignment>Center</HorAlignment><Margins>0,0,0,0</Margins><Name>Od6</Name><Page isRef="5" /><Parent isRef="109" /><Text>{OutputLines.LotCode}</Text><TextBrush>[0:0:0]</TextBrush><Type>DataColumn</Type><VertAlignment>Center</VertAlignment></Od6>
+          </Components>
+          <Conditions isList="true" count="0" />
+          <Name>OutputDataBand</Name>
+          <Page isRef="5" />
+          <Parent isRef="5" />
+          <Sort isList="true" count="0" />
+        </OutputDataBand>
+      </Components>
+      <Conditions isList="true" count="0" />
+      <Guid>3e620cc5deea46bd8c0ab9c8b2d91706</Guid>
+      <Margins>5,5,5,5</Margins>
+      <Name>Page1</Name>
+      <PageHeight>297</PageHeight>
+      <PageWidth>210</PageWidth>
+      <Report isRef="0" />
+      <RightToLeft>True</RightToLeft>
+      <Watermark Ref="36" type="Stimulsoft.Report.Components.StiWatermark" isKey="true">
+        <Font>Arial,100</Font>
+        <TextBrush>[50:0:0:0]</TextBrush>
+      </Watermark>
+    </Page1>
+  </Pages>
+  <PrinterSettings Ref="37" type="Stimulsoft.Report.Print.StiPrinterSettings" isKey="true" />
+  <ReferencedAssemblies isList="true" count="8">
+    <value>System.Dll</value>
+    <value>System.Drawing.Dll</value>
+    <value>System.Windows.Forms.Dll</value>
+    <value>System.Data.Dll</value>
+    <value>System.Xml.Dll</value>
+    <value>Stimulsoft.Controls.Dll</value>
+    <value>Stimulsoft.Base.Dll</value>
+    <value>Stimulsoft.Report.Dll</value>
+  </ReferencedAssemblies>
+  <ReportAlias>ProductionBatchReport</ReportAlias>
+  <ReportChanged>7/5/2026 12:15:35 AM</ReportChanged>
+  <ReportCreated>7/4/2026 10:45:03 PM</ReportCreated>
+  <ReportDescription>گزارش روزنامچه خرید
+فروش</ReportDescription>
+  <ReportFile>Reports/ProductionBatch.mrt</ReportFile>
+  <ReportGuid>c4cc41b49b894a478d94bffd6fd099bd</ReportGuid>
+  <ReportImage isNull="true" />
+  <ReportName>ProductionBatchReport</ReportName>
+  <ReportUnit>Millimeters</ReportUnit>
+  <ReportVersion>2017.2.2.0</ReportVersion>
+  <Script>using System;
+using System.Drawing;
+using System.Windows.Forms;
+using System.Data;
+using Stimulsoft.Controls;
+using Stimulsoft.Base.Drawing;
+using Stimulsoft.Report;
+using Stimulsoft.Report.Dialogs;
+using Stimulsoft.Report.Components;
+
+namespace Reports
+{
+    public class Journal : Stimulsoft.Report.StiReport
+    {
+        public Journal()        {
+            this.InitializeComponent();
+        }
+
+        #region StiReport Designer generated code - do not modify
+		#endregion StiReport Designer generated code - do not modify
+    }
+}
+</Script>
+  <ScriptLanguage>CSharp</ScriptLanguage>
+  <Styles isList="true" count="0" />
+</StiSerializer>

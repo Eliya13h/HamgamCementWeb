@@ -1,0 +1,80 @@
+/* ── Vazirmatn (Persian body text) ── */
+@font-face {
+  font-family: 'Vazirmatn';
+  src: url('../assets/Fonts/Vazirmatn/Vazirmatn-Regular.woff2') format('woff2');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Vazirmatn';
+  src: url('../assets/Fonts/Vazirmatn/Vazirmatn-Medium.woff2') format('woff2');
+  font-weight: 500;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Vazirmatn';
+  src: url('../assets/Fonts/Vazirmatn/Vazirmatn-SemiBold.woff2') format('woff2');
+  font-weight: 600;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Vazirmatn';
+  src: url('../assets/Fonts/Vazirmatn/Vazirmatn-Bold.woff2') format('woff2');
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+}
+
+/*
+ * ── Yekan Bakh (headings / display) ──
+ * فایل‌های خریداری‌شده را در src/assets/Fonts/YekanBakh/ بگذارید، سپس @font-faceهای زیر را از کامنت خارج کنید.
+ * Supported names: YekanBakh-Regular.woff2, YekanBakh-Bold.woff2, etc.
+ * Or variable: YekanBakh-VF.woff2
+ *
+ * فعلاً غیرفعال است چون فایل‌ها موجود نیستند و مرورگر HTML/خالی را به‌جای woff2 می‌گیرد.
+ */
+/* @font-face {
+  font-family: 'Yekan Bakh';
+  src: url('../assets/Fonts/YekanBakh/YekanBakh-Regular.woff2') format('woff2');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Yekan Bakh';
+  src: url('../assets/Fonts/YekanBakh/YekanBakh-Medium.woff2') format('woff2');
+  font-weight: 500;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Yekan Bakh';
+  src: url('../assets/Fonts/YekanBakh/YekanBakh-SemiBold.woff2') format('woff2');
+  font-weight: 600;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Yekan Bakh';
+  src: url('../assets/Fonts/YekanBakh/YekanBakh-Bold.woff2') format('woff2');
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Yekan Bakh';
+  src: url('../assets/Fonts/YekanBakh/YekanBakh-VF.woff2') format('woff2-variations');
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: swap;
+} */

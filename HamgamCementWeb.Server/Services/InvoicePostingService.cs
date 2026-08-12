@@ -44,7 +44,6 @@ public class InvoicePostingService : IInvoicePostingService
     private readonly IFinanceCategoryService _financeCategories;
     private readonly IOperationalGlService _gl;
     private readonly ICashBoxService _cashBoxes;
-    private readonly IFreightTripService _freight;
 
     public InvoicePostingService(
         AppDbContext db,
@@ -53,8 +52,7 @@ public class InvoicePostingService : IInvoicePostingService
         IFifoInventoryService fifo,
         IFinanceCategoryService financeCategories,
         IOperationalGlService gl,
-        ICashBoxService cashBoxes,
-        IFreightTripService freight)
+        ICashBoxService cashBoxes)
     {
         _db = db;
         _currency = currency;
@@ -63,7 +61,6 @@ public class InvoicePostingService : IInvoicePostingService
         _financeCategories = financeCategories;
         _gl = gl;
         _cashBoxes = cashBoxes;
-        _freight = freight;
     }
 
     // چرا این helper: نرخ اسنپ‌شات ذخیره‌شده روی فاکتور را فقط در صورت ارز غیرپایه و معتبر بودن به‌عنوان override برمی‌گرداند
@@ -307,7 +304,8 @@ public class InvoicePostingService : IInvoicePostingService
 
         if (invoice.TotalAmount > 0)
         {
-            var cashBoxId = await _cashBoxes.ResolveUserCashBoxIdAsync(userId, cancellationToken);
+            var cashBoxId = invoice.CashBoxId
+                ?? await _cashBoxes.ResolveUserCashBoxIdAsync(userId, cancellationToken);
             var journal = await _gl.PostPurchaseAsync(invoice, userId, cashBoxId, cancellationToken);
             invoice.JournalEntryId = journal.JournalEntryID;
             if (invoice.ExpenseId is int expenseId)
@@ -317,14 +315,6 @@ public class InvoicePostingService : IInvoicePostingService
             }
 
             await _db.SaveChangesAsync(cancellationToken);
-
-            // کرایه حمل = هزینه دوره جدا؛ وارد بهای تمام‌شده / FIFO نمی‌شود
-            await _freight.ApplyPurchaseFreightAsync(invoice, userId, cashBoxId, cancellationToken);
-        }
-        else
-        {
-            var cashBoxId = await _cashBoxes.ResolveUserCashBoxIdAsync(userId, cancellationToken);
-            await _freight.ApplyPurchaseFreightAsync(invoice, userId, cashBoxId, cancellationToken);
         }
     }
 
@@ -497,12 +487,6 @@ public class InvoicePostingService : IInvoicePostingService
             }
 
             await _db.SaveChangesAsync(cancellationToken);
-        }
-
-        // کرایه تحویل فروش — درآمد حمل جدا از مبلغ کالا
-        if (InvoiceStatusRules.AddsRevenue(invoice.Status))
-        {
-            await _freight.ApplySaleFreightAsync(invoice, userId, saleCashBoxId, cancellationToken);
         }
     }
 

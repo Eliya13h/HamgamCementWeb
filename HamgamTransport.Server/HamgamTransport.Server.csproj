@@ -1,0 +1,111 @@
+﻿<Project Sdk="Microsoft.NET.Sdk.Web">
+
+	<PropertyGroup>
+		<TargetFramework>net9.0</TargetFramework>
+		<Nullable>enable</Nullable>
+		<ImplicitUsings>enable</ImplicitUsings>
+		<SpaRoot>..\hamgamtransport.client</SpaRoot>
+		<SpaProxyLaunchCommand>npm run dev</SpaProxyLaunchCommand>
+		<SpaProxyServerUrl>https://localhost:61830</SpaProxyServerUrl>
+		<DefaultItemExcludes>$(DefaultItemExcludes);$(SpaRoot)node_modules\**</DefaultItemExcludes>
+	</PropertyGroup>
+
+	<!-- build فرانت و کپی به wwwroot برای اجرای شبکه محلی / publish -->
+	<Target Name="BuildSpaDist" BeforeTargets="Build" Condition="'$(BuildSpa)' == 'true'">
+		<Message Importance="high" Text="Building React app in $(SpaRoot)..." />
+		<Exec WorkingDirectory="$(SpaRoot)" Command="npm install" />
+		<Exec WorkingDirectory="$(SpaRoot)" Command="npm run build" />
+		<ItemGroup>
+			<SpaDistFiles Include="$(SpaRoot)dist\**\*.*" />
+		</ItemGroup>
+		<Copy SourceFiles="@(SpaDistFiles)" DestinationFiles="@(SpaDistFiles->'$(ProjectDir)wwwroot\%(RecursiveDir)%(Filename)%(Extension)')" SkipUnchangedFiles="true" />
+	</Target>
+
+	<Target Name="PublishRunWebpack" AfterTargets="ComputeFilesToPublish">
+		<Exec WorkingDirectory="$(SpaRoot)" Command="npm install" />
+		<Exec WorkingDirectory="$(SpaRoot)" Command="npm run build" />
+		<ItemGroup>
+			<DistFiles Include="$(SpaRoot)dist\**" />
+			<ResolvedFileToPublish Include="@(DistFiles->'%(FullPath)')" Exclude="@(ResolvedFileToPublish)">
+				<RelativePath>wwwroot\%(RecursiveDir)%(Filename)%(Extension)</RelativePath>
+				<CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+				<ExcludeFromSingleFile>true</ExcludeFromSingleFile>
+			</ResolvedFileToPublish>
+		</ItemGroup>
+	</Target>
+
+	<ItemGroup>
+		<PackageReference Include="Dapper" Version="2.1.79" />
+		<PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="9.0.16" />
+		<PackageReference Include="Microsoft.AspNetCore.SpaProxy">
+			<Version>9.*-*</Version>
+		</PackageReference>
+		<PackageReference Include="Microsoft.EntityFrameworkCore" Version="9.0.0" />
+		<PackageReference Include="Microsoft.EntityFrameworkCore.Design" Version="9.0.0">
+			<PrivateAssets>all</PrivateAssets>
+			<IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+		</PackageReference>
+		<PackageReference Include="Microsoft.EntityFrameworkCore.SqlServer" Version="9.0.0" />
+		<PackageReference Include="Microsoft.EntityFrameworkCore.Tools" Version="9.0.0">
+			<PrivateAssets>all</PrivateAssets>
+			<IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+		</PackageReference>
+		<PackageReference Include="Microsoft.Extensions.Identity.Core" Version="9.0.0" />
+		<PackageReference Include="Stimulsoft.Reports.Web.NetCore" Version="2024.3.2" />
+	</ItemGroup>
+
+	<ItemGroup>
+		<None Update="Reports\Report.mrt">
+			<CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+		</None>
+		<None Update="Reports\Inoive.mrt">
+			<CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+		</None>
+		<None Update="Reports\Jurnal.mrt">
+			<CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+		</None>
+		<None Update="Reports\StandardJurnal.mrt">
+			<CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+		</None>
+		<None Update="Reports\Products.mrt">
+			<CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+		</None>
+		<None Update="Reports\Production.mrt">
+			<CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+		</None>
+		<None Update="Reports\ProductionBatch.mrt">
+			<CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+		</None>
+		<None Update="Reports\Fonts\*.ttf">
+			<CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+		</None>
+		<None Update="Localization\fa.xml">
+			<CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+		</None>
+	</ItemGroup>
+
+	<ItemGroup>
+		<ProjectReference Include="..\Hamgam.Shared\Hamgam.Shared.csproj" />
+		<ProjectReference Include="..\hamgamtransport.client\hamgamtransport.client.esproj">
+			<ReferenceOutputAssembly>false</ReferenceOutputAssembly>
+		</ProjectReference>
+	</ItemGroup>
+
+	<ItemGroup>
+		<Folder Include="Data\Models\Inventory\" />
+		<Folder Include="Data\Models\Transport\" />
+		<Folder Include="Data\ViewModels\Customers\" />
+		<Folder Include="Data\ViewModels\Dashboard\" />
+		<Folder Include="Data\ViewModels\Employees\" />
+		<Folder Include="Data\ViewModels\Finance\Expenses\" />
+		<Folder Include="Data\ViewModels\Finance\Income\" />
+		<Folder Include="Data\ViewModels\Purchases\" />
+		<Folder Include="Data\ViewModels\Sales\" />
+		<Folder Include="Data\ViewModels\Settings\" />
+		<Folder Include="Data\ViewModels\Suppliers\" />
+		<Folder Include="Data\ViewModels\Users\" />
+		<Folder Include="Data\ViewModels\Vehicles\" />
+		<Folder Include="wwwroot\" />
+	</ItemGroup>
+
+</Project>

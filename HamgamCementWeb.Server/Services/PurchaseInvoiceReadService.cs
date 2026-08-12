@@ -1,6 +1,6 @@
 using System.Data;
 using Dapper;
-using HamgamCementWeb.Server.Controllers.Transport;
+using HamgamCementWeb.Server.Controllers.Common;
 using HamgamCementWeb.Server.Data;
 
 namespace HamgamCementWeb.Server.Services;
@@ -174,6 +174,7 @@ public sealed class PurchaseInvoiceReadService : IPurchaseInvoiceReadService
                 pi.PaymentTermDays,
                 pi.DueDate,
                 pi.PaidAmount,
+                pi.CashBoxId,
                 CASE WHEN pi.IsCash = 1 THEN CAST(1 AS bit) ELSE CAST(0 AS bit) END AS IsCash,
                 CAST(pi.DocumentType AS int) AS DocumentType,
                 CASE WHEN ISNULL(pi.EntrySource, 0) = 0 THEN 1 ELSE CAST(pi.EntrySource AS int) END AS EntrySource,
@@ -183,15 +184,7 @@ public sealed class PurchaseInvoiceReadService : IPurchaseInvoiceReadService
                 ref.InvoiceNumber AS ReferenceInvoiceNumber,
                 CASE WHEN pi.IsPosted = 1 THEN CAST(1 AS bit) ELSE CAST(0 AS bit) END AS IsPosted,
                 pi.PostedAt,
-                pi.Description,
-                CAST(pi.FreightMode AS int) AS FreightMode,
-                pi.FreightRatePerTon,
-                pi.FreightWeightTon,
-                pi.FreightAmount,
-                pi.FreightAmountInBaseCurrency,
-                pi.FreightVehicleId,
-                pi.FreightCarrierName,
-                pi.TransportTripId
+                pi.Description
             FROM PurchaseInvoices pi
             LEFT JOIN ProductionBatches pb ON pb.ProductionBatchID = pi.ProductionBatchId
             LEFT JOIN PurchaseInvoices ref ON ref.PurchaseInvoiceID = pi.ReferencePurchaseInvoiceId
@@ -337,6 +330,7 @@ public sealed class PurchaseInvoiceDetailRow
     public int PaymentTermDays { get; set; }
     public DateTime? DueDate { get; set; }
     public decimal PaidAmount { get; set; }
+    public int? CashBoxId { get; set; }
     public bool IsCash { get; set; }
     public int DocumentType { get; set; }
     public int EntrySource { get; set; }
@@ -347,14 +341,6 @@ public sealed class PurchaseInvoiceDetailRow
     public bool IsPosted { get; set; }
     public DateTime? PostedAt { get; set; }
     public string? Description { get; set; }
-    public int FreightMode { get; set; }
-    public decimal FreightRatePerTon { get; set; }
-    public decimal FreightWeightTon { get; set; }
-    public decimal FreightAmount { get; set; }
-    public decimal FreightAmountInBaseCurrency { get; set; }
-    public int? FreightVehicleId { get; set; }
-    public string? FreightCarrierName { get; set; }
-    public int? TransportTripId { get; set; }
     public IReadOnlyList<PurchaseInvoiceItemRow> Items { get; set; } = [];
 }
 

@@ -1,0 +1,73 @@
+/* جدول ردیف‌های فاکتور خرید — عرض ستون‌ها و ارتفاع یکسان کنترل‌ها */
+.purchase-lines-table {
+  table-layout: fixed;
+  width: 100%;
+}
+
+.purchase-lines-table .col-product {
+  width: 32%;
+  min-width: 0;
+}
+
+.purchase-lines-table .col-unit {
+  width: 9%;
+}
+
+.purchase-lines-table .col-qty {
+  width: 14%;
+}
+
+.purchase-lines-table .col-price {
+  width: 14%;
+}
+
+.purchase-lines-table .col-total,
+.purchase-lines-table .col-total-base {
+  width: 12%;
+}
+
+.purchase-lines-table .col-actions {
+  width: 3rem;
+}
+
+.purchase-lines-table td,
+.purchase-lines-table th {
+  vertical-align: middle;
+}
+
+.purchase-lines-table .invoice-line-control-height .searchable-select-trigger,
+.purchase-lines-table .invoice-line-control-height.searchable-select-trigger,
+.purchase-lines-table .invoice-line-control-height.form-select,
+.purchase-lines-table .invoice-line-control-height .amount-field-wrap {
+  min-height: calc(1.5em + 0.5rem + 2px);
+  height: calc(1.5em + 0.5rem + 2px);
+  box-sizing: border-box;
+}
+
+.purchase-lines-table .invoice-line-control-height .searchable-select-trigger,
+.purchase-lines-table .invoice-line-control-height.searchable-select-trigger {
+  padding-top: 0.25rem;
+  padding-bottom: 0.25rem;
+  font-size: 0.875rem;
+}
+
+.purchase-lines-table .invoice-line-control-height .amount-field-input {
+  height: 100%;
+  min-height: 0;
+  padding-top: 0.25rem;
+  padding-bottom: 0.25rem;
+  font-size: 0.875rem;
+  line-height: 1.5;
+}
+
+.purchase-lines-table .invoice-line-control-height.amount-field,
+.purchase-lines-table .invoice-line-control-height .amount-field {
+  margin: 0;
+}
+
+.purchase-lines-table tr.invoice-return-subrow td {
+  background-color: rgba(var(--bs-warning-rgb, 255, 193, 7), 0.08);
+  border-top: none;
+  padding-top: 0.25rem;
+  padding-bottom: 0.25rem;
+}

@@ -5,7 +5,6 @@ using HamgamCementWeb.Server.Data.Models.Finance;
 using HamgamCementWeb.Server.Data.Models.Inventory;
 using HamgamCementWeb.Server.Data.Models.People;
 using HamgamCementWeb.Server.Data.Models.Production;
-using HamgamCementWeb.Server.Data.Models.Transport;
 
 namespace HamgamCementWeb.Server.Data.Models.Invoice;
 
@@ -83,6 +82,9 @@ public class PurchaseInvoice : BaseEntity
     [Column(TypeName = "decimal(18,4)")]
     public decimal PaidAmount { get; set; }
 
+    // صندوق پرداخت نقدی خرید — وقتی PaidAmount > 0 برای خروج نقد از این صندوق استفاده می‌شود
+    public int? CashBoxId { get; set; }
+
     [MaxLength(2000)]
     public string? Description { get; set; }
 
@@ -90,41 +92,6 @@ public class PurchaseInvoice : BaseEntity
 
     // سند دفترروزنامه پس از ثبت نهایی
     public int? JournalEntryId { get; set; }
-
-    // نوع حمل — بدون / خودی / کرایه‌ای
-    public FreightMode FreightMode { get; set; } = FreightMode.None;
-
-    // نرخ کرایه به‌ازای هر تن (ارز فاکتور)
-    [Column(TypeName = "decimal(18,4)")]
-    public decimal FreightRatePerTon { get; set; }
-
-    // وزن حمل به تن — معمولاً از جمع مقدار پایه خطوط ÷ ۱۰۰۰
-    [Column(TypeName = "decimal(18,4)")]
-    public decimal FreightWeightTon { get; set; }
-
-    // مبلغ کرایه = نرخ × تن (ارز فاکتور) — هزینه دوره، وارد FIFO نمی‌شود
-    [Column(TypeName = "decimal(18,4)")]
-    public decimal FreightAmount { get; set; }
-
-    // مبلغ کرایه به ارز پایه
-    [Column(TypeName = "decimal(18,4)")]
-    public decimal FreightAmountInBaseCurrency { get; set; }
-
-    // وسیله ناوگان خودی
-    public int? FreightVehicleId { get; set; }
-
-    // نام باربری / مالک خارجی
-    [MaxLength(200)]
-    public string? FreightCarrierName { get; set; }
-
-    // سفر ساخته‌شده هنگام ثبت نهایی
-    public int? TransportTripId { get; set; }
-
-    // مصرف حسابداری مربوط به کرایه حمل
-    public int? FreightExpenseId { get; set; }
-
-    // سند دفترروزنامه کرایه حمل
-    public int? FreightJournalEntryId { get; set; }
 
     [ForeignKey(nameof(SupplierId))]
     public virtual Supplier Supplier { get; set; } = null!;
@@ -152,17 +119,8 @@ public class PurchaseInvoice : BaseEntity
     [ForeignKey(nameof(ProductionBatchId))]
     public virtual Production.ProductionBatch? ProductionBatch { get; set; }
 
-    [ForeignKey(nameof(FreightVehicleId))]
-    public virtual Vehicle? FreightVehicle { get; set; }
-
-    [ForeignKey(nameof(TransportTripId))]
-    public virtual TransportTrip? TransportTrip { get; set; }
-
-    [ForeignKey(nameof(FreightExpenseId))]
-    public virtual Expense? FreightExpense { get; set; }
-
-    [ForeignKey(nameof(FreightJournalEntryId))]
-    public virtual JournalEntry? FreightJournalEntry { get; set; }
+    [ForeignKey(nameof(CashBoxId))]
+    public virtual CashBox? CashBox { get; set; }
 
     public virtual ICollection<PurchaseInvoice> ReturnDocuments { get; set; } = [];
 

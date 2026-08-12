@@ -1,11 +1,44 @@
-# Diagnose HTTP 500.30 for HamgamCementWeb on IIS
+# Diagnose HTTP 500.30 for Cement / Transport on IIS
 # Run as Administrator on the destination machine
+#
+# Examples:
+#   .\diagnose-iis.ps1 -App Cement
+#   .\diagnose-iis.ps1 -App Transport
 
 param(
-    [string]$PublishPath = "C:\inetpub\HamgamCementWeb"
+    [ValidateSet("Cement", "Transport")]
+    [string]$App = "Cement",
+
+    [string]$PublishPath,
+    [string]$PoolName,
+    [string]$AppDll,
+    [string]$DatabaseName
 )
 
 $ErrorActionPreference = "Continue"
+
+$defaults = @{
+    Cement = @{
+        PublishPath  = "C:\inetpub\Cement"
+        PoolName     = "Cement"
+        AppDll       = "HamgamCementWeb.Server.dll"
+        DatabaseName = "HamgamNimroz"
+    }
+    Transport = @{
+        PublishPath  = "C:\inetpub\Transport"
+        PoolName     = "Transport"
+        AppDll       = "HamgamTransport.Server.dll"
+        DatabaseName = "HamgamTransport"
+    }
+}
+
+$cfg = $defaults[$App]
+if (-not $PublishPath)  { $PublishPath = $cfg.PublishPath }
+if (-not $PoolName)     { $PoolName = $cfg.PoolName }
+if (-not $AppDll)       { $AppDll = $cfg.AppDll }
+if (-not $DatabaseName) { $DatabaseName = $cfg.DatabaseName }
+
+$runtimeConfig = [IO.Path]::ChangeExtension($AppDll, ".runtimeconfig.json")
 
 function Write-Step([string]$Message) {
     Write-Host ""
@@ -24,15 +57,19 @@ function Write-WarnMsg([string]$Message) {
     Write-Host "    WARN: $Message" -ForegroundColor Yellow
 }
 
+Write-Step "App: $App"
+Write-Ok "Path=$PublishPath | Pool=$PoolName | Dll=$AppDll"
+
 Write-Step "Publish folder"
 if (-not (Test-Path $PublishPath)) {
     Write-Bad "Folder not found: $PublishPath"
+    Write-WarnMsg "Run: .\publish-to-iis.ps1 -App $App"
     exit 1
 }
 Write-Ok "Folder exists: $PublishPath"
 
 Write-Step "Required files"
-$required = @("HamgamCementWeb.Server.dll", "web.config", "appsettings.json", "HamgamCementWeb.Server.runtimeconfig.json")
+$required = @($AppDll, "web.config", "appsettings.json", $runtimeConfig)
 foreach ($file in $required) {
     $path = Join-Path $PublishPath $file
     if (Test-Path $path) { Write-Ok $file } else { Write-Bad "Missing: $file" }
@@ -62,7 +99,7 @@ Write-Step "stdout logs (most important for 500.30)"
 $logsPath = Join-Path $PublishPath "logs"
 if (-not (Test-Path $logsPath)) {
     Write-Bad "logs folder missing: $logsPath"
-    Write-WarnMsg "Create it and grant Modify to IIS AppPool\HamgamCementWeb"
+    Write-WarnMsg "Create it and grant Modify to IIS AppPool\$PoolName"
 } else {
     $logFiles = Get-ChildItem $logsPath -Filter "stdout_*.log" -ErrorAction SilentlyContinue |
         Sort-Object LastWriteTime -Descending
@@ -114,9 +151,9 @@ if (Test-Path $appSettingsPath) {
                 }
             } catch {
                 if ($_.Exception.Message -match "Cannot open database") {
-                    Write-Bad "Database HamgamNimroz does not exist. Create it and run migrations."
+                    Write-Bad "Database $DatabaseName does not exist. Create it and run migrations."
                 } elseif ($_.Exception.Message -match "Login failed") {
-                    Write-Bad "SQL login failed for IIS identity. Grant access to IIS AppPool\HamgamCementWeb"
+                    Write-Bad "SQL login failed for IIS identity. Grant access to IIS AppPool\$PoolName"
                 } else {
                     Write-Bad "Database error: $($_.Exception.Message)"
                 }
@@ -130,15 +167,15 @@ if (Test-Path $appSettingsPath) {
 Write-Step "Run app manually (shows startup exception)"
 Write-WarnMsg "Starting app for 8 seconds on port 5099..."
 $env:ASPNETCORE_ENVIRONMENT = "Production"
-$dll = Join-Path $PublishPath "HamgamCementWeb.Server.dll"
+$dll = Join-Path $PublishPath $AppDll
 if (Test-Path $dll) {
     Push-Location $PublishPath
     $job = Start-Job -ScriptBlock {
-        param($path)
+        param($path, $dllName)
         Set-Location $path
         $env:ASPNETCORE_ENVIRONMENT = "Production"
-        & dotnet "HamgamCementWeb.Server.dll" --urls "http://127.0.0.1:5099" 2>&1
-    } -ArgumentList $PublishPath
+        & dotnet $dllName --urls "http://127.0.0.1:5099" 2>&1
+    } -ArgumentList $PublishPath, $AppDll
 
     Start-Sleep -Seconds 8
     $output = Receive-Job $job
@@ -154,12 +191,16 @@ if (Test-Path $dll) {
         Write-Ok "App seems to start without immediate error (check http://127.0.0.1:5099)"
     }
 }
+else {
+    Write-Bad "DLL not found: $dll"
+}
 
 Write-Host ""
 Write-Host "Common fixes for 500.30:" -ForegroundColor Yellow
 Write-Host "  1. Install/repair ASP.NET Core 9 Hosting Bundle, then: iisreset"
-Write-Host "  2. Create database HamgamNimroz and run migrations"
-Write-Host "  3. Grant SQL access to IIS AppPool\HamgamCementWeb"
+Write-Host "  2. Create database $DatabaseName and run migrations"
+Write-Host "  3. Grant SQL access to IIS AppPool\$PoolName (scripts\setup-sql-login.sql)"
 Write-Host "  4. Fix ConnectionStrings:Local in appsettings.json"
 Write-Host "  5. Ensure logs folder exists and is writable"
+Write-Host "  6. If files missing: .\publish-to-iis.ps1 -App $App"
 Write-Host ""

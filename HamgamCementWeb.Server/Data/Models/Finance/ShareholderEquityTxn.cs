@@ -32,6 +32,14 @@ public class ShareholderEquityTxn : BaseEntity
     [Column(TypeName = "decimal(18,4)")]
     public decimal AmountInBaseCurrency { get; set; }
 
+    // بخش از مبلغ کل که از سود انباشته/سهم سود کسر شده (ارز پایه) — برای تفکیک خودکار توزیع سود
+    [Column(TypeName = "decimal(18,4)")]
+    public decimal ProfitPortionInBase { get; set; }
+
+    // بخش مازاد که از سرمایه همان سهام‌دار کسر شده (ارز پایه)
+    [Column(TypeName = "decimal(18,4)")]
+    public decimal CapitalPortionInBase { get; set; }
+
     // برای آورده/برداشت/توزیع نقدی الزامی است
     public int? CashBoxId { get; set; }
 

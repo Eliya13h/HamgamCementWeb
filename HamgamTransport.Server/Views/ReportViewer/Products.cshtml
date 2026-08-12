@@ -1,0 +1,46 @@
+﻿@using Stimulsoft.Report.Web
+@using HamgamTransport.Server.Services
+@{
+    Layout = null;
+}
+
+<!DOCTYPE html>
+<html lang="fa" dir="rtl">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>گزارش جامع محصولات</title>
+    <style>
+        html, body {
+            margin: 0;
+            padding: 0;
+            height: 100%;
+            background: #1a1a1a;
+        }
+    </style>
+</head>
+<body>
+    @Html.StiNetCoreViewer(new StiNetCoreViewerOptions
+    {
+        Actions =
+        {
+            GetReport = "GetProductsReport",
+            ViewerEvent = "ProductsViewerEvent"
+        },
+        Localization = "Localization/fa.xml",
+        Appearance =
+        {
+            RightToLeft = true,
+            FullScreenMode = true
+        },
+        Toolbar =
+        {
+            DisplayMode = StiToolbarDisplayMode.Separated
+        },
+        Exports =
+        {
+            DefaultSettings = ReportFontHelper.CreateViewerExportSettings()
+        }
+    })
+</body>
+</html>

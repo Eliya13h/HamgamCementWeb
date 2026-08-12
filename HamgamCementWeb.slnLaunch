@@ -1,0 +1,17 @@
+[
+  {
+    "Name": "Both Systems (HTTPS)",
+    "Projects": [
+      {
+        "Path": "HamgamCementWeb.Server\\HamgamCementWeb.Server.csproj",
+        "Action": "Start",
+        "DebugTarget": "https"
+      },
+      {
+        "Path": "HamgamTransport.Server\\HamgamTransport.Server.csproj",
+        "Action": "Start",
+        "DebugTarget": "https"
+      }
+    ]
+  }
+]

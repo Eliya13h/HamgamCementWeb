@@ -25,6 +25,13 @@ namespace HamgamCementWeb.Server.Data.Models.Finance
         // تعداد رقم اعشار برای گرد کردن مبالغ این ارز
         public byte DecimalPlaces { get; set; } = 0;
 
+        // استفاده در هر دو سیستم (سیمان + ترانسپورت)
+        public bool UseInBothSystems { get; set; }
+
+        // سیستمی که ارز در آن ایجاد شده: Cement یا Transport
+        [MaxLength(20)]
+        public string OriginSystem { get; set; } = string.Empty;
+
         public virtual ICollection<CurrencyExchangeRate> ExchangeRates { get; set; } = [];
         public virtual ICollection<CurrencyExchangeHistory> ExchangeHistories { get; set; } = [];
     }

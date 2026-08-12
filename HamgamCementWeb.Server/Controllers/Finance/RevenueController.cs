@@ -1,6 +1,6 @@
 using System.ComponentModel.DataAnnotations;
 using HamgamCementWeb.Server.Authorization;
-using HamgamCementWeb.Server.Controllers.Transport;
+using HamgamCementWeb.Server.Controllers.Common;
 using HamgamCementWeb.Server.Data;
 using HamgamCementWeb.Server.Data.Models.Finance;
 using HamgamCementWeb.Server.Services;
@@ -75,7 +75,9 @@ public class RevenueController : FinanceControllerBase
                         ? "برگشت از فروش"
                         : r.Source == (int)FinancialEntrySource.Miscellaneous
                             ? "متفرقه"
-                            : r.Source.ToString(),
+                            : r.Source == (int)FinancialEntrySource.TransportRevenue
+                                ? "درآمد حمل‌ونقل"
+                                : r.Source.ToString(),
                 customerId = r.CustomerId,
                 customerName = r.CustomerName,
                 currencyId = r.CurrencyId,

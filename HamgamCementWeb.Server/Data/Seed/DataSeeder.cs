@@ -3,7 +3,6 @@ using HamgamCementWeb.Server.Data.Models.Finance;
 using HamgamCementWeb.Server.Data.Models.Inventory;
 using HamgamCementWeb.Server.Data.Models.People;
 using HamgamCementWeb.Server.Data.Models.Product;
-using HamgamCementWeb.Server.Data.Models.Transport;
 using HamgamCementWeb.Server.Services;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
@@ -20,6 +19,8 @@ public static class DataSeeder
     public const string DefaultUserName = "admin";
     public const string DefaultPassword = "admin";
     public const string DefaultEmail = "admin@hamgam.local";
+    public const string DefaultShareholderFirstName = "صاحب";
+    public const string DefaultShareholderLastName = "امتیاز";
 
     public static async Task SeedAsync(IServiceProvider services, CancellationToken cancellationToken = default)
     {
@@ -27,33 +28,37 @@ public static class DataSeeder
         var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
         var passwordHasher = scope.ServiceProvider.GetRequiredService<IPasswordHasher<User>>();
 
+        // موقت: فقط یوزر ادمین، واحدات و سیستم کدینگ
         var department = await EnsureDepartmentAsync(db, cancellationToken);
         var employee = await EnsureEmployeeAsync(db, department, cancellationToken);
         var role = await EnsureRoleAsync(db, cancellationToken);
         await EnsureUserAsync(db, passwordHasher, employee, role, cancellationToken);
-        await SeedData(db, cancellationToken);
+        // await SeedData(db, cancellationToken);
         await EnsureMeaurmentsAsync(db, cancellationToken);
-        await EnsureProductCategoriesAsync(db, cancellationToken);
-        await EnsureWarehousesAsync(db, cancellationToken);
+        // await EnsureProductCategoriesAsync(db, cancellationToken);
+        // await EnsureWarehousesAsync(db, cancellationToken);
 
         var financeCategories = scope.ServiceProvider.GetRequiredService<IFinanceCategoryService>();
         await financeCategories.EnsureSystemCategoriesAsync(cancellationToken);
         await ChartOfAccountsSeeder.EnsureAsync(db, cancellationToken);
-        await UsersSchemaSeeder.EnsureAsync(db, cancellationToken);
+        // await UsersSchemaSeeder.EnsureAsync(db, cancellationToken);
+        // دسته‌بندی‌های پیش‌فرض هزینه تولید (مستقیم / غیرمستقیم / …)
         await ProductionSchemaSeeder.EnsureAsync(db, cancellationToken);
-        await ProductSchemaSeeder.EnsureAsync(db, cancellationToken);
-        await InventorySchemaSeeder.EnsureAsync(db, cancellationToken);
-        await FiscalYearSchemaSeeder.EnsureAsync(db, cancellationToken);
-        await CashSchemaSeeder.EnsureAsync(db, cancellationToken);
-        var cashBoxService = scope.ServiceProvider.GetRequiredService<ICashBoxService>();
-        await CashSchemaSeeder.EnsureDefaultCashBoxAsync(db, cashBoxService, cancellationToken);
-        await BankSchemaSeeder.EnsureAsync(db, cancellationToken);
-        await AccountingCompletenessSchemaSeeder.EnsureAsync(db, cancellationToken);
-        await CurrencyExchangeSchemaSeeder.EnsureAsync(db, cancellationToken);
-        await FixedAssetSchemaSeeder.EnsureAsync(db, cancellationToken);
-        await EquitySchemaSeeder.EnsureAsync(db, cancellationToken);
-        await TransportSchemaSeeder.EnsureAsync(db, cancellationToken);
-        await EnsureGeneralSettingsAsync(db, cancellationToken);
+        // await ProductSchemaSeeder.EnsureAsync(db, cancellationToken);
+        // await InventorySchemaSeeder.EnsureAsync(db, cancellationToken);
+        // await FiscalYearSchemaSeeder.EnsureAsync(db, cancellationToken);
+        // await CashSchemaSeeder.EnsureAsync(db, cancellationToken);
+        // var cashBoxService = scope.ServiceProvider.GetRequiredService<ICashBoxService>();
+        // await CashSchemaSeeder.EnsureDefaultCashBoxAsync(db, cashBoxService, cancellationToken);
+        // await BankSchemaSeeder.EnsureAsync(db, cancellationToken);
+        // await AccountingCompletenessSchemaSeeder.EnsureAsync(db, cancellationToken);
+        // await CurrencyExchangeSchemaSeeder.EnsureAsync(db, cancellationToken);
+        // await FixedAssetSchemaSeeder.EnsureAsync(db, cancellationToken);
+        // await EquitySchemaSeeder.EnsureAsync(db, cancellationToken);
+        // var accountLookup = scope.ServiceProvider.GetRequiredService<IAccountLookupService>();
+        // await EnsureDefaultShareholderAsync(db, accountLookup, cancellationToken);
+        await TransportRemovalSeeder.EnsureAsync(db, cancellationToken);
+        // await EnsureGeneralSettingsAsync(db, cancellationToken);
     }
 
     private static async Task<Department> EnsureDepartmentAsync(
@@ -148,161 +153,6 @@ public static class DataSeeder
     }
     private static async Task SeedData(AppDbContext db, CancellationToken cancellationToken)
     {
-        var VehiclesTypes = new[]
-        {
-            new VehicleType{Name="بونکر",Description="",CreatedBy = 1},
-            new VehicleType{Name="کشنده",Description="",CreatedBy = 1},
-            new VehicleType{Name="اسب",Description="",CreatedBy = 1}
-        };
-        var drivers = new[]
-        {
-            new Driver
-            {
-                Name = "علی احمد",
-                FatherName = "غلام سخی",
-                Address = "هرات",
-                Title = PersonTitle.Mr,
-                CreatedBy = 1
-            },
-            new Driver
-            {
-                Name = "علی اصغر",
-                FatherName = "غلام سخی",
-                Address = "هرات",
-                Title = PersonTitle.Mr,
-                CreatedBy = 1
-            },
-            new Driver
-            {
-                Name = "فاروق کریمی",
-                FatherName = "محمد کریم",
-                Address = "کابل",
-                Title = PersonTitle.Mr,
-                CreatedBy = 1
-            },
-            new Driver
-            {
-                Name = "سید حسین",
-                FatherName = "سید رحمان",
-                Address = "مزار شریف",
-                Title = PersonTitle.Mr,
-                CreatedBy = 1
-            },
-            new Driver
-            {
-                Name = "زهرا نوری",
-                FatherName = "عبدالله نوری",
-                Address = "قندهار",
-                Title = PersonTitle.Mrs,
-                CreatedBy = 1
-            },
-            new Driver
-            {
-                Name = "جعفر رضایی",
-                FatherName = "کریم رضایی",
-                Address = "بلخ",
-                Title = PersonTitle.Mr,
-                CreatedBy = 1
-            }
-};
-
-        var vehicles = new[]
-        {
-            new Vehicle
-            {
-                Code = "HMV0001",
-                PlateNumber = "AF-12345",
-                VehicleTypeId = 1,
-                Brand = "Volvo FH16",
-                ModelYear = 2020,
-                Color = "White",
-                ChassisNumber = "CHS001",
-                EngineNumber = "ENG001",
-                FuelTankCapacity = 600,
-                DefaultDriverId = 1,
-                VehicleOwnerId = 1,
-                CreatedBy = 1
-            },
-            new Vehicle
-            {
-                Code = "HMV0002",
-                PlateNumber = "AF-54321",
-                VehicleTypeId = 2,
-                Brand = "Mercedes Actros",
-                ModelYear = 2019,
-                Color = "Blue",
-                ChassisNumber = "CHS002",
-                EngineNumber = "ENG002",
-                FuelTankCapacity = 500,
-                DefaultDriverId = 2,
-                VehicleOwnerId = 2,
-                CreatedBy = 1
-            },
-            new Vehicle
-            {
-                Code = "HMV0003",
-                PlateNumber = "AF-67890",
-                VehicleTypeId = 1,
-                Brand = "Scania R500",
-                ModelYear = 2021,
-                Color = "Red",
-                ChassisNumber = "CHS003",
-                EngineNumber = "ENG003",
-                FuelTankCapacity = 650,
-                DefaultDriverId = 3,
-                VehicleOwnerId = 3,
-                CreatedBy = 1
-            },
-            new Vehicle
-            {
-                Code = "HMV0004",
-                PlateNumber = "AF-98765",
-                VehicleTypeId = 3,
-                Brand = "MAN TGX",
-                ModelYear = 2018,
-                Color = "Black",
-                ChassisNumber = "CHS004",
-                EngineNumber = "ENG004",
-                FuelTankCapacity = 550,
-                DefaultDriverId = 4,
-                VehicleOwnerId = 4,
-                CreatedBy = 1
-            },
-            new Vehicle
-            {
-                Code = "HMV0005",
-                PlateNumber = "AF-11223",
-                VehicleTypeId = 2,
-                Brand = "DAF XF",
-                ModelYear = 2022,
-                Color = "Silver",
-                ChassisNumber = "CHS005",
-                EngineNumber = "ENG005",
-                FuelTankCapacity = 700,
-                DefaultDriverId = 5,
-                VehicleOwnerId = 3,
-                CreatedBy = 1
-            }
-};
-        var vehiclesOwner = new[]
-        {
-            new VehicleOwner{Name = "عبدالستار",Address = "هرات", Family= "اصغری" , FatherName = "عبدالعزیز",Mobile = "93123554580", NationalCode = "21254558", DefaultShare  = 20.5m , Title = PersonTitle.Mr, CreatedBy = 1},
-            new VehicleOwner{Name = "عابدین",Address = "قندهار", Family= "اکبری" , FatherName = "عبدالعزیر",Mobile = "93123454580", NationalCode = "212545458", DefaultShare  = 25.5m , Title = PersonTitle.Mr, CreatedBy = 1},
-            new VehicleOwner{Name = "گلبهار",Address = "هرات", Family= "شفایی" , FatherName = "سخی داد",Mobile = "93123554580", NationalCode = "21255458", DefaultShare  = 28.5m , Title = PersonTitle.Mr, CreatedBy = 1},
-            new VehicleOwner{Name = "ننگیالی",Address = "هرات", Family= "احمدی" , FatherName = "اکبر",Mobile = "931234854580", NationalCode = "21253458", DefaultShare  = 21.5m , Title = PersonTitle.Mr, CreatedBy = 1},
-        };
-        var expenses = new[] {
-        new ExpensesCategory{Name = "ویزا", CreatedBy = 1},
-        new ExpensesCategory{Name = "خرج راه", CreatedBy = 1},
-        new ExpensesCategory{Name = "شاگردانگی", CreatedBy = 1},
-        new ExpensesCategory{Name = "رودپاس", CreatedBy = 1},
-        };
-        var routs = new[]
-        {
-            // کد مسیر با قالب TransportCodeHelper.ForRoute (HMR + شناسه ۴ رقمی) هماهنگ شد.
-            new TransportRoute{Name = "کابل هرات", Code = "HMR0001" , DistanceKm = 250 , Destination = "کابل" , Description = "", EstimatedDays = 3 , Origin ="هرات", OriginCountry = "افغانستان", CreatedBy = 1},
-            new TransportRoute{Name = "نمیروز هرات", Code = "HMR0002" , DistanceKm = 450 , Destination = "نیمروز" , Description = "", EstimatedDays = 3 , Origin ="هرات", OriginCountry = "افغانستان", CreatedBy = 1}
-        };
         var currencies = new[] {
             new Currency{Name = "افغانی", CurrencyCode = "AFN", DecimalPlaces = 2, Symbol = "؋", IsBaseCurrency = true, CreatedBy = 1},
         };
@@ -342,37 +192,12 @@ public static class DataSeeder
             new Customer { Name = "شرکت ساختمانی آفتاب", PhoneNumber = "93702345619", Address = "شهرک صنعتی", City = "مزار شریف", Country = "افغانستان", InitialBalance = 0, CustomerType = PersonType.LegalEntity, CreatedBy = 1 },
             new Customer { Name = "علی احمدی", PhoneNumber = "93702345620", Address = "ناحیه ۱۵", City = "هرات", Country = "افغانستان", InitialBalance = 0, CustomerType = PersonType.NaturalPerson, CreatedBy = 1 },
         };
-        if (!await db.Vehicles.AnyAsync())
+        if (!await db.Currencies.AnyAsync(cancellationToken))
         {
-            await db.AddRangeAsync(VehiclesTypes);
-            await db.SaveChangesAsync();
-            await db.AddRangeAsync(drivers);
-            await db.AddRangeAsync(vehiclesOwner);
-            await db.SaveChangesAsync();
-            await db.AddRangeAsync(vehicles);
-            await db.AddRangeAsync(routs);
-            await db.AddRangeAsync(expenses);
             await db.AddRangeAsync(currencies);
             await db.AddRangeAsync(suppliers);
             await db.AddRangeAsync(customers);
-            
-            await db.SaveChangesAsync();
-
-            // همگام‌سازی رابطه‌ی دوطرفه: علاوه بر Vehicle.DefaultDriverId، فیلد معکوس Driver.DefaultVehicleId
-            // هم ست می‌شود (اولین وسیله‌ی ارجاع‌دهنده) تا داده‌ی seed سازگار باشد.
-            foreach (var vehicle in vehicles)
-            {
-                if (vehicle.DefaultDriverId is int driverId)
-                {
-                    var driver = drivers.FirstOrDefault(d => d.DriverID == driverId);
-                    if (driver is not null && driver.DefaultVehicleId is null)
-                    {
-                        driver.DefaultVehicleId = vehicle.VehicleID;
-                    }
-                }
-            }
-
-            await db.SaveChangesAsync();
+            await db.SaveChangesAsync(cancellationToken);
         }
     }
 
@@ -548,6 +373,51 @@ public static class DataSeeder
             ZmLogoPath = "/zm_logo.jpg",
         });
 
+        await db.SaveChangesAsync(cancellationToken);
+    }
+
+    // حداقل یک سهامدار فعال برای تخصیص سود/زیان و اسناد سرمایه لازم است
+    private static async Task EnsureDefaultShareholderAsync(
+        AppDbContext db,
+        IAccountLookupService accounts,
+        CancellationToken cancellationToken)
+    {
+        var hasAny = await db.Shareholders
+            .AnyAsync(s => s.IsDeleted != true, cancellationToken);
+        if (hasAny)
+        {
+            return;
+        }
+
+        var createdBy = await db.Users
+            .Where(u => u.IsDeleted != true)
+            .Select(u => (int?)u.UserID)
+            .FirstOrDefaultAsync(cancellationToken);
+
+        var shareholder = new Shareholder
+        {
+            Title = PersonTitle.Mr,
+            FirstName = DefaultShareholderFirstName,
+            LastName = DefaultShareholderLastName,
+            InitialBalance = 0,
+            Description = "سهام‌دار پیش‌فرض سیستم",
+            ProfitShare = 100m,
+            LossShare = 100m,
+            IsActive = true,
+            IsDeleted = false,
+            CreatedAt = DateTime.Now,
+            CreatedBy = createdBy,
+        };
+
+        db.Shareholders.Add(shareholder);
+        await db.SaveChangesAsync(cancellationToken);
+
+        var fullName = $"{shareholder.FirstName} {shareholder.LastName}".Trim();
+        var account = await accounts.EnsureShareholderAccountAsync(
+            shareholder.ShareholderID,
+            fullName,
+            cancellationToken);
+        shareholder.AccountId = account.AccountID;
         await db.SaveChangesAsync(cancellationToken);
     }
 }

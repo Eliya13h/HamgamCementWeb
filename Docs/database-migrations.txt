@@ -1,0 +1,5 @@
+dotnet ef migrations add NameOfChange --project HamgamCementWeb.Server --context AppDbContext
+dotnet ef database update --project HamgamCementWeb.Server
+
+dotnet ef migrations add NameOfChange --project HamgamTransport.Server --context AppDbContext
+dotnet ef database update --project HamgamTransport.Server

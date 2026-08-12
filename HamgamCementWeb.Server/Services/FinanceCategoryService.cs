@@ -10,10 +10,6 @@ public static class FinanceCategoryCode
     public const string ProductSale = "PRODUCT_SALE";
     public const string MiscellaneousExpense = "MISC_EXPENSE";
     public const string MiscellaneousRevenue = "MISC_REVENUE";
-    // دسته سیستمی مصرف حمل‌ونقل — برای اتصال فاکتور مصارف ترابری به حسابداری
-    public const string TransportExpense = "TRANSPORT_EXPENSE";
-    // دسته سیستمی درآمد کرایه حمل / باربری
-    public const string TransportRevenue = "TRANSPORT_REVENUE";
 }
 
 public interface IFinanceCategoryService
@@ -44,11 +40,6 @@ public class FinanceCategoryService : IFinanceCategoryService
             "متفرقه",
             "مصارف متفرقه",
             cancellationToken);
-        await EnsureExpenseCategoryAsync(
-            FinanceCategoryCode.TransportExpense,
-            "هزینه حمل‌ونقل",
-            "مصارف ناشی از فاکتورهای حمل‌ونقل",
-            cancellationToken);
         await EnsureRevenueCategoryAsync(
             FinanceCategoryCode.ProductSale,
             "فروش محصولات",
@@ -58,11 +49,6 @@ public class FinanceCategoryService : IFinanceCategoryService
             FinanceCategoryCode.MiscellaneousRevenue,
             "متفرقه",
             "عواید متفرقه",
-            cancellationToken);
-        await EnsureRevenueCategoryAsync(
-            FinanceCategoryCode.TransportRevenue,
-            "درآمد حمل‌ونقل",
-            "کرایه دریافتی از تحویل فروش و باربری",
             cancellationToken);
     }
 

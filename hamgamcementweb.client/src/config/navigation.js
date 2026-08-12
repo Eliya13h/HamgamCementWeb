@@ -20,8 +20,6 @@ export const navItems = [
         ],
       },
       { path: '/people/salaries', label: 'حقوق و مزایا' },
-      { path: '/people/drivers', label: 'رانندگان' },
-      { path: '/people/vehicle-owners', label: 'موترداران' },
       { path: '/people/shareholders', label: 'سهام‌داران' },
     ],
   },
@@ -42,20 +40,6 @@ export const navItems = [
       { path: '/production/formulas', label: 'فرمول ساخت' },
       { path: '/production/daily', label: 'تولید روزانه' },
       { path: '/production/plan', label: 'برنامه تولید' },
-    ],
-  },
-  {
-    id: 'transport',
-    label: 'حمل و نقل',
-    icon: 'transport',
-    children: [
-      { path: '/transport/shipping', label: 'حمل و نقل' },
-      { path: '/transport/routes', label: 'مسیرها' },
-      { path: '/transport/vehicles', label: 'وسایل نقلیه' },
-      { path: '/transport/vehicle-types', label: 'انواع وسایل نقلیه' },
-      { path: '/transport/maintenance', label: 'تعمیر و نگهداری' },
-      { path: '/transport/invoices', label: 'فاکتور مصارف' },
-      { path: '/transport/expense-categories', label: 'دسته‌بندی مصارف' },
     ],
   },
   {
@@ -139,7 +123,6 @@ export const navItems = [
     children: [
       { path: '/reporting/products', label: 'محصولات' },
       { path: '/reporting/production', label: 'تولیدات' },
-      { path: '/reporting/transport', label: 'ترانسپورت' },
       { path: '/reporting/revenues', label: 'عواید' },
       { path: '/reporting/expenses', label: 'مصارف' },
       { path: '/reporting/journal', label: 'روزنامچه' },

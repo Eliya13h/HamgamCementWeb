@@ -33,11 +33,9 @@
 
 /*
  * ── Yekan Bakh (headings / display) ──
- * Copy purchased woff2 files into: src/assets/Fonts/YekanBakh/
- * Supported names: YekanBakh-Regular.woff2, YekanBakh-Bold.woff2, etc.
- * Or variable: YekanBakh-VF.woff2
+ * فایل‌های خریداری‌شده را در src/assets/Fonts/YekanBakh/ بگذارید، سپس @font-faceهای زیر را از کامنت خارج کنید.
  */
-@font-face {
+/* @font-face {
   font-family: 'Yekan Bakh';
   src: url('../assets/Fonts/YekanBakh/YekanBakh-Regular.woff2') format('woff2');
   font-weight: 400;
@@ -75,4 +73,4 @@
   font-weight: 100 900;
   font-style: normal;
   font-display: swap;
-}
+} */

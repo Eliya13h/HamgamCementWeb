@@ -1,0 +1,4 @@
+@HamgamTransport.Server_HostAddress = http://localhost:5086
+
+GET {{HamgamTransport.Server_HostAddress}}/api/auth/me
+Accept: application/json

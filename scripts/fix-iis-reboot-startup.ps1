@@ -1,16 +1,16 @@
-# Fix HamgamCementWeb 500.30 after Windows reboot
-# Cause: IIS often starts before SQL Server; startup seed fails until app pool is restarted manually.
-# Run PowerShell as Administrator on the destination machine.
-#
-# NOTE: This script does NOT change W3SVC service dependencies (that can break IIS startup).
-# It only registers a delayed app pool restart after boot.
+# Fix 500.30 after Windows reboot (IIS starts before SQL Server)
+# Run PowerShell as Administrator.
 #
 # Examples:
 #   .\fix-iis-reboot-startup.ps1
-#   .\fix-iis-reboot-startup.ps1 -PoolName "HamgamCementWeb" -StartupDelaySeconds 90
+#   .\fix-iis-reboot-startup.ps1 -PoolName "Cement"
+#   .\fix-iis-reboot-startup.ps1 -PoolName "Transport"
+#   .\fix-iis-reboot-startup.ps1 -PoolName "Both"
 
 param(
-    [string]$PoolName = "HamgamCementWeb",
+    [ValidateSet("Cement", "Transport", "Both")]
+    [string]$PoolName = "Both",
+
     [int]$StartupDelaySeconds = 90
 )
 
@@ -53,6 +53,8 @@ if (-not $isAdmin) {
 
 Import-Module WebAdministration -ErrorAction Stop
 
+$pools = if ($PoolName -eq "Both") { @("Cement", "Transport") } else { @($PoolName) }
+
 Write-Step "Checking SQL Server service"
 $sqlService = Get-SqlServerService
 if (-not $sqlService) {
@@ -84,38 +86,45 @@ else {
     Write-Ok "W3SVC dependency is WAS (correct)."
 }
 
-Write-Step "Registering delayed app pool restart after boot"
-$taskName = "HamgamCementWeb-RestartAppPoolAfterBoot"
-$scriptBlock = @"
+foreach ($pool in $pools) {
+    Write-Step "Registering delayed restart for app pool: $pool"
+
+    if (-not (Test-Path "IIS:\AppPools\$pool")) {
+        Write-WarnMsg "App pool not found yet: $pool (skip scheduled task)."
+        continue
+    }
+
+    $taskName = "Hamgam-$pool-RestartAppPoolAfterBoot"
+    $scriptBlock = @"
 Import-Module WebAdministration
 Start-Sleep -Seconds $StartupDelaySeconds
-Restart-WebAppPool -Name '$PoolName'
+if (Test-Path 'IIS:\AppPools\$pool') { Restart-WebAppPool -Name '$pool' }
 "@
 
-$taskAction = New-ScheduledTaskAction `
-    -Execute "powershell.exe" `
-    -Argument "-NoProfile -ExecutionPolicy Bypass -Command `"$scriptBlock`""
+    $taskAction = New-ScheduledTaskAction `
+        -Execute "powershell.exe" `
+        -Argument "-NoProfile -ExecutionPolicy Bypass -Command `"$scriptBlock`""
 
-$taskTrigger = New-ScheduledTaskTrigger -AtStartup
-$taskPrincipal = New-ScheduledTaskPrincipal -UserId "SYSTEM" -RunLevel Highest
-$taskSettings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries
+    $taskTrigger = New-ScheduledTaskTrigger -AtStartup
+    $taskPrincipal = New-ScheduledTaskPrincipal -UserId "SYSTEM" -RunLevel Highest
+    $taskSettings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries
 
-Register-ScheduledTask `
-    -TaskName $taskName `
-    -Action $taskAction `
-    -Trigger $taskTrigger `
-    -Principal $taskPrincipal `
-    -Settings $taskSettings `
-    -Force | Out-Null
+    Register-ScheduledTask `
+        -TaskName $taskName `
+        -Action $taskAction `
+        -Trigger $taskTrigger `
+        -Principal $taskPrincipal `
+        -Settings $taskSettings `
+        -Force | Out-Null
 
-Write-Ok "Scheduled task registered: $taskName (delay ${StartupDelaySeconds}s after boot)."
+    Write-Ok "Scheduled task registered: $taskName (delay ${StartupDelaySeconds}s after boot)."
 
-Write-Step "Restarting app pool now"
-Restart-WebAppPool -Name $PoolName
-Write-Ok "App pool '$PoolName' restarted."
+    Restart-WebAppPool -Name $pool
+    Write-Ok "App pool '$pool' restarted."
+}
 
 Write-Host ""
-Write-Host "Reboot startup fix applied." -ForegroundColor Green
-Write-Host "After reboot, wait about $StartupDelaySeconds seconds before opening the site." -ForegroundColor Yellow
+Write-Host "Reboot startup fix applied for: $($pools -join ', ')" -ForegroundColor Green
+Write-Host "After reboot, wait about $StartupDelaySeconds seconds before opening the sites." -ForegroundColor Yellow
 Write-Host "If connection is refused, run: .\repair-iis-connection.ps1" -ForegroundColor Yellow
 Write-Host ""

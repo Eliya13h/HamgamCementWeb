@@ -1,7 +1,7 @@
 using System.ComponentModel.DataAnnotations;
 using Dapper;
 using HamgamCementWeb.Server.Authorization;
-using HamgamCementWeb.Server.Controllers.Transport;
+using HamgamCementWeb.Server.Controllers.Common;
 using HamgamCementWeb.Server.Data;
 using HamgamCementWeb.Server.Services;
 using Microsoft.AspNetCore.Authorization;
@@ -240,7 +240,7 @@ public class CashBoxController : FinanceControllerBase
                 request.UserIds ?? [],
                 request.Description,
                 request.IsPettyCash,
-                request.CeilingAmountInBase,
+                request.CeilingAmountInBase ?? 0,
                 ResolveCurrentUserId(),
                 cancellationToken);
             return Ok(new { message = "صندوق ثبت شد.", cashBoxId = box.CashBoxID, code = box.Code });
@@ -270,7 +270,7 @@ public class CashBoxController : FinanceControllerBase
                 request.Description,
                 request.IsActive ?? true,
                 request.IsPettyCash,
-                request.CeilingAmountInBase,
+                request.CeilingAmountInBase ?? 0,
                 ResolveCurrentUserId(),
                 cancellationToken);
             return Ok(new { message = "صندوق به‌روزرسانی شد." });
@@ -508,7 +508,8 @@ public class SaveCashBoxRequest
 
     public bool IsPettyCash { get; set; }
 
-    public decimal CeilingAmountInBase { get; set; }
+    // اختیاری؛ در صورت null به‌عنوان صفر در نظر گرفته می‌شود
+    public decimal? CeilingAmountInBase { get; set; }
 }
 
 public class CashAmountLineRequest

@@ -68,48 +68,6 @@ namespace HamgamCementWeb.Server.Data
         ProfitPercent = 2,
     }
 
-    // وضعیت سفر حمل و نقل
-    public enum TripStatus
-    {
-        [Display(Name = "برنامه‌ریزی شده")]
-        Planned = 1,
-
-        [Display(Name = "در مسیر")]
-        InTransit = 2,
-
-        [Display(Name = "تکمیل شده")]
-        Completed = 3,
-
-        [Display(Name = "لغو شده")]
-        Cancelled = 4
-    }
-
-    // نوع کرایه حمل روی فاکتور خرید/فروش
-    public enum FreightMode
-    {
-        [Display(Name = "بدون حمل")]
-        None = 0,
-
-        [Display(Name = "ناوگان خودی")]
-        OwnFleet = 1,
-
-        [Display(Name = "کرایه‌ای")]
-        Hired = 2,
-    }
-
-    // هدف سفر حمل — برای گزارش‌گیری
-    public enum TripPurpose
-    {
-        [Display(Name = "باربری تجاری")]
-        CommercialHaul = 0,
-
-        [Display(Name = "ورود خرید")]
-        PurchaseInbound = 1,
-
-        [Display(Name = "تحویل فروش")]
-        SaleDelivery = 2,
-    }
-
     public enum InvoiceStatus
     {
         [Display(Name ="استعلام قیمت")]
@@ -215,11 +173,11 @@ namespace HamgamCementWeb.Server.Data
         [Display(Name = "برگشت از فروش")]
         SaleReturn = 5,
 
-        // اضافه شد برای اتصال فاکتور مصارف حمل‌ونقل به حسابداری
+        // legacy — برای نمایش ردیف‌های قدیمی حمل‌ونقل در مصارف/عواید
         [Display(Name = "هزینه حمل‌ونقل")]
         TransportExpense = 6,
 
-        // درآمد کرایه حمل روی فروش / باربری
+        // legacy — برای نمایش ردیف‌های قدیمی حمل‌ونقل در مصارف/عواید
         [Display(Name = "درآمد حمل‌ونقل")]
         TransportRevenue = 7,
     }

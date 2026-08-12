@@ -1,13 +1,16 @@
-# Repair ERR_CONNECTION_REFUSED / IIS not listening after fix-iis-reboot-startup.ps1
-# Run PowerShell as Administrator on the destination machine.
+# Repair ERR_CONNECTION_REFUSED / IIS not listening
+# Run PowerShell as Administrator.
 #
 # Examples:
 #   .\repair-iis-connection.ps1
-#   .\repair-iis-connection.ps1 -SiteName "HamgamCementWeb" -PoolName "HamgamCementWeb" -Port 80
+#   .\repair-iis-connection.ps1 -App Cement
+#   .\repair-iis-connection.ps1 -App Transport
+#   .\repair-iis-connection.ps1 -App Both
 
 param(
-    [string]$SiteName = "HamgamCementWeb",
-    [string]$PoolName = "HamgamCementWeb",
+    [ValidateSet("Cement", "Transport", "Both")]
+    [string]$App = "Both",
+
     [int]$Port = 80
 )
 
@@ -37,94 +40,94 @@ if (-not $isAdmin) {
     throw "Run this script as Administrator."
 }
 
-Write-Step "Restoring W3SVC dependency (must be WAS, not SQL)"
-& sc.exe config W3SVC depend= WAS | Out-Null
-if ($LASTEXITCODE -eq 0) {
-    Write-Ok "W3SVC dependency restored to WAS."
-}
-else {
-    Write-WarnMsg "Could not restore W3SVC dependency automatically."
+Import-Module WebAdministration -ErrorAction Stop
+
+$targets = if ($App -eq "Both") { @("Cement", "Transport") } else { @($App) }
+
+Write-Step "Checking W3SVC / WAS"
+$w3 = Get-Service W3SVC -ErrorAction SilentlyContinue
+$was = Get-Service WAS -ErrorAction SilentlyContinue
+if (-not $w3 -or -not $was) {
+    throw "IIS services not found."
 }
 
-Write-Step "Starting IIS services"
-foreach ($serviceName in @("HTTP", "WAS", "W3SVC")) {
-    $service = Get-Service -Name $serviceName -ErrorAction SilentlyContinue
-    if (-not $service) {
-        Write-WarnMsg "Service not found: $serviceName"
+if ($was.Status -ne "Running") {
+    Start-Service WAS
+    Write-Ok "WAS started."
+}
+else {
+    Write-Ok "WAS running."
+}
+
+if ($w3.Status -ne "Running") {
+    Start-Service W3SVC
+    Write-Ok "W3SVC started."
+}
+else {
+    Write-Ok "W3SVC running."
+}
+
+foreach ($name in $targets) {
+    $siteName = $name
+    $poolName = $name
+
+    Write-Step "Repairing $name"
+
+    if (-not (Test-Path "IIS:\AppPools\$poolName")) {
+        Write-Bad "App pool not found: $poolName"
         continue
     }
 
-    if ($service.Status -ne "Running") {
-        Start-Service -Name $serviceName
-        Write-Ok "$serviceName started."
+    if ((Get-WebAppPoolState -Name $poolName).Value -ne "Started") {
+        Start-WebAppPool -Name $poolName
+        Write-Ok "App pool started: $poolName"
     }
     else {
-        Write-Ok "$serviceName already running."
+        Restart-WebAppPool -Name $poolName
+        Write-Ok "App pool restarted: $poolName"
     }
-}
 
-Import-Module WebAdministration -ErrorAction Stop
-
-Write-Step "Starting website and app pool"
-if (-not (Test-Path "IIS:\AppPools\$PoolName")) {
-    Write-Bad "App pool not found: $PoolName"
-}
-else {
-    if ((Get-WebAppPoolState -Name $PoolName).Value -ne "Started") {
-        Start-WebAppPool -Name $PoolName
-        Write-Ok "App pool started: $PoolName"
+    $site = Get-Website -Name $siteName -ErrorAction SilentlyContinue
+    if (-not $site) {
+        Write-Bad "Website not found: $siteName"
+        continue
     }
-    else {
-        Restart-WebAppPool -Name $PoolName
-        Write-Ok "App pool restarted: $PoolName"
-    }
-}
 
-$site = Get-Website -Name $SiteName -ErrorAction SilentlyContinue
-if (-not $site) {
-    Write-Bad "Website not found: $SiteName"
-    Write-WarnMsg "Run setup-iis.ps1 first."
-}
-else {
     if ($site.State -ne "Started") {
-        Start-Website -Name $SiteName
-        Write-Ok "Website started: $SiteName"
+        Start-Website -Name $siteName
+        Write-Ok "Website started: $siteName"
     }
     else {
-        Write-Ok "Website already started: $SiteName"
+        Write-Ok "Website already started: $siteName"
     }
 
-    $bindings = @(Get-WebBinding -Name $SiteName -ErrorAction SilentlyContinue)
+    $bindings = @(Get-WebBinding -Name $siteName -ErrorAction SilentlyContinue)
     if ($bindings.Count -eq 0) {
-        Write-Bad "Website has no HTTP bindings."
+        Write-Bad "No bindings on $siteName"
     }
     else {
-        $bindings | ForEach-Object {
-            Write-Ok "Binding: $($_.protocol) $($_.bindingInformation)"
-        }
+        $bindings | ForEach-Object { Write-Ok ("Binding: {0} {1}" -f $_.protocol, $_.bindingInformation) }
+    }
+
+    Get-Website -Name $siteName |
+        Format-Table Name, State, PhysicalPath -AutoSize
+}
+
+Write-Step "Port $Port listeners"
+try {
+    $listeners = Get-NetTCPConnection -LocalPort $Port -State Listen -ErrorAction SilentlyContinue
+    if ($listeners) {
+        Write-Ok "Something is listening on port $Port."
+    }
+    else {
+        Write-WarnMsg "Nothing listening on port $Port yet. Wait a few seconds and retry."
     }
 }
-
-Write-Step "Checking port $Port"
-$listening = netstat -ano | Select-String ":$Port\s"
-if ($listening) {
-    Write-Ok "Something is listening on port $Port."
-    $listening | Select-Object -First 3 | ForEach-Object { Write-Host "        $_" }
-}
-else {
-    Write-Bad "Nothing is listening on port $Port."
-    Write-WarnMsg "IIS may still be failing to start. Check Event Viewer > Windows Logs > System."
+catch {
+    Write-WarnMsg "Could not query listeners: $($_.Exception.Message)"
 }
 
-Write-Step "Site status"
-Get-Website -Name $SiteName -ErrorAction SilentlyContinue |
-    Format-Table Name, State, PhysicalPath -AutoSize
-
 Write-Host ""
-Write-Host "Try opening:" -ForegroundColor Green
-Write-Host "  http://localhost:$Port" -ForegroundColor Green
-Write-Host ""
-Write-Host "If you still get connection refused, send output of:" -ForegroundColor Yellow
-Write-Host "  Get-Service W3SVC,WAS,HTTP | Format-Table Name,Status,StartType"
-Write-Host "  sc.exe qc W3SVC"
+Write-Host "Repair finished." -ForegroundColor Green
+Write-Host "Test: http://Cement.local/  and  http://Transport.local/" -ForegroundColor Yellow
 Write-Host ""

@@ -1,6 +1,6 @@
 using System.ComponentModel.DataAnnotations;
 using HamgamCementWeb.Server.Authorization;
-using HamgamCementWeb.Server.Controllers.Transport;
+using HamgamCementWeb.Server.Controllers.Common;
 using HamgamCementWeb.Server.Data;
 using HamgamCementWeb.Server.Data.Models.Invoice;
 using HamgamCementWeb.Server.Services;
@@ -17,19 +17,16 @@ public class PurchaseInvoiceController : InvoiceControllerBase
 {
     private readonly IInvoicePostingService _posting;
     private readonly IInvoiceReturnService _returns;
-    private readonly IFreightTripService _freight;
     private readonly IPurchaseInvoiceReadService _reads;
 
     public PurchaseInvoiceController(
         AppDbContext db,
         IInvoicePostingService posting,
         IInvoiceReturnService returns,
-        IFreightTripService freight,
         IPurchaseInvoiceReadService reads) : base(db)
     {
         _posting = posting;
         _returns = returns;
-        _freight = freight;
         _reads = reads;
     }
 
@@ -76,6 +73,19 @@ public class PurchaseInvoiceController : InvoiceControllerBase
         });
     }
 
+    [HttpGet("cash-box-options")]
+    [HasPermission("transactions.purchase.view")]
+    public async Task<IActionResult> CashBoxOptions(CancellationToken cancellationToken)
+    {
+        var items = await Db.CashBoxes
+            .AsNoTracking()
+            .Where(c => c.IsDeleted != true && c.IsActive == true)
+            .OrderBy(c => c.Code)
+            .Select(c => new { value = c.CashBoxID, label = c.Code + " — " + c.Name })
+            .ToListAsync(cancellationToken);
+        return Ok(items);
+    }
+
     [HttpGet("next-code-preview")]
     [HasPermission("transactions.purchase.view")]
     public async Task<IActionResult> NextCodePreview(CancellationToken cancellationToken)
@@ -114,6 +124,7 @@ public class PurchaseInvoiceController : InvoiceControllerBase
             paymentTermDays = invoice.PaymentTermDays,
             dueDate = invoice.DueDate,
             paidAmount = invoice.PaidAmount,
+            cashBoxId = invoice.CashBoxId,
             isCash = invoice.IsCash,
             documentType = invoice.DocumentType,
             entrySource = invoice.EntrySource,
@@ -124,14 +135,6 @@ public class PurchaseInvoiceController : InvoiceControllerBase
             isPosted = invoice.IsPosted,
             postedAt = invoice.PostedAt,
             description = invoice.Description,
-            freightMode = invoice.FreightMode,
-            freightRatePerTon = invoice.FreightRatePerTon,
-            freightWeightTon = invoice.FreightWeightTon,
-            freightAmount = invoice.FreightAmount,
-            freightAmountInBaseCurrency = invoice.FreightAmountInBaseCurrency,
-            freightVehicleId = invoice.FreightVehicleId,
-            freightCarrierName = invoice.FreightCarrierName,
-            transportTripId = invoice.TransportTripId,
             items = invoice.Items.Select(x => new
             {
                 purchaseItemId = x.PurchaseItemId,
@@ -278,11 +281,6 @@ public class PurchaseInvoiceController : InvoiceControllerBase
             PaymentTermDays = request.PaymentTermDays,
             DueDate = request.DueDate,
             Description = request.Description?.Trim(),
-            FreightMode = request.FreightMode,
-            FreightRatePerTon = request.FreightRatePerTon,
-            FreightWeightTon = request.FreightWeightTon,
-            FreightVehicleId = request.FreightVehicleId,
-            FreightCarrierName = request.FreightCarrierName?.Trim(),
             IsDeleted = false,
             IsActive = true,
             CreatedAt = now,
@@ -304,18 +302,16 @@ public class PurchaseInvoiceController : InvoiceControllerBase
         }
 
         await _posting.ApplyPurchaseCurrencyAsync(invoice, cancellationToken, request.BaseUnitsPerUnit);
-        try
-        {
-            _freight.NormalizeAndValidatePurchaseFreight(invoice);
-        }
-        catch (InvalidOperationException ex)
-        {
-            return BadRequest(new { message = ex.Message });
-        }
         var paidError = TrySetPaidAmount(invoice, request.PaidAmount);
         if (paidError is not null)
         {
             return BadRequest(new { message = paidError });
+        }
+
+        var cashBoxError = await TrySetCashBoxAsync(invoice, request.CashBoxId, cancellationToken);
+        if (cashBoxError is not null)
+        {
+            return BadRequest(new { message = cashBoxError });
         }
 
         Db.PurchaseInvoices.Add(invoice);
@@ -397,11 +393,6 @@ public class PurchaseInvoiceController : InvoiceControllerBase
         invoice.PaymentTermDays = request.PaymentTermDays;
         invoice.DueDate = request.DueDate;
         invoice.Description = request.Description?.Trim();
-        invoice.FreightMode = request.FreightMode;
-        invoice.FreightRatePerTon = request.FreightRatePerTon;
-        invoice.FreightWeightTon = request.FreightWeightTon;
-        invoice.FreightVehicleId = request.FreightVehicleId;
-        invoice.FreightCarrierName = request.FreightCarrierName?.Trim();
         invoice.IsUpdated = true;
         invoice.UpdatedAt = now;
         invoice.UpdatedBy = userId;
@@ -450,18 +441,16 @@ public class PurchaseInvoiceController : InvoiceControllerBase
         }
 
         await _posting.ApplyPurchaseCurrencyAsync(invoice, cancellationToken, request.BaseUnitsPerUnit);
-        try
-        {
-            _freight.NormalizeAndValidatePurchaseFreight(invoice);
-        }
-        catch (InvalidOperationException ex)
-        {
-            return BadRequest(new { message = ex.Message });
-        }
         var paidError = TrySetPaidAmount(invoice, request.PaidAmount);
         if (paidError is not null)
         {
             return BadRequest(new { message = paidError });
+        }
+
+        var cashBoxError = await TrySetCashBoxAsync(invoice, request.CashBoxId, cancellationToken);
+        if (cashBoxError is not null)
+        {
+            return BadRequest(new { message = cashBoxError });
         }
 
         await Db.SaveChangesAsync(cancellationToken);
@@ -582,6 +571,35 @@ public class PurchaseInvoiceController : InvoiceControllerBase
         return null;
     }
 
+    private async Task<string?> TrySetCashBoxAsync(
+        PurchaseInvoice invoice,
+        int? cashBoxId,
+        CancellationToken cancellationToken)
+    {
+        if (invoice.PaidAmount <= 0)
+        {
+            invoice.CashBoxId = null;
+            return null;
+        }
+
+        if (cashBoxId is not int boxId || boxId <= 0)
+        {
+            return "برای پرداخت نقدی، صندوق را انتخاب کنید.";
+        }
+
+        var exists = await Db.CashBoxes
+            .AsNoTracking()
+            .AnyAsync(c => c.CashBoxID == boxId && c.IsDeleted != true && c.IsActive == true, cancellationToken);
+
+        if (!exists)
+        {
+            return "صندوق انتخاب‌شده معتبر نیست.";
+        }
+
+        invoice.CashBoxId = boxId;
+        return null;
+    }
+
     private Task<string?> ValidateEntrySourceAsync(
         SavePurchaseInvoiceRequest request,
         CancellationToken cancellationToken)
@@ -626,6 +644,9 @@ public class PurchaseInvoiceController : InvoiceControllerBase
         [Range(0, double.MaxValue)]
         public decimal PaidAmount { get; set; }
 
+        // صندوق پرداخت نقدی — وقتی PaidAmount > 0 الزامی است
+        public int? CashBoxId { get; set; }
+
         [Range(0, 100)]
         public decimal TaxPercent { get; set; }
 
@@ -635,19 +656,6 @@ public class PurchaseInvoiceController : InvoiceControllerBase
         public DateTime? DueDate { get; set; }
 
         public decimal? BaseUnitsPerUnit { get; set; }
-
-        public FreightMode FreightMode { get; set; } = FreightMode.None;
-
-        [Range(0, double.MaxValue)]
-        public decimal FreightRatePerTon { get; set; }
-
-        [Range(0, double.MaxValue)]
-        public decimal FreightWeightTon { get; set; }
-
-        public int? FreightVehicleId { get; set; }
-
-        [MaxLength(200)]
-        public string? FreightCarrierName { get; set; }
 
         public List<SavePurchaseItemRequest> Items { get; set; } = [];
     }

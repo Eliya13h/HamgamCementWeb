@@ -21,7 +21,7 @@ import {
   fetchCustomerOptions,
   fetchSupplierOptions,
 } from '../../services/transactionsApi'
-import { fetchCurrencyOptions } from '../../services/transportApi'
+import { fetchCurrencyOptions } from '../../services/currencyApi'
 
 const PARTY_CUSTOMER = 1
 const PARTY_SUPPLIER = 2

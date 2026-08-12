@@ -7,6 +7,8 @@ import path from 'path';
 import child_process from 'child_process';
 import { env } from 'process';
 
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+
 const baseFolder =
     env.APPDATA !== undefined && env.APPDATA !== ''
         ? `${env.APPDATA}/ASP.NET/https`
@@ -63,11 +65,22 @@ export default defineConfig({
         },
     },
     optimizeDeps: {
-        include: ['react-multi-date-picker', 'react-date-object'],
+        include: [
+            'jquery',
+            'datatables.net',
+            'datatables.net-bs5',
+            'datatables.net-responsive',
+            'datatables.net-react',
+            'react-multi-date-picker',
+            'react-date-object',
+        ],
     },
     resolve: {
+        dedupe: ['jquery', 'datatables.net', 'datatables.net-bs5'],
         alias: {
-            '@': fileURLToPath(new URL('./src', import.meta.url))
+            '@': fileURLToPath(new URL('./src', import.meta.url)),
+            jquery: path.resolve(__dirname, 'node_modules/jquery'),
+            'datatables.net': path.resolve(__dirname, 'node_modules/datatables.net'),
         }
     },
     server: {

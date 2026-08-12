@@ -147,5 +147,26 @@ public static class EquitySchemaSeeder
                     FOREIGN KEY (BaseCurrencyId) REFERENCES dbo.Currencies(CurrencyID);
             END
             """, cancellationToken);
+
+        // سهم تفکیک‌شده توزیع سود / برداشت سرمایه روی سند
+        await db.Database.ExecuteSqlRawAsync("""
+            IF OBJECT_ID(N'dbo.ShareholderEquityTxns', N'U') IS NOT NULL
+               AND COL_LENGTH(N'dbo.ShareholderEquityTxns', N'ProfitPortionInBase') IS NULL
+            BEGIN
+                ALTER TABLE dbo.ShareholderEquityTxns
+                ADD ProfitPortionInBase DECIMAL(18,4) NOT NULL
+                    CONSTRAINT DF_ShareholderEquityTxns_ProfitPortion DEFAULT(0);
+            END
+            """, cancellationToken);
+
+        await db.Database.ExecuteSqlRawAsync("""
+            IF OBJECT_ID(N'dbo.ShareholderEquityTxns', N'U') IS NOT NULL
+               AND COL_LENGTH(N'dbo.ShareholderEquityTxns', N'CapitalPortionInBase') IS NULL
+            BEGIN
+                ALTER TABLE dbo.ShareholderEquityTxns
+                ADD CapitalPortionInBase DECIMAL(18,4) NOT NULL
+                    CONSTRAINT DF_ShareholderEquityTxns_CapitalPortion DEFAULT(0);
+            END
+            """, cancellationToken);
     }
 }

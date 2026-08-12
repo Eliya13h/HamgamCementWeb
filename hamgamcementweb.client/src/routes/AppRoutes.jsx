@@ -9,11 +9,9 @@ import {
   CustomersPage,
   CustomerDetailPage,
   DashboardPage,
-  DriversPage,
   PersonnelPage,
   SalaryPaymentsPage,
   ExchangeHistoryPage,
-  ExpenseCategoriesPage,
   ExpensesPage,
   ExpensesReportPage,
   AccountsPage,
@@ -34,7 +32,6 @@ import {
   InventoryOpeningPage,
   JournalPage,
   Login,
-  MaintenancePage,
   MeaurmentsPage,
   ProductListPage,
   ProductionReportPage,
@@ -46,7 +43,6 @@ import {
   RevenuesPage,
   RevenuesReportPage,
   ReportsPage,
-  RoutesPage,
   SalePage,
   ShareholdersPage,
   StocktakingHistoryPage,
@@ -54,13 +50,7 @@ import {
   WarehouseTurnoverPage,
   SuppliersPage,
   SupplierDetailPage,
-  TransportInvoicesPage,
-  TransportationPage,
-  TransportReportPage,
   UsersPage,
-  VehicleOwnersPage,
-  VehiclesPage,
-  VehicleTypesPage,
   WarehousesPage,
   SettingsPage,
 } from './lazyPages'
@@ -102,8 +92,6 @@ function AppRoutes() {
               element={<Navigate to="/people/personnel?tab=departments" replace />}
             />
             <Route path="people/salaries" element={<SalaryPaymentsPage />} />
-            <Route path="people/drivers" element={<DriversPage />} />
-            <Route path="people/vehicle-owners" element={<VehicleOwnersPage />} />
             <Route path="people/shareholders" element={<ShareholdersPage />} />
 
             <Route path="currencies/list" element={<CurrenciesListPage />} />
@@ -112,14 +100,6 @@ function AppRoutes() {
             <Route path="production/formulas" element={<ProductionFormulasPage />} />
             <Route path="production/daily" element={<DailyProductionPage />} />
             <Route path="production/plan" element={<ProductionPlanPage />} />
-
-            <Route path="transport/shipping" element={<TransportationPage />} />
-            <Route path="transport/routes" element={<RoutesPage />} />
-            <Route path="transport/vehicles" element={<VehiclesPage />} />
-            <Route path="transport/vehicle-types" element={<VehicleTypesPage />} />
-            <Route path="transport/maintenance" element={<MaintenancePage />} />
-            <Route path="transport/invoices" element={<TransportInvoicesPage />} />
-            <Route path="transport/expense-categories" element={<ExpenseCategoriesPage />} />
 
             <Route path="transactions/purchase" element={<PurchasePage />} />
             <Route path="transactions/sale" element={<SalePage />} />
@@ -171,7 +151,6 @@ function AppRoutes() {
 
             <Route path="reporting/products" element={<ProductsReportPage />} />
             <Route path="reporting/production" element={<ProductionReportPage />} />
-            <Route path="reporting/transport" element={<TransportReportPage />} />
             <Route path="reporting/revenues" element={<RevenuesReportPage />} />
             <Route path="reporting/expenses" element={<ExpensesReportPage />} />
             <Route path="reporting/journal" element={<JournalPage />} />

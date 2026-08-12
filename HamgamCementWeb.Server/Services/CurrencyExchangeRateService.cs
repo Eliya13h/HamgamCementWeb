@@ -34,14 +34,16 @@ public class CurrencyExchangeRateService : ICurrencyExchangeRateService
         int? userId,
         CancellationToken cancellationToken = default)
     {
-        var openHistory = await _db.CurrencyExchangeHistories
+        var openHistories = await _db.CurrencyExchangeHistories
             .Where(h => h.CurrencyID == currencyId && h.EffectiveTo == null && h.IsDeleted != true)
             .OrderByDescending(h => h.EffectiveFrom)
-            .FirstOrDefaultAsync(cancellationToken);
+            .ToListAsync(cancellationToken);
 
-        decimal? previousRate = openHistory?.BaseUnitsPerUnit;
+        var latestOpen = openHistories.FirstOrDefault();
+        decimal? previousRate = latestOpen?.BaseUnitsPerUnit;
 
-        if (openHistory is not null)
+        // همه دوره‌های باز را می‌بندیم تا فقط نرخ جدید «جاری» بماند
+        foreach (var openHistory in openHistories)
         {
             openHistory.EffectiveTo = effectiveFrom;
             openHistory.UpdatedAt = DateTime.Now;

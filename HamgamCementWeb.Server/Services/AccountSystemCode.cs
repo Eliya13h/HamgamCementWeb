@@ -49,8 +49,6 @@ public static class AccountSystemCode
     public const string Revenues = "SYS_REVENUES";
     public const string ProductSales = "SYS_SALES";
     public const string OtherRevenue = "SYS_OTHER_REV";
-    // درآمد کرایه حمل / باربری
-    public const string TransportRevenue = "SYS_TRANSPORT_REV";
 
     public const string CogsGroup = "SYS_COGS_GROUP";
     public const string Cogs = "SYS_COGS";
@@ -58,7 +56,6 @@ public static class AccountSystemCode
 
     public const string Expenses = "SYS_EXPENSES";
     public const string OperatingExpense = "SYS_OPEX";
-    public const string TransportExpense = "SYS_TRANSPORT_EXP";
     public const string MiscExpense = "SYS_MISC_EXP";
     // هزینه حقوق و دستمزد کارکنان اداری/عملیاتی
     public const string SalaryExpense = "SYS_SALARY_EXP";

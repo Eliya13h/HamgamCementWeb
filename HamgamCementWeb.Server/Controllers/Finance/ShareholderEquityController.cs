@@ -48,6 +48,45 @@ public class ShareholderEquityController : ControllerBase
         return Ok(items);
     }
 
+    [HttpGet("distributable")]
+    [HasPermission("accounting.equity.view")]
+    public async Task<IActionResult> Distributable(
+        [FromQuery] int shareholderId,
+        [FromQuery] DateTime? asOf,
+        CancellationToken cancellationToken)
+    {
+        if (shareholderId <= 0)
+        {
+            return BadRequest(new { message = "سهام‌دار الزامی است." });
+        }
+
+        try
+        {
+            var result = await _equity.GetDistributableAsync(
+                shareholderId,
+                asOf?.Date ?? DateTime.Today,
+                excludeTxnId: null,
+                cancellationToken);
+
+            return Ok(new
+            {
+                shareholderId = result.ShareholderId,
+                asOf = result.AsOf,
+                solarYear = result.SolarYear,
+                fiscalYearStart = result.FiscalYearStart,
+                profitSharePercent = result.ProfitSharePercent,
+                ytdNetIncomeInBase = result.YtdNetIncomeInBase,
+                partnerShareOfYtdInBase = result.PartnerShareOfYtdInBase,
+                priorDistributionsInBase = result.PriorDistributionsInBase,
+                availableInBase = result.AvailableInBase,
+            });
+        }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(new { message = ex.Message });
+        }
+    }
+
     [HttpPost("datatable")]
     [HasPermission("accounting.equity.view")]
     public async Task<IActionResult> DataTable(
@@ -105,6 +144,8 @@ public class ShareholderEquityController : ControllerBase
                 t.ShareholderId,
                 t.Amount,
                 t.AmountInBaseCurrency,
+                t.ProfitPortionInBase,
+                t.CapitalPortionInBase,
                 t.SettlementMode,
                 t.CashBoxId,
                 t.Description,
@@ -134,6 +175,8 @@ public class ShareholderEquityController : ControllerBase
             shareholderName = r.ShareholderName,
             amount = r.Amount,
             amountInBaseCurrency = r.AmountInBaseCurrency,
+            profitPortionInBase = r.ProfitPortionInBase,
+            capitalPortionInBase = r.CapitalPortionInBase,
             settlementMode = (int)r.SettlementMode,
             settlementModeLabel = r.SettlementMode == EquitySettlementMode.Payable ? "پرداختنی" : "نقدی",
             cashBoxId = r.CashBoxId,
@@ -225,11 +268,21 @@ public class ShareholderEquityController : ControllerBase
             txn.JournalEntryId = journal.JournalEntryID;
             await _db.SaveChangesAsync(cancellationToken);
 
+            var wasSplit = txn.TxnType == ShareholderEquityTxnType.ProfitDistribution
+                && txn.CapitalPortionInBase >= 0.01m;
+
+            var message = wasSplit
+                ? $"سند ثبت شد — تفکیک خودکار: توزیع سود {txn.ProfitPortionInBase:N2} + برداشت سرمایه {txn.CapitalPortionInBase:N2} (ارز پایه)."
+                : "سند سرمایه با موفقیت ثبت شد.";
+
             return Ok(new
             {
-                message = "سند سرمایه با موفقیت ثبت شد.",
+                message,
                 shareholderEquityTxnId = txn.ShareholderEquityTxnID,
                 journalEntryId = journal.JournalEntryID,
+                profitPortionInBase = txn.ProfitPortionInBase,
+                capitalPortionInBase = txn.CapitalPortionInBase,
+                wasSplit,
             });
         }
         catch

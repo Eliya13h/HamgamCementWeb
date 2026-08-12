@@ -12,6 +12,12 @@ public interface IFinanceStatementService
         DateTime? compareTo = null,
         CancellationToken cancellationToken = default);
 
+    // سود/زیان خالص بازه به ارز پایه — برای سقف توزیع سود سهام‌داران
+    Task<decimal> GetNetIncomeInBaseAsync(
+        DateTime dateFrom,
+        DateTime dateTo,
+        CancellationToken cancellationToken = default);
+
     Task<object> GetBalanceSheetAsync(
         DateTime? asOf,
         DateTime? compareAsOf = null,
@@ -50,6 +56,24 @@ public class FinanceStatementService : IFinanceStatementService
         return new { current, compare };
     }
 
+    public async Task<decimal> GetNetIncomeInBaseAsync(
+        DateTime dateFrom,
+        DateTime dateTo,
+        CancellationToken cancellationToken = default)
+    {
+        var rows = await QueryPlCurrencyBalancesAsync(dateFrom, dateTo, cancellationToken);
+        var totalRevenue = rows
+            .Where(r => r.AccountType == (int)AccountType.Revenue)
+            .Sum(r => r.CreditInBase - r.DebitInBase);
+        var totalCogs = rows
+            .Where(r => r.AccountType == (int)AccountType.Cogs)
+            .Sum(r => r.DebitInBase - r.CreditInBase);
+        var totalExpense = rows
+            .Where(r => r.AccountType == (int)AccountType.Expense)
+            .Sum(r => r.DebitInBase - r.CreditInBase);
+        return totalRevenue - totalCogs - totalExpense;
+    }
+
     private async Task<object> GetProfitAndLossCoreAsync(
         DateTime? dateFrom,
         DateTime? dateTo,
@@ -60,7 +84,54 @@ public class FinanceStatementService : IFinanceStatementService
         var (yearStart, _) = JalaliDateHelper.GetSolarYearRange(solarYear);
 
         var start = (dateFrom ?? yearStart).Date;
-        var end = (dateTo ?? today).Date.AddDays(1).AddTicks(-1);
+        var end = (dateTo ?? today).Date;
+        if (start > end)
+        {
+            throw new InvalidOperationException("تاریخ شروع نباید بعد از تاریخ پایان باشد.");
+        }
+
+        var rows = await QueryPlCurrencyBalancesAsync(start, end, cancellationToken);
+
+        var revenues = BuildAccountGroups(rows, AccountType.Revenue, isPl: true);
+        var cogs = BuildAccountGroups(rows, AccountType.Cogs, isPl: true);
+        var expenses = BuildAccountGroups(rows, AccountType.Expense, isPl: true);
+
+        var totalRevenue = revenues.Sum(x => x.AmountInBase);
+        var totalCogs = cogs.Sum(x => x.AmountInBase);
+        var totalExpense = expenses.Sum(x => x.AmountInBase);
+        var grossProfit = totalRevenue - totalCogs;
+        var netIncome = grossProfit - totalExpense;
+
+        var byCurrency = BuildPlCurrencyTotals(rows).Select(MapPlCurrencyTotal).ToList();
+
+        return new
+        {
+            from = JalaliDateHelper.FormatDate(start),
+            to = JalaliDateHelper.FormatDate(end.Date),
+            fromLabel = JalaliDateHelper.FormatDateWithMonthName(start),
+            toLabel = JalaliDateHelper.FormatDateWithMonthName(end.Date),
+            totals = new
+            {
+                revenue = totalRevenue,
+                cogs = totalCogs,
+                expense = totalExpense,
+                grossProfit,
+                netIncome,
+            },
+            byCurrency,
+            revenues = revenues.Select(MapAccountGroup).ToList(),
+            cogs = cogs.Select(MapAccountGroup).ToList(),
+            expenses = expenses.Select(MapAccountGroup).ToList(),
+        };
+    }
+
+    private async Task<List<CurrencyBalanceRow>> QueryPlCurrencyBalancesAsync(
+        DateTime dateFrom,
+        DateTime dateTo,
+        CancellationToken cancellationToken)
+    {
+        var start = dateFrom.Date;
+        var end = dateTo.Date.AddDays(1).AddTicks(-1);
         if (start > end)
         {
             throw new InvalidOperationException("تاریخ شروع نباید بعد از تاریخ پایان باشد.");
@@ -68,7 +139,7 @@ public class FinanceStatementService : IFinanceStatementService
 
         await using var connection = (System.Data.Common.DbConnection)await _sql.OpenAsync(cancellationToken);
 
-        var rows = (await connection.QueryAsync<CurrencyBalanceRow>(
+        return (await connection.QueryAsync<CurrencyBalanceRow>(
             """
             SELECT a.AccountID AS AccountId,
                    a.Code,
@@ -114,38 +185,6 @@ public class FinanceStatementService : IFinanceStatementService
                 YearEndClosing = (int)JournalSource.YearEndClosing,
                 YearEndReversal = (int)JournalSource.YearEndReversal,
             })).AsList();
-
-        var revenues = BuildAccountGroups(rows, AccountType.Revenue, isPl: true);
-        var cogs = BuildAccountGroups(rows, AccountType.Cogs, isPl: true);
-        var expenses = BuildAccountGroups(rows, AccountType.Expense, isPl: true);
-
-        var totalRevenue = revenues.Sum(x => x.AmountInBase);
-        var totalCogs = cogs.Sum(x => x.AmountInBase);
-        var totalExpense = expenses.Sum(x => x.AmountInBase);
-        var grossProfit = totalRevenue - totalCogs;
-        var netIncome = grossProfit - totalExpense;
-
-        var byCurrency = BuildPlCurrencyTotals(rows).Select(MapPlCurrencyTotal).ToList();
-
-        return new
-        {
-            from = JalaliDateHelper.FormatDate(start),
-            to = JalaliDateHelper.FormatDate(end.Date),
-            fromLabel = JalaliDateHelper.FormatDateWithMonthName(start),
-            toLabel = JalaliDateHelper.FormatDateWithMonthName(end.Date),
-            totals = new
-            {
-                revenue = totalRevenue,
-                cogs = totalCogs,
-                expense = totalExpense,
-                grossProfit,
-                netIncome,
-            },
-            byCurrency,
-            revenues = revenues.Select(MapAccountGroup).ToList(),
-            cogs = cogs.Select(MapAccountGroup).ToList(),
-            expenses = expenses.Select(MapAccountGroup).ToList(),
-        };
     }
 
     // ترازنامه چندارزی — هر حساب با مانده‌های ارزی + معادل پایه؛ تراز فقط روی پایه
@@ -171,7 +210,6 @@ public class FinanceStatementService : IFinanceStatementService
         var asOfDate = (asOf ?? DateTime.Today).Date;
         var asOfEnd = asOfDate.AddDays(1).AddTicks(-1);
         var solarYear = JalaliDateHelper.GetSolarYear(asOfDate);
-        var (yearStart, _) = JalaliDateHelper.GetSolarYearRange(solarYear);
 
         await using var connection = (System.Data.Common.DbConnection)await _sql.OpenAsync(cancellationToken);
 
@@ -217,6 +255,8 @@ public class FinanceStatementService : IFinanceStatementService
                 Equity = (int)AccountType.Equity,
             })).AsList();
 
+        // مانده حساب‌های موقت تا تاریخ — شامل اسناد اختتام/معکوس تا بعد از بستن سال دوباره شمرده نشود
+        // (اختتام سود را به سود انباشته برده؛ اگر اسناد اختتام حذف شوند، سود هم در حقوق مالکانه و هم به‌عنوان «سود جاری» می‌آید)
         var plRows = (await connection.QueryAsync<CurrencyBalanceRow>(
             """
             SELECT a.AccountID AS AccountId,
@@ -243,22 +283,19 @@ public class FinanceStatementService : IFinanceStatementService
               AND a.IsPostable = 1
               AND ISNULL(je.IsDeleted, 0) = 0
               AND je.IsPosted = 1
-              AND je.EntryDate >= @YearStart
               AND je.EntryDate <= @AsOfEnd
               AND a.AccountType IN (@Revenue, @Expense, @Cogs)
-              AND je.Source NOT IN (@YearEndClosing, @YearEndReversal)
             GROUP BY a.AccountID, a.Code, a.Name, a.AccountType, a.Nature, a.Level, a.SystemCode,
                      cur.CurrencyID, cur.CurrencyCode, cur.Symbol, cur.Name, cur.IsBaseCurrency
+            HAVING ABS(ISNULL(SUM(jl.DebitInBaseCurrency), 0) - ISNULL(SUM(jl.CreditInBaseCurrency), 0)) >= 0.01
+                OR ABS(ISNULL(SUM(jl.Debit), 0) - ISNULL(SUM(jl.Credit), 0)) >= 0.01
             """,
             new
             {
-                YearStart = yearStart,
                 AsOfEnd = asOfEnd,
                 Revenue = (int)AccountType.Revenue,
                 Expense = (int)AccountType.Expense,
                 Cogs = (int)AccountType.Cogs,
-                YearEndClosing = (int)JournalSource.YearEndClosing,
-                YearEndReversal = (int)JournalSource.YearEndReversal,
             })).AsList();
 
         var assets = BuildAccountGroups(permanentRows, AccountType.Asset, isPl: false);
@@ -398,6 +435,7 @@ public class FinanceStatementService : IFinanceStatementService
         CancellationToken cancellationToken = default)
     {
         var asOfDate = (asOf ?? DateTime.Today).Date;
+        var asOfEnd = asOfDate.AddDays(1).AddTicks(-1);
 
         await using var connection = (System.Data.Common.DbConnection)await _sql.OpenAsync(cancellationToken);
 
@@ -409,9 +447,27 @@ public class FinanceStatementService : IFinanceStatementService
                    c.Name AS PartyName,
                    i.InvoiceDate,
                    ins.DueDate,
-                   ins.Amount - ins.PaidAmount AS OpenAmount,
+                   ins.Amount - (
+                       ins.PaidAmount - ISNULL((
+                           SELECT SUM(ps.Amount)
+                           FROM PartySettlements ps
+                           WHERE ps.InstallmentId = ins.InvoiceInstallmentID
+                             AND ISNULL(ps.IsDeleted, 0) = 0
+                             AND ps.SettlementDate > @AsOfEnd
+                       ), 0)
+                   ) AS OpenAmount,
                    CASE WHEN i.TotalAmount > 0
-                        THEN (ins.Amount - ins.PaidAmount) * (i.TotalAmountInBaseCurrency / i.TotalAmount)
+                        THEN (
+                            ins.Amount - (
+                                ins.PaidAmount - ISNULL((
+                                    SELECT SUM(ps.Amount)
+                                    FROM PartySettlements ps
+                                    WHERE ps.InstallmentId = ins.InvoiceInstallmentID
+                                      AND ISNULL(ps.IsDeleted, 0) = 0
+                                      AND ps.SettlementDate > @AsOfEnd
+                                ), 0)
+                            )
+                        ) * (i.TotalAmountInBaseCurrency / i.TotalAmount)
                         ELSE 0 END AS OpenAmountInBase
             FROM SaleInvoices i
             INNER JOIN Customers c ON c.CustomerID = i.CustomerId AND ISNULL(c.IsDeleted, 0) = 0
@@ -420,8 +476,16 @@ public class FinanceStatementService : IFinanceStatementService
             WHERE ISNULL(i.IsDeleted, 0) = 0
               AND i.IsPosted = 1
               AND i.DocumentType = @InvoiceDocType
-              AND i.InvoiceDate <= @AsOfDate
-              AND ins.Amount - ins.PaidAmount > 0.01
+              AND i.InvoiceDate <= @AsOfEnd
+              AND ins.Amount - (
+                  ins.PaidAmount - ISNULL((
+                      SELECT SUM(ps.Amount)
+                      FROM PartySettlements ps
+                      WHERE ps.InstallmentId = ins.InvoiceInstallmentID
+                        AND ISNULL(ps.IsDeleted, 0) = 0
+                        AND ps.SettlementDate > @AsOfEnd
+                  ), 0)
+              ) > 0.01
 
             UNION ALL
 
@@ -431,18 +495,45 @@ public class FinanceStatementService : IFinanceStatementService
                    c.Name AS PartyName,
                    i.InvoiceDate,
                    ISNULL(i.DueDate, i.InvoiceDate) AS DueDate,
-                   i.TotalAmount - i.PaidAmount AS OpenAmount,
+                   i.TotalAmount - (
+                       i.PaidAmount - ISNULL((
+                           SELECT SUM(ps.Amount)
+                           FROM PartySettlements ps
+                           WHERE ps.SaleInvoiceId = i.SaleInvoiceID
+                             AND ps.InstallmentId IS NULL
+                             AND ISNULL(ps.IsDeleted, 0) = 0
+                             AND ps.SettlementDate > @AsOfEnd
+                       ), 0)
+                   ) AS OpenAmount,
                    i.TotalAmountInBaseCurrency
                      - CASE WHEN i.TotalAmount > 0
-                            THEN i.PaidAmount * (i.TotalAmountInBaseCurrency / i.TotalAmount)
+                            THEN (
+                                i.PaidAmount - ISNULL((
+                                    SELECT SUM(ps.Amount)
+                                    FROM PartySettlements ps
+                                    WHERE ps.SaleInvoiceId = i.SaleInvoiceID
+                                      AND ps.InstallmentId IS NULL
+                                      AND ISNULL(ps.IsDeleted, 0) = 0
+                                      AND ps.SettlementDate > @AsOfEnd
+                                ), 0)
+                            ) * (i.TotalAmountInBaseCurrency / i.TotalAmount)
                             ELSE 0 END AS OpenAmountInBase
             FROM SaleInvoices i
             INNER JOIN Customers c ON c.CustomerID = i.CustomerId AND ISNULL(c.IsDeleted, 0) = 0
             WHERE ISNULL(i.IsDeleted, 0) = 0
               AND i.IsPosted = 1
               AND i.DocumentType = @InvoiceDocType
-              AND i.InvoiceDate <= @AsOfDate
-              AND i.TotalAmount - i.PaidAmount > 0.01
+              AND i.InvoiceDate <= @AsOfEnd
+              AND i.TotalAmount - (
+                  i.PaidAmount - ISNULL((
+                      SELECT SUM(ps.Amount)
+                      FROM PartySettlements ps
+                      WHERE ps.SaleInvoiceId = i.SaleInvoiceID
+                        AND ps.InstallmentId IS NULL
+                        AND ISNULL(ps.IsDeleted, 0) = 0
+                        AND ps.SettlementDate > @AsOfEnd
+                  ), 0)
+              ) > 0.01
               AND NOT EXISTS (
                   SELECT 1 FROM InvoiceInstallments ins
                   WHERE ins.InvoiceId = i.SaleInvoiceID
@@ -452,7 +543,7 @@ public class FinanceStatementService : IFinanceStatementService
             """,
             new
             {
-                AsOfDate = asOfDate.AddDays(1).AddTicks(-1),
+                AsOfEnd = asOfEnd,
                 InvoiceDocType = (int)InvoiceDocumentType.Invoice,
                 SaleInstallmentKind = (int)InvoiceInstallmentKind.Sale,
             })).AsList();
@@ -466,6 +557,7 @@ public class FinanceStatementService : IFinanceStatementService
         CancellationToken cancellationToken = default)
     {
         var asOfDate = (asOf ?? DateTime.Today).Date;
+        var asOfEnd = asOfDate.AddDays(1).AddTicks(-1);
 
         await using var connection = (System.Data.Common.DbConnection)await _sql.OpenAsync(cancellationToken);
 
@@ -477,9 +569,27 @@ public class FinanceStatementService : IFinanceStatementService
                    s.Name AS PartyName,
                    i.InvoiceDate,
                    ins.DueDate,
-                   ins.Amount - ins.PaidAmount AS OpenAmount,
+                   ins.Amount - (
+                       ins.PaidAmount - ISNULL((
+                           SELECT SUM(ps.Amount)
+                           FROM PartySettlements ps
+                           WHERE ps.InstallmentId = ins.InvoiceInstallmentID
+                             AND ISNULL(ps.IsDeleted, 0) = 0
+                             AND ps.SettlementDate > @AsOfEnd
+                       ), 0)
+                   ) AS OpenAmount,
                    CASE WHEN i.TotalAmount > 0
-                        THEN (ins.Amount - ins.PaidAmount) * (i.TotalAmountInBaseCurrency / i.TotalAmount)
+                        THEN (
+                            ins.Amount - (
+                                ins.PaidAmount - ISNULL((
+                                    SELECT SUM(ps.Amount)
+                                    FROM PartySettlements ps
+                                    WHERE ps.InstallmentId = ins.InvoiceInstallmentID
+                                      AND ISNULL(ps.IsDeleted, 0) = 0
+                                      AND ps.SettlementDate > @AsOfEnd
+                                ), 0)
+                            )
+                        ) * (i.TotalAmountInBaseCurrency / i.TotalAmount)
                         ELSE 0 END AS OpenAmountInBase
             FROM PurchaseInvoices i
             INNER JOIN Suppliers s ON s.SupplierID = i.SupplierId AND ISNULL(s.IsDeleted, 0) = 0
@@ -488,8 +598,16 @@ public class FinanceStatementService : IFinanceStatementService
             WHERE ISNULL(i.IsDeleted, 0) = 0
               AND i.IsPosted = 1
               AND i.DocumentType = @InvoiceDocType
-              AND i.InvoiceDate <= @AsOfDate
-              AND ins.Amount - ins.PaidAmount > 0.01
+              AND i.InvoiceDate <= @AsOfEnd
+              AND ins.Amount - (
+                  ins.PaidAmount - ISNULL((
+                      SELECT SUM(ps.Amount)
+                      FROM PartySettlements ps
+                      WHERE ps.InstallmentId = ins.InvoiceInstallmentID
+                        AND ISNULL(ps.IsDeleted, 0) = 0
+                        AND ps.SettlementDate > @AsOfEnd
+                  ), 0)
+              ) > 0.01
 
             UNION ALL
 
@@ -499,18 +617,45 @@ public class FinanceStatementService : IFinanceStatementService
                    s.Name AS PartyName,
                    i.InvoiceDate,
                    ISNULL(i.DueDate, i.InvoiceDate) AS DueDate,
-                   i.TotalAmount - i.PaidAmount AS OpenAmount,
+                   i.TotalAmount - (
+                       i.PaidAmount - ISNULL((
+                           SELECT SUM(ps.Amount)
+                           FROM PartySettlements ps
+                           WHERE ps.PurchaseInvoiceId = i.PurchaseInvoiceID
+                             AND ps.InstallmentId IS NULL
+                             AND ISNULL(ps.IsDeleted, 0) = 0
+                             AND ps.SettlementDate > @AsOfEnd
+                       ), 0)
+                   ) AS OpenAmount,
                    i.TotalAmountInBaseCurrency
                      - CASE WHEN i.TotalAmount > 0
-                            THEN i.PaidAmount * (i.TotalAmountInBaseCurrency / i.TotalAmount)
+                            THEN (
+                                i.PaidAmount - ISNULL((
+                                    SELECT SUM(ps.Amount)
+                                    FROM PartySettlements ps
+                                    WHERE ps.PurchaseInvoiceId = i.PurchaseInvoiceID
+                                      AND ps.InstallmentId IS NULL
+                                      AND ISNULL(ps.IsDeleted, 0) = 0
+                                      AND ps.SettlementDate > @AsOfEnd
+                                ), 0)
+                            ) * (i.TotalAmountInBaseCurrency / i.TotalAmount)
                             ELSE 0 END AS OpenAmountInBase
             FROM PurchaseInvoices i
             INNER JOIN Suppliers s ON s.SupplierID = i.SupplierId AND ISNULL(s.IsDeleted, 0) = 0
             WHERE ISNULL(i.IsDeleted, 0) = 0
               AND i.IsPosted = 1
               AND i.DocumentType = @InvoiceDocType
-              AND i.InvoiceDate <= @AsOfDate
-              AND i.TotalAmount - i.PaidAmount > 0.01
+              AND i.InvoiceDate <= @AsOfEnd
+              AND i.TotalAmount - (
+                  i.PaidAmount - ISNULL((
+                      SELECT SUM(ps.Amount)
+                      FROM PartySettlements ps
+                      WHERE ps.PurchaseInvoiceId = i.PurchaseInvoiceID
+                        AND ps.InstallmentId IS NULL
+                        AND ISNULL(ps.IsDeleted, 0) = 0
+                        AND ps.SettlementDate > @AsOfEnd
+                  ), 0)
+              ) > 0.01
               AND NOT EXISTS (
                   SELECT 1 FROM InvoiceInstallments ins
                   WHERE ins.InvoiceId = i.PurchaseInvoiceID
@@ -520,7 +665,7 @@ public class FinanceStatementService : IFinanceStatementService
             """,
             new
             {
-                AsOfDate = asOfDate.AddDays(1).AddTicks(-1),
+                AsOfEnd = asOfEnd,
                 InvoiceDocType = (int)InvoiceDocumentType.Invoice,
                 PurchaseInstallmentKind = (int)InvoiceInstallmentKind.Purchase,
             })).AsList();

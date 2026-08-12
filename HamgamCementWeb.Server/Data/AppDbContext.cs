@@ -5,7 +5,6 @@ using HamgamCementWeb.Server.Data.Models.Invoice;
 using HamgamCementWeb.Server.Data.Models.People;
 using HamgamCementWeb.Server.Data.Models.Product;
 using HamgamCementWeb.Server.Data.Models.Production;
-using HamgamCementWeb.Server.Data.Models.Transport;
 using Microsoft.EntityFrameworkCore;
 using System.Security.Cryptography;
 
@@ -23,8 +22,6 @@ namespace HamgamCementWeb.Server.Data
         public DbSet<Role> Roles { get; set; }
         public DbSet<UserPermission> UserPermissions { get; set; }
         public DbSet<Department> Departments { get; set; }
-        public DbSet<Driver> Drivers { get; set; }
-        public DbSet<VehicleOwner> VehicleOwners { get; set; }
 
         //finance tables
 
@@ -69,18 +66,6 @@ namespace HamgamCementWeb.Server.Data
         public DbSet<SaleInvoice> SaleInvoices { get; set; }
         public DbSet<SalesItem> SalesItems { get; set; }
         public DbSet<SaleItemLotAllocation> SaleItemLotAllocations { get; set; }
-
-        //transport tables
-
-        public DbSet<VehicleType> VehicleTypes { get; set; }
-        public DbSet<Vehicle> Vehicles { get; set; }
-        public DbSet<TransportRoute> TransportRoutes { get; set; }
-        public DbSet<TransportTrip> TransportTrips { get; set; }
-        public DbSet<ExpensesCategory> ExpensesCategories { get; set; }
-        public DbSet<TransportInvoice> TransportInvoices { get; set; }
-        public DbSet<TransportExpense> TransportExpenses { get; set; }
-        public DbSet<VehicleMaintenance> VehicleMaintenances { get; set; }
-        public DbSet<VehiclePartReplacement> VehiclePartReplacements { get; set; }
 
         //product tables
 
@@ -227,152 +212,6 @@ namespace HamgamCementWeb.Server.Data
                 .HasOne(h => h.BaseCurrency)
                 .WithMany()
                 .HasForeignKey(h => h.BaseCurrencyID)
-                .OnDelete(DeleteBehavior.Restrict);
-
-            // ---------- حمل و نقل ----------
-
-            // کد و پلاک وسیله نقلیه باید یکتا باشند
-            modelBuilder.Entity<Vehicle>()
-                .HasIndex(v => v.Code)
-                .IsUnique();
-
-            modelBuilder.Entity<Vehicle>()
-                .HasIndex(v => v.PlateNumber)
-                .IsUnique();
-
-            modelBuilder.Entity<Vehicle>()
-                .HasOne(v => v.DefaultDriver)
-                .WithMany()
-                .HasForeignKey(v => v.DefaultDriverId)
-                .OnDelete(DeleteBehavior.Restrict);
-
-            modelBuilder.Entity<Vehicle>()
-                .HasOne(v => v.Owner)
-                .WithMany()
-                .HasForeignKey(v => v.VehicleOwnerId)
-                .OnDelete(DeleteBehavior.Restrict);
-
-            modelBuilder.Entity<Driver>()
-                .HasOne(d => d.DefaultVehicle)
-                .WithMany()
-                .HasForeignKey(d => d.DefaultVehicleId)
-                .OnDelete(DeleteBehavior.Restrict);
-
-            modelBuilder.Entity<TransportRoute>()
-                .HasIndex(r => r.Code)
-                .IsUnique();
-
-            modelBuilder.Entity<Vehicle>()
-                .HasOne(v => v.VehicleType)
-                .WithMany(t => t.Vehicles)
-                .HasForeignKey(v => v.VehicleTypeId)
-                .OnDelete(DeleteBehavior.Restrict);
-
-            modelBuilder.Entity<Vehicle>()
-                .HasOne(v => v.FixedAsset)
-                .WithMany()
-                .HasForeignKey(v => v.FixedAssetId)
-                .OnDelete(DeleteBehavior.Restrict);
-
-            modelBuilder.Entity<TransportTrip>()
-                .HasIndex(t => t.TripNumber)
-                .IsUnique();
-
-            modelBuilder.Entity<TransportTrip>()
-                .HasOne(t => t.Vehicle)
-                .WithMany()
-                .HasForeignKey(t => t.VehicleId)
-                .OnDelete(DeleteBehavior.Restrict);
-
-            modelBuilder.Entity<TransportTrip>()
-                .HasOne(t => t.Route)
-                .WithMany(r => r.Trips)
-                .HasForeignKey(t => t.TransportRouteId)
-                .IsRequired(false)
-                .OnDelete(DeleteBehavior.Restrict);
-
-            modelBuilder.Entity<TransportTrip>()
-                .HasOne(t => t.Driver)
-                .WithMany()
-                .HasForeignKey(t => t.DriverId)
-                .OnDelete(DeleteBehavior.Restrict);
-
-            modelBuilder.Entity<TransportTrip>()
-                .HasOne(t => t.PurchaseInvoice)
-                .WithMany()
-                .HasForeignKey(t => t.PurchaseInvoiceId)
-                .OnDelete(DeleteBehavior.Restrict);
-
-            modelBuilder.Entity<TransportTrip>()
-                .HasOne(t => t.SaleInvoice)
-                .WithMany()
-                .HasForeignKey(t => t.SaleInvoiceId)
-                .OnDelete(DeleteBehavior.Restrict);
-
-            modelBuilder.Entity<TransportInvoice>()
-                .HasIndex(i => i.InvoiceNumber)
-                .IsUnique();
-
-            modelBuilder.Entity<TransportInvoice>()
-                .HasOne(i => i.Vehicle)
-                .WithMany()
-                .HasForeignKey(i => i.VehicleId)
-                .OnDelete(DeleteBehavior.Restrict);
-
-            modelBuilder.Entity<TransportInvoice>()
-                .HasOne(i => i.Trip)
-                .WithMany()
-                .HasForeignKey(i => i.TransportTripId)
-                .OnDelete(DeleteBehavior.Restrict);
-
-            modelBuilder.Entity<TransportExpense>()
-                .HasOne(e => e.Invoice)
-                .WithMany(i => i.Expenses)
-                .HasForeignKey(e => e.TransportInvoiceId)
-                .OnDelete(DeleteBehavior.Restrict);
-
-            modelBuilder.Entity<TransportExpense>()
-                .HasOne(e => e.Category)
-                .WithMany(c => c.Expenses)
-                .HasForeignKey(e => e.ExpensesCategoryId)
-                .OnDelete(DeleteBehavior.Restrict);
-
-            modelBuilder.Entity<TransportExpense>()
-                .HasOne(e => e.Currency)
-                .WithMany()
-                .HasForeignKey(e => e.CurrencyId)
-                .OnDelete(DeleteBehavior.Restrict);
-
-            // اسنپ‌شات ارز پایه و تاریخچه نرخ برای ردیف مصرف حمل‌ونقل — Restrict برای جلوگیری از مسیر cascade چندگانه
-            modelBuilder.Entity<TransportExpense>()
-                .HasOne<Currency>()
-                .WithMany()
-                .HasForeignKey(e => e.BaseCurrencyId)
-                .OnDelete(DeleteBehavior.Restrict);
-
-            modelBuilder.Entity<TransportExpense>()
-                .HasOne<CurrencyExchangeHistory>()
-                .WithMany()
-                .HasForeignKey(e => e.ExchangeHistoryId)
-                .OnDelete(DeleteBehavior.SetNull);
-
-            // لینک فاکتور مصارف حمل‌ونقل به رکورد مصرف حسابداری
-            modelBuilder.Entity<TransportInvoice>()
-                .HasOne(i => i.Expense)
-                .WithMany()
-                .HasForeignKey(i => i.ExpenseId)
-                .OnDelete(DeleteBehavior.Restrict);
-
-            modelBuilder.Entity<VehicleMaintenance>()
-                .HasOne(m => m.Vehicle)
-                .WithMany()
-                .HasForeignKey(m => m.VehicleId)
-                .OnDelete(DeleteBehavior.Restrict);
-
-            modelBuilder.Entity<VehiclePartReplacement>()
-                .HasOne(p => p.Vehicle)
-                .WithMany()
-                .HasForeignKey(p => p.VehicleId)
                 .OnDelete(DeleteBehavior.Restrict);
 
             // ---------- محصولات و انبار ----------
@@ -685,30 +524,6 @@ namespace HamgamCementWeb.Server.Data
                 .OnDelete(DeleteBehavior.Restrict);
 
             modelBuilder.Entity<PurchaseInvoice>()
-                .HasOne(i => i.FreightVehicle)
-                .WithMany()
-                .HasForeignKey(i => i.FreightVehicleId)
-                .OnDelete(DeleteBehavior.Restrict);
-
-            modelBuilder.Entity<PurchaseInvoice>()
-                .HasOne(i => i.TransportTrip)
-                .WithMany()
-                .HasForeignKey(i => i.TransportTripId)
-                .OnDelete(DeleteBehavior.Restrict);
-
-            modelBuilder.Entity<PurchaseInvoice>()
-                .HasOne(i => i.FreightExpense)
-                .WithMany()
-                .HasForeignKey(i => i.FreightExpenseId)
-                .OnDelete(DeleteBehavior.Restrict);
-
-            modelBuilder.Entity<PurchaseInvoice>()
-                .HasOne(i => i.FreightJournalEntry)
-                .WithMany()
-                .HasForeignKey(i => i.FreightJournalEntryId)
-                .OnDelete(DeleteBehavior.Restrict);
-
-            modelBuilder.Entity<PurchaseInvoice>()
                 .HasOne(i => i.ReferencePurchaseInvoice)
                 .WithMany(i => i.ReturnDocuments)
                 .HasForeignKey(i => i.ReferencePurchaseInvoiceId)
@@ -718,6 +533,12 @@ namespace HamgamCementWeb.Server.Data
                 .HasOne(i => i.ProductionBatch)
                 .WithMany()
                 .HasForeignKey(i => i.ProductionBatchId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            modelBuilder.Entity<PurchaseInvoice>()
+                .HasOne(i => i.CashBox)
+                .WithMany()
+                .HasForeignKey(i => i.CashBoxId)
                 .OnDelete(DeleteBehavior.Restrict);
 
             modelBuilder.Entity<PurchaseItem>()
@@ -783,30 +604,6 @@ namespace HamgamCementWeb.Server.Data
                 .HasOne(i => i.Revenue)
                 .WithOne(r => r.SaleInvoice)
                 .HasForeignKey<SaleInvoice>(i => i.RevenueId)
-                .OnDelete(DeleteBehavior.Restrict);
-
-            modelBuilder.Entity<SaleInvoice>()
-                .HasOne(i => i.FreightVehicle)
-                .WithMany()
-                .HasForeignKey(i => i.FreightVehicleId)
-                .OnDelete(DeleteBehavior.Restrict);
-
-            modelBuilder.Entity<SaleInvoice>()
-                .HasOne(i => i.TransportTrip)
-                .WithMany()
-                .HasForeignKey(i => i.TransportTripId)
-                .OnDelete(DeleteBehavior.Restrict);
-
-            modelBuilder.Entity<SaleInvoice>()
-                .HasOne(i => i.FreightRevenue)
-                .WithMany()
-                .HasForeignKey(i => i.FreightRevenueId)
-                .OnDelete(DeleteBehavior.Restrict);
-
-            modelBuilder.Entity<SaleInvoice>()
-                .HasOne(i => i.FreightJournalEntry)
-                .WithMany()
-                .HasForeignKey(i => i.FreightJournalEntryId)
                 .OnDelete(DeleteBehavior.Restrict);
 
             modelBuilder.Entity<SaleInvoice>()

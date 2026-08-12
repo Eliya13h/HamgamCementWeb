@@ -3,6 +3,9 @@ using HamgamCementWeb.Server;
 using HamgamCementWeb.Server.Data;
 using HamgamCementWeb.Server.Data.Seed;
 using HamgamCementWeb.Server.Services;
+using Hamgam.Shared.CurrencySync;
+using Hamgam.Shared.Extensions;
+using Hamgam.Shared.Services;
 using AppUser = HamgamCementWeb.Server.Data.Models.People.User;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.Identity;
@@ -48,18 +51,16 @@ builder.Services.AddScoped<IProductPurchasePriceHintService, ProductPurchasePric
 builder.Services.AddScoped<ICurrencyConversionService, CurrencyConversionService>();
 builder.Services.AddScoped<ICurrencyExchangeRateService, CurrencyExchangeRateService>();
         builder.Services.AddScoped<IInvoicePostingService, InvoicePostingService>();
-        builder.Services.AddScoped<IFreightTripService, FreightTripService>();
         builder.Services.AddScoped<IInvoiceReturnService, InvoiceReturnService>();
 builder.Services.AddScoped<ICustomerReadService, CustomerReadService>();
 builder.Services.AddScoped<ISupplierReadService, SupplierReadService>();
 builder.Services.AddScoped<IEmployeeReadService, EmployeeReadService>();
-builder.Services.AddScoped<IDriverReadService, DriverReadService>();
-builder.Services.AddScoped<IVehicleOwnerReadService, VehicleOwnerReadService>();
 builder.Services.AddScoped<IDepartmentReadService, DepartmentReadService>();
 builder.Services.AddScoped<IShareholderReadService, ShareholderReadService>();
 builder.Services.AddScoped<IInvoiceReportService, InvoiceReportService>();
 builder.Services.AddScoped<IJournalReportService, JournalReportService>();
 builder.Services.AddScoped<IProductReportService, ProductReportService>();
+builder.Services.AddScoped<IProductionReportService, ProductionReportService>();
 builder.Services.AddScoped<IWarehouseTurnoverService, WarehouseTurnoverService>();
 builder.Services.AddScoped<IFinanceCategoryService, FinanceCategoryService>();
 builder.Services.AddScoped<IProductionPostingService, ProductionPostingService>();
@@ -87,7 +88,6 @@ builder.Services.AddScoped<ICurrencyExchangeService, CurrencyExchangeService>();
 builder.Services.AddScoped<IInventoryOpeningService, InventoryOpeningService>();
 builder.Services.AddScoped<IPurchaseInvoiceReadService, PurchaseInvoiceReadService>();
 builder.Services.AddScoped<IDashboardReadService, DashboardReadService>();
-builder.Services.AddScoped<ITransportReportService, TransportReportService>();
 
 builder.Services.AddAuthentication(CookieAuthenticationDefaults.AuthenticationScheme)
     .AddCookie(options =>
@@ -118,15 +118,39 @@ var connectionString = builder.Configuration.GetConnectionString("Local");
 builder.Services.AddDbContext<AppDbContext>(options =>
     options.UseSqlServer(connectionString));
 
+builder.Services.AddHamgamCurrencyReference(builder.Configuration, SystemCodes.Cement);
+
 var app = builder.Build();
 
 StimulsoftSetup.RegisterReportFonts(app.Environment);
 
 // بعد از ریستارت ویندوز SQL Server ممکن است دیرتر از IIS بالا بیاید؛ چند بار تلاش می‌کنیم
 await RunStartupWithRetryAsync(
+    async () =>
+    {
+        using var scope = app.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        await db.Database.MigrateAsync();
+    },
+    app.Logger,
+    "Database migrate");
+
+await RunStartupWithRetryAsync(
     () => DataSeeder.SeedAsync(app.Services),
     app.Logger,
     "Database seed");
+
+await RunStartupWithRetryAsync(
+    async () =>
+    {
+        using var scope = app.Services.CreateScope();
+        var currencySync = scope.ServiceProvider.GetRequiredService<ICurrencyReferenceSyncService>();
+        await currencySync.EnsureReferenceDatabaseAsync();
+        await currencySync.SeedReferenceFromLocalIfEmptyAsync();
+        await currencySync.SyncFromReferenceToLocalAsync();
+    },
+    app.Logger,
+    "Currency reference sync");
 
 app.UseDefaultFiles();
 app.UseStaticFiles();

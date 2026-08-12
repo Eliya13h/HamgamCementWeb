@@ -17,21 +17,27 @@ public class ReportViewerController : Controller
     private const string ProductsCategoryIdSessionKey = "ReportProductsCategoryId";
     private const string ProductsActiveOnlySessionKey = "ReportProductsActiveOnly";
     private const string ProductsBelowMinStockSessionKey = "ReportProductsBelowMinStock";
+    private const string ProductionDateFromSessionKey = "ProductionReportDateFrom";
+    private const string ProductionDateToSessionKey = "ProductionReportDateTo";
+    private const string ProductionBatchIdSessionKey = "ProductionBatchReportId";
 
     private readonly IInvoiceReportService _invoiceReports;
     private readonly IJournalReportService _journalReports;
     private readonly IProductReportService _productReports;
+    private readonly IProductionReportService _productionReports;
     private readonly IWebHostEnvironment _env;
 
     public ReportViewerController(
         IInvoiceReportService invoiceReports,
         IJournalReportService journalReports,
         IProductReportService productReports,
+        IProductionReportService productionReports,
         IWebHostEnvironment env)
     {
         _invoiceReports = invoiceReports;
         _journalReports = journalReports;
         _productReports = productReports;
+        _productionReports = productionReports;
         _env = env;
     }
 
@@ -57,6 +63,8 @@ public class ReportViewerController : Controller
 
         ClearJournalSession();
         ClearProductsSession();
+        ClearProductionListSession();
+        ClearProductionBatchSession();
         HttpContext.Session.SetInt32(PurchaseInvoiceSessionKey, purchaseInvoiceId);
         HttpContext.Session.Remove(SaleInvoiceSessionKey);
         return View();
@@ -72,6 +80,8 @@ public class ReportViewerController : Controller
 
         ClearJournalSession();
         ClearProductsSession();
+        ClearProductionListSession();
+        ClearProductionBatchSession();
         HttpContext.Session.SetInt32(SaleInvoiceSessionKey, saleInvoiceId);
         HttpContext.Session.Remove(PurchaseInvoiceSessionKey);
         return View("Invoice");
@@ -110,6 +120,8 @@ public class ReportViewerController : Controller
         HttpContext.Session.Remove(PurchaseInvoiceSessionKey);
         HttpContext.Session.Remove(SaleInvoiceSessionKey);
         ClearProductsSession();
+        ClearProductionListSession();
+        ClearProductionBatchSession();
 
         // روزنامچه عمومی: چاپ HTML استاندارد A4 (بدون Stimulsoft)
         if (journalType == JournalReportType.General)
@@ -185,6 +197,8 @@ public class ReportViewerController : Controller
     public IActionResult Products(int? categoryId, string? activeOnly, bool belowMinStock = false)
     {
         ClearJournalSession();
+        ClearProductionListSession();
+        ClearProductionBatchSession();
         HttpContext.Session.Remove(PurchaseInvoiceSessionKey);
         HttpContext.Session.Remove(SaleInvoiceSessionKey);
 
@@ -340,6 +354,117 @@ public class ReportViewerController : Controller
         return StiNetCoreViewer.ViewerEventResult(this);
     }
 
+    /// <summary>گزارش لیست تولیدات در بازه تاریخ — فقط اسناد ثبت‌شده.</summary>
+    [HttpGet]
+    public IActionResult Production(string? dateFrom, string? dateTo)
+    {
+        var hasFrom = ReportInputHelper.TryParseReportDate(dateFrom, out var parsedFrom);
+        var hasTo = ReportInputHelper.TryParseReportDate(dateTo, out var parsedTo);
+        if (!hasFrom || !hasTo)
+        {
+            return BadRequest("بازه تاریخ نامعتبر است.");
+        }
+
+        if (parsedFrom.Date > parsedTo.Date)
+        {
+            return BadRequest("تاریخ شروع نباید بعد از تاریخ پایان باشد.");
+        }
+
+        ClearJournalSession();
+        ClearProductsSession();
+        ClearProductionBatchSession();
+        HttpContext.Session.Remove(PurchaseInvoiceSessionKey);
+        HttpContext.Session.Remove(SaleInvoiceSessionKey);
+
+        HttpContext.Session.SetString(ProductionDateFromSessionKey, parsedFrom.Date.ToString("O"));
+        HttpContext.Session.SetString(ProductionDateToSessionKey, parsedTo.Date.ToString("O"));
+
+        return View();
+    }
+
+    /// <summary>گزارش تفصیلی یک سند تولید.</summary>
+    [HttpGet]
+    public IActionResult ProductionBatch(int productionBatchId)
+    {
+        if (productionBatchId <= 0)
+        {
+            return BadRequest("شناسه سند تولید نامعتبر است.");
+        }
+
+        ClearJournalSession();
+        ClearProductsSession();
+        ClearProductionListSession();
+        HttpContext.Session.Remove(PurchaseInvoiceSessionKey);
+        HttpContext.Session.Remove(SaleInvoiceSessionKey);
+
+        HttpContext.Session.SetInt32(ProductionBatchIdSessionKey, productionBatchId);
+        return View();
+    }
+
+    public async Task<IActionResult> GetProductionReport(CancellationToken cancellationToken)
+    {
+        var dateFromValue = HttpContext.Session.GetString(ProductionDateFromSessionKey);
+        var dateToValue = HttpContext.Session.GetString(ProductionDateToSessionKey);
+        if (string.IsNullOrWhiteSpace(dateFromValue) ||
+            string.IsNullOrWhiteSpace(dateToValue) ||
+            !DateTime.TryParse(dateFromValue, out var dateFrom) ||
+            !DateTime.TryParse(dateToValue, out var dateTo))
+        {
+            return BadRequest("پارامترهای گزارش تولید مشخص نشده است.");
+        }
+
+        try
+        {
+            var report = await _productionReports.BuildListReportAsync(dateFrom, dateTo, cancellationToken);
+            return StiNetCoreViewer.GetReportResult(this, report);
+        }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(ex.Message);
+        }
+        catch (FileNotFoundException ex)
+        {
+            return NotFound(ex.Message);
+        }
+    }
+
+    public async Task<IActionResult> GetProductionBatchReport(CancellationToken cancellationToken)
+    {
+        var batchId = HttpContext.Session.GetInt32(ProductionBatchIdSessionKey);
+        if (batchId is not > 0)
+        {
+            return BadRequest("سند تولید برای چاپ مشخص نشده است.");
+        }
+
+        try
+        {
+            var report = await _productionReports.BuildBatchDetailReportAsync(batchId.Value, cancellationToken);
+            return StiNetCoreViewer.GetReportResult(this, report);
+        }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(ex.Message);
+        }
+        catch (FileNotFoundException ex)
+        {
+            return NotFound(ex.Message);
+        }
+    }
+
+    public IActionResult ProductionViewerEvent()
+    {
+        ReportFontHelper.ConfigurePdfExportDefaults();
+        ReportFontHelper.EnsureNotoNastaliqRegistered(_env);
+        return StiNetCoreViewer.ViewerEventResult(this);
+    }
+
+    public IActionResult ProductionBatchViewerEvent()
+    {
+        ReportFontHelper.ConfigurePdfExportDefaults();
+        ReportFontHelper.EnsureNotoNastaliqRegistered(_env);
+        return StiNetCoreViewer.ViewerEventResult(this);
+    }
+
     public IActionResult ViewerEvent()
     {
         return StiNetCoreViewer.ViewerEventResult(this);
@@ -357,6 +482,17 @@ public class ReportViewerController : Controller
         HttpContext.Session.Remove(ProductsCategoryIdSessionKey);
         HttpContext.Session.Remove(ProductsActiveOnlySessionKey);
         HttpContext.Session.Remove(ProductsBelowMinStockSessionKey);
+    }
+
+    private void ClearProductionListSession()
+    {
+        HttpContext.Session.Remove(ProductionDateFromSessionKey);
+        HttpContext.Session.Remove(ProductionDateToSessionKey);
+    }
+
+    private void ClearProductionBatchSession()
+    {
+        HttpContext.Session.Remove(ProductionBatchIdSessionKey);
     }
 
     private static bool TryParseJournalType(string? type, out JournalReportType journalType)
