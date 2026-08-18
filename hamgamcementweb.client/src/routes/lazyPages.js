@@ -43,6 +43,7 @@ export const ProductionFormulasPage = lazy(() => import(/* webpackChunkName: "Pr
 export const RevenuesReportPage = lazy(() => import(/* webpackChunkName: "RevenuesReportPage" */ '../Pages/Reporting/RevenuesReportPage.jsx'))
 export const ExpensesReportPage = lazy(() => import(/* webpackChunkName: "ExpensesReportPage" */ '../Pages/Reporting/ExpensesReportPage.jsx'))
 export const JournalPage = lazy(() => import(/* webpackChunkName: "JournalPage" */ '../Pages/Reporting/JournalPage.jsx'))
+export const CostCentersReportPage = lazy(() => import(/* webpackChunkName: "CostCentersReportPage" */ '../Pages/Reporting/CostCentersReportPage.jsx'))
 export const ReportsPage = lazy(() => import(/* webpackChunkName: "ReportsPage" */ '../Pages/Reporting/ReportsPage.jsx'))
 export const InventoryStockPage = lazy(() => import(/* webpackChunkName: "InventoryStockPage" */ '../Pages/Inventory/InventoryStockPage.jsx'))
 export const InventoryOpeningPage = lazy(() => import(/* webpackChunkName: "InventoryOpeningPage" */ '../Pages/Inventory/InventoryOpeningPage.jsx'))

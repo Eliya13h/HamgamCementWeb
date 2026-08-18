@@ -67,15 +67,6 @@
 		<None Update="Reports\StandardJurnal.mrt">
 			<CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
 		</None>
-		<None Update="Reports\Products.mrt">
-			<CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-		</None>
-		<None Update="Reports\Production.mrt">
-			<CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-		</None>
-		<None Update="Reports\ProductionBatch.mrt">
-			<CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-		</None>
 		<None Update="Reports\Fonts\*.ttf">
 			<CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
 		</None>
@@ -92,15 +83,11 @@
 	</ItemGroup>
 
 	<ItemGroup>
-		<Folder Include="Data\Models\Inventory\" />
 		<Folder Include="Data\Models\Transport\" />
 		<Folder Include="Data\ViewModels\Customers\" />
 		<Folder Include="Data\ViewModels\Dashboard\" />
-		<Folder Include="Data\ViewModels\Employees\" />
 		<Folder Include="Data\ViewModels\Finance\Expenses\" />
 		<Folder Include="Data\ViewModels\Finance\Income\" />
-		<Folder Include="Data\ViewModels\Purchases\" />
-		<Folder Include="Data\ViewModels\Sales\" />
 		<Folder Include="Data\ViewModels\Settings\" />
 		<Folder Include="Data\ViewModels\Suppliers\" />
 		<Folder Include="Data\ViewModels\Users\" />

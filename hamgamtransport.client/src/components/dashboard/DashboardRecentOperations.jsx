@@ -5,9 +5,9 @@ import { formatJalaliDate } from '../../lib/afghanSolarCalendar'
 import { fetchDashboardRecentOperations } from '../../services/dashboardApi'
 
 function typeBadgeClass(type) {
-  if (type === 'purchase') return 'is-purchase'
-  if (type === 'sale') return 'is-sale'
-  if (type === 'production') return 'is-production'
+  if (type === 'trip') return 'is-production'
+  if (type === 'revenue') return 'is-sale'
+  if (type === 'expense') return 'is-purchase'
   return ''
 }
 
@@ -46,17 +46,17 @@ function DashboardRecentOperations() {
       <div className="card-header bg-transparent border-0 pt-4 px-4 pb-0 d-flex align-items-center justify-content-between flex-wrap gap-2">
         <div>
           <h3 className="card-title mb-1">آخرین عملیات</h3>
-          <p className="silo-section-subtitle mb-0">تولید، خرید و فروش به‌ترتیب تاریخ</p>
+          <p className="silo-section-subtitle mb-0">سفرها، عواید و مصارف به‌ترتیب تاریخ</p>
         </div>
         <div className="d-flex flex-wrap gap-2">
-          <Link to="/production/daily" className="btn btn-sm btn-outline-accent">
-            تولید
+          <Link to="/transport/trips" className="btn btn-sm btn-outline-accent">
+            سفرها
           </Link>
-          <Link to="/transactions/purchase" className="btn btn-sm btn-outline-accent">
-            خرید
+          <Link to="/accounting/revenues" className="btn btn-sm btn-outline-accent">
+            عواید
           </Link>
-          <Link to="/transactions/sale" className="btn btn-sm btn-outline-accent">
-            فروش
+          <Link to="/accounting/expenses" className="btn btn-sm btn-outline-accent">
+            مصارف
           </Link>
         </div>
       </div>
@@ -80,7 +80,7 @@ function DashboardRecentOperations() {
                   <th scope="col">#</th>
                   <th scope="col">نوع</th>
                   <th scope="col">عنوان</th>
-                  <th scope="col">انبار</th>
+                  <th scope="col">طرف حساب</th>
                   <th scope="col">مبلغ پایه</th>
                   <th scope="col">وضعیت</th>
                   <th scope="col">تاریخ</th>
@@ -104,7 +104,7 @@ function DashboardRecentOperations() {
                         row.title
                       )}
                     </td>
-                    <td>{row.warehouseName || '—'}</td>
+                    <td>{row.partyName || '—'}</td>
                     <td>{formatAmount(row.amountInBase)}</td>
                     <td>
                       <span className="badge badge-status">{row.statusLabel}</span>

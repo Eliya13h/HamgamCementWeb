@@ -1,6 +1,5 @@
 ﻿using HamgamTransport.Server.Data;
 using HamgamTransport.Server.Data.Models.Finance;
-using HamgamTransport.Server.Data.Models.Inventory;
 using Microsoft.EntityFrameworkCore;
 
 namespace HamgamTransport.Server.Services;
@@ -15,7 +14,6 @@ public interface IAccountLookupService
     Task<Account> EnsureShareholderAccountAsync(int shareholderId, string shareholderName, CancellationToken cancellationToken = default);
     Task<Account> EnsureVehicleOwnerAccountAsync(int vehicleOwnerId, string ownerName, CancellationToken cancellationToken = default);
     Task<Account> EnsureDriverAccountAsync(int driverId, string driverName, CancellationToken cancellationToken = default);
-    Task<int> ResolveInventoryAccountIdAsync(WarehouseType warehouseType, CancellationToken cancellationToken = default);
     Task<Account> ResolveRetainedEarningsPostableAsync(CancellationToken cancellationToken = default);
 }
 
@@ -311,21 +309,5 @@ public class AccountLookupService : IAccountLookupService
         return postable
             ?? throw new InvalidOperationException(
                 "حساب قابل‌ثبت سود انباشته (زیر SYS_RETAINED) در کدینگ یافت نشد.");
-    }
-
-    public async Task<int> ResolveInventoryAccountIdAsync(
-        WarehouseType warehouseType,
-        CancellationToken cancellationToken = default)
-    {
-        var systemCode = warehouseType switch
-        {
-            WarehouseType.RawMaterials => AccountSystemCode.InventoryRaw,
-            WarehouseType.SemiFinished => AccountSystemCode.InventorySemi,
-            WarehouseType.Processed => AccountSystemCode.InventoryFg,
-            _ => AccountSystemCode.InventoryFg,
-        };
-
-        var account = await GetBySystemCodeAsync(systemCode, cancellationToken);
-        return account.AccountID;
     }
 }

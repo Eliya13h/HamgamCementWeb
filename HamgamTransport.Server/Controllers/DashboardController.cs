@@ -16,7 +16,7 @@ public class DashboardController : ControllerBase
         _dashboard = dashboard;
     }
 
-    // کارت‌های خلاصه: تولید امروز، فروش/خرید امروز و ماه جاری
+    // کارت‌های خلاصه: سفرها، درآمد حمل و ناوگان فعال
     [HttpGet("summary")]
     public async Task<IActionResult> Summary(CancellationToken cancellationToken = default)
     {
@@ -24,7 +24,7 @@ public class DashboardController : ControllerBase
         return Ok(result);
     }
 
-    // سری زمانی ماهانه خرید، فروش، درآمد و مصرف برای نمودار داشبورد
+    // سری زمانی ماهانه درآمد/هزینه حمل و سایر عواید و مصارف
     [HttpGet("performance")]
     public async Task<IActionResult> Performance(
         [FromQuery] int months = 1,
@@ -34,7 +34,7 @@ public class DashboardController : ControllerBase
         return Ok(result);
     }
 
-    // آخرین عملیات تولید، خرید و فروش
+    // آخرین سفرها، عواید و مصارف
     [HttpGet("recent-operations")]
     public async Task<IActionResult> RecentOperations(
         [FromQuery] int take = 15,
@@ -44,7 +44,7 @@ public class DashboardController : ControllerBase
         return Ok(rows);
     }
 
-    // اعلان‌ها: کمبود محصول، پر شدن انبار، خالی بودن کمتر از ۲۰٪
+    // اعلان‌های سفر: در انتظار، بدون ثبت درآمد، تحویل‌شده
     [HttpGet("notifications")]
     public async Task<IActionResult> Notifications(CancellationToken cancellationToken = default)
     {

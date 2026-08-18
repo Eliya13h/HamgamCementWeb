@@ -10,9 +10,9 @@ import {
 } from '../../lib/pushNotifications'
 
 function severityIcon(type) {
-  if (type === 'product_shortage') return 'triangle-exclamation'
-  if (type === 'warehouse_full') return 'warehouse'
-  if (type === 'warehouse_low') return 'boxes-stacked'
+  if (type === 'trip_pending') return 'route'
+  if (type === 'trip_unposted') return 'triangle-exclamation'
+  if (type === 'trip_awaiting_settlement') return 'cash'
   return 'bell'
 }
 

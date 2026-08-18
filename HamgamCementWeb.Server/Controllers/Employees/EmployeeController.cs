@@ -72,6 +72,23 @@ public class EmployeeController : ControllerBase
         return Ok(departments.Select(d => new { departmentId = d.DepartmentId, name = d.Name }));
     }
 
+    [HttpGet("options")]
+    public async Task<IActionResult> Options(CancellationToken cancellationToken)
+    {
+        var rows = await _db.Employees.AsNoTracking()
+            .Where(e => e.IsDeleted != true && e.IsActive == true)
+            .OrderBy(e => e.Name)
+            .ThenBy(e => e.Family)
+            .Select(e => new
+            {
+                value = e.EmployeeID,
+                label = (e.Name + " " + e.Family).Trim(),
+            })
+            .ToListAsync(cancellationToken);
+
+        return Ok(rows);
+    }
+
     [HttpPost]
     public async Task<IActionResult> Create(
         [FromBody] SaveEmployeeRequest request,

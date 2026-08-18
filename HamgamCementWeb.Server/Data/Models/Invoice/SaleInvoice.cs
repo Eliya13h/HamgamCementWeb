@@ -70,6 +70,10 @@ public class SaleInvoice : BaseEntity
     // تاریخ سررسید فاکتور نسیه
     public DateTime? DueDate { get; set; }
 
+    // شماره فاکتور طرف مقابل (شماره چاپ‌شده روی فاکتور بیرونی)
+    [MaxLength(100)]
+    public string? ExternalInvoiceNumber { get; set; }
+
     // مبلغ دریافت‌شده از مشتری (ارز فاکتور)
     [Column(TypeName = "decimal(18,4)")]
     public decimal PaidAmount { get; set; }

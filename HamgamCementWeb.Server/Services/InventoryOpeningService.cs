@@ -17,7 +17,7 @@ public interface IInventoryOpeningService
 }
 
 /// <summary>
-/// موجودی اول دوره — ایجاد Lot و سند دوطرفه (بدهکار موجودی / بستانکار افتتاحیه).
+/// موجودی اول دوره — ایجاد Lot و سند دوطرفه (دیبت موجودی / کریدیت افتتاحیه).
 /// </summary>
 public class InventoryOpeningService : IInventoryOpeningService
 {

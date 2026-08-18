@@ -70,8 +70,8 @@ public class FinanceReadService : IFinanceReadService
                     e.AmountInBaseCurrency,
                     e.Description,
                     e.JournalEntryId,
-                    (SELECT TOP 1 i.InvoiceNumber FROM PurchaseInvoices i
-                     WHERE i.ExpenseId = e.ExpenseID AND i.IsDeleted = 0) AS InvoiceNumber
+                    e.Description,
+                    CAST(NULL AS nvarchar(100)) AS InvoiceNumber
              FROM Expenses e
              LEFT JOIN Suppliers s ON s.SupplierID = e.SupplierId
              INNER JOIN ExpenseCategories c ON c.ExpenseCategoryID = e.ExpenseCategoryId
@@ -128,11 +128,11 @@ public class FinanceReadService : IFinanceReadService
                     cur.Symbol AS CurrencySymbol,
                     r.Amount,
                     r.AmountInBaseCurrency,
-                    r.ProfitInBaseCurrency,
+                    r.AmountInBaseCurrency,
+                    CAST(0 AS decimal(18,4)) AS ProfitInBaseCurrency,
                     r.Description,
                     r.JournalEntryId,
-                    (SELECT TOP 1 i.InvoiceNumber FROM SaleInvoices i
-                     WHERE i.RevenueId = r.RevenueID AND i.IsDeleted = 0) AS InvoiceNumber
+                    CAST(NULL AS nvarchar(100)) AS InvoiceNumber
              FROM Revenues r
              LEFT JOIN Customers cu ON cu.CustomerID = r.CustomerId
              INNER JOIN RevenueCategories c ON c.RevenueCategoryID = r.RevenueCategoryId

@@ -78,7 +78,6 @@ const CASH_BASE = '/api/finance/cash-boxes'
 const BANK_BASE = '/api/finance/bank-accounts'
 const SETTLEMENTS_BASE = '/api/finance/settlements'
 const STATEMENTS_BASE = '/api/finance/statements'
-const INSTALLMENTS_BASE = '/api/finance/installments'
 const COST_CENTERS_BASE = '/api/finance/cost-centers'
 const FISCAL_PERIODS_BASE = '/api/finance/fiscal-periods'
 const ATTACHMENTS_BASE = '/api/finance/attachments'
@@ -100,6 +99,10 @@ export const journalEntriesApi = {
       method: 'POST',
       body: JSON.stringify(payload),
     }),
+  partyAccount: (partyType, partyId) =>
+    request(
+      `${JOURNAL_BASE}/party-account?partyType=${encodeURIComponent(partyType)}&partyId=${encodeURIComponent(partyId)}`,
+    ),
 }
 
 export const cashBoxesApi = {
@@ -117,16 +120,6 @@ export const rechargePettyCash = (id, payload) =>
     method: 'POST',
     body: JSON.stringify(payload),
   })
-
-export const invoiceInstallmentsApi = {
-  list: (kind, invoiceId) =>
-    request(`${INSTALLMENTS_BASE}?kind=${kind}&invoiceId=${invoiceId}`),
-  generate: (payload) =>
-    request(`${INSTALLMENTS_BASE}/generate`, {
-      method: 'POST',
-      body: JSON.stringify(payload),
-    }),
-}
 
 export const costCentersApi = {
   createDataTableAjax: (onError) => createDataTableAjax(COST_CENTERS_BASE, onError),
@@ -270,13 +263,6 @@ export function fetchCashFlow({ dateFrom, dateTo } = {}) {
   if (dateTo) params.set('dateTo', dateTo)
   const query = params.toString()
   return request(`${STATEMENTS_BASE}/cash-flow${query ? `?${query}` : ''}`)
-}
-
-export function postInventoryOpening(payload) {
-  return request('/api/inventory/opening', {
-    method: 'POST',
-    body: JSON.stringify(payload),
-  })
 }
 
 export function fetchAccountLedger(accountId, { dateFrom, dateTo, partyId } = {}) {

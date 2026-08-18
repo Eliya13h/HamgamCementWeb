@@ -4,6 +4,7 @@ import { tripExpenseCategoriesApi } from '../../services/transportApi'
 const columns = [
   { data: 'code', title: 'کد' },
   { data: 'name', title: 'نام' },
+  { data: 'parentName', title: 'دسته والد', defaultContent: '—' },
   {
     data: 'isActive',
     title: 'وضعیت',
@@ -16,8 +17,22 @@ const columns = [
 ]
 
 const fields = [
-  { name: 'code', label: 'کد', type: 'text', required: true, col: 4 },
-  { name: 'name', label: 'نام', type: 'text', required: true, col: 8 },
+  {
+    name: 'parentCategoryId',
+    label: 'دسته والد',
+    type: 'select',
+    col: 6,
+    loadOptions: () => tripExpenseCategoriesApi.options(),
+  },
+  {
+    name: 'code',
+    label: 'کد',
+    type: 'text',
+    col: 4,
+    autoCode: true,
+    placeholder: 'خودکار',
+  },
+  { name: 'name', label: 'نام', type: 'text', required: true, col: 6 },
   { name: 'isActive', label: 'فعال', type: 'switch', default: true, col: 4 },
 ]
 

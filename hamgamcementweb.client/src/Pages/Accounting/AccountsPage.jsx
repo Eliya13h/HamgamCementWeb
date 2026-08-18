@@ -16,8 +16,10 @@ import {
 import { persianValidity, validateFormPersian } from '../../lib/persianFormValidity'
 import {
   accountsApi,
+  costCentersApi,
   fetchAccountLedger,
   fetchAccountTree,
+  getAccountLedgerPrintUrl,
 } from '../../services/ledgerApi'
 
 const LEVEL_LABEL = { 1: 'گروه', 2: 'کل', 3: 'معین', 4: 'تفصیلی' }
@@ -46,6 +48,8 @@ function AccountsPage() {
   const [ledgerAccount, setLedgerAccount] = useState(null)
   const [ledgerFrom, setLedgerFrom] = useState('')
   const [ledgerTo, setLedgerTo] = useState('')
+  const [ledgerCostCenterId, setLedgerCostCenterId] = useState('')
+  const [costCenters, setCostCenters] = useState([])
   const [ledgerData, setLedgerData] = useState(null)
   const [ledgerError, setLedgerError] = useState('')
   const [ledgerLoading, setLedgerLoading] = useState(false)
@@ -70,6 +74,7 @@ function AccountsPage() {
 
   useEffect(() => {
     loadTree()
+    costCentersApi.options().then(setCostCenters).catch(() => setCostCenters([]))
   }, [loadTree])
 
   const tree = useMemo(() => {
@@ -159,6 +164,7 @@ function AccountsPage() {
     setLedgerAccount(row)
     setLedgerFrom(yearStart)
     setLedgerTo(todayGregorianIso())
+    setLedgerCostCenterId('')
     setLedgerData(null)
     setLedgerError('')
   }
@@ -168,6 +174,17 @@ function AccountsPage() {
     setLedgerData(null)
     setLedgerError('')
     setLedgerLoading(false)
+    setLedgerCostCenterId('')
+  }
+
+  const openLedgerPrint = () => {
+    if (!ledgerAccount) return
+    const url = getAccountLedgerPrintUrl(ledgerAccount.accountId, {
+      dateFrom: ledgerFrom,
+      dateTo: ledgerTo,
+      costCenterId: ledgerCostCenterId || undefined,
+    })
+    window.open(url, '_blank', 'noopener,noreferrer')
   }
 
   const triggerFormSave = useCallback(() => {
@@ -248,6 +265,7 @@ function AccountsPage() {
       const data = await fetchAccountLedger(ledgerAccount.accountId, {
         dateFrom: toLatinIsoDate(ledgerFrom) || undefined,
         dateTo: toLatinIsoDate(ledgerTo) || undefined,
+        costCenterId: ledgerCostCenterId || undefined,
       })
       setLedgerData(data)
     } catch (e) {
@@ -256,7 +274,7 @@ function AccountsPage() {
     } finally {
       setLedgerLoading(false)
     }
-  }, [ledgerAccount, ledgerFrom, ledgerTo])
+  }, [ledgerAccount, ledgerFrom, ledgerTo, ledgerCostCenterId])
 
   useEffect(() => {
     if (ledgerAccount) {
@@ -549,15 +567,30 @@ function AccountsPage() {
                 </div>
                 <div className="modal-body pt-3">
                   <div className="row g-3 align-items-end mb-3">
-                    <div className="col-md-4">
+                    <div className="col-md-3">
                       <label className="form-label">از تاریخ</label>
                       <JalaliDateField value={ledgerFrom} onChange={setLedgerFrom} />
                     </div>
-                    <div className="col-md-4">
+                    <div className="col-md-3">
                       <label className="form-label">تا تاریخ</label>
                       <JalaliDateField value={ledgerTo} onChange={setLedgerTo} />
                     </div>
-                    <div className="col-md-4">
+                    <div className="col-md-3">
+                      <label className="form-label">مرکز هزینه</label>
+                      <select
+                        className="form-select"
+                        value={ledgerCostCenterId}
+                        onChange={(e) => setLedgerCostCenterId(e.target.value)}
+                      >
+                        <option value="">همه</option>
+                        {costCenters.map((c) => (
+                          <option key={c.value} value={c.value}>
+                            {c.label}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                    <div className="col-md-3">
                       <button
                         type="button"
                         className="btn btn-primary w-100"
@@ -617,8 +650,9 @@ function AccountsPage() {
                               <th>تاریخ</th>
                               <th>شماره سند</th>
                               <th>شرح</th>
-                              <th className="text-end">بدهکار</th>
-                              <th className="text-end">بستانکار</th>
+                              <th>مرکز هزینه</th>
+                              <th className="text-end">دیبت (Db)</th>
+                              <th className="text-end">کریدیت (Cr)</th>
                               <th className="text-end">مانده</th>
                             </tr>
                           </thead>
@@ -627,6 +661,7 @@ function AccountsPage() {
                               <td colSpan={3} className="fw-semibold">
                                 مانده اول دوره
                               </td>
+                              <td />
                               <td className="text-end font-monospace">
                                 <AmountDisplay value={ledgerData.openingDebit} />
                               </td>
@@ -646,6 +681,7 @@ function AccountsPage() {
                                     line.entryDescription ||
                                     '—'}
                                 </td>
+                                <td>{line.costCenterLabel || '—'}</td>
                                 <td className="text-end font-monospace">
                                   <AmountDisplay value={line.debitInBase} />
                                 </td>
@@ -660,7 +696,7 @@ function AccountsPage() {
                             {(ledgerData.lines ?? []).length === 0 && (
                               <tr>
                                 <td
-                                  colSpan={6}
+                                  colSpan={7}
                                   className="text-center text-muted py-3"
                                 >
                                   در این بازه گردشی ثبت نشده است.
@@ -670,7 +706,7 @@ function AccountsPage() {
                           </tbody>
                           <tfoot className="table-light">
                             <tr>
-                              <td colSpan={3} className="fw-semibold">
+                              <td colSpan={4} className="fw-semibold">
                                 مانده پایان دوره
                               </td>
                               <td colSpan={2} />
@@ -691,6 +727,14 @@ function AccountsPage() {
                     onClick={closeLedger}
                   >
                     بستن
+                  </button>
+                  <button
+                    type="button"
+                    className="btn btn-accent"
+                    onClick={openLedgerPrint}
+                    disabled={!ledgerAccount || ledgerLoading}
+                  >
+                    چاپ / PDF
                   </button>
                 </div>
               </div>

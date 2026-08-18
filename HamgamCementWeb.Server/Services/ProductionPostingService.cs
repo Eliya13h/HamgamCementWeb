@@ -476,7 +476,7 @@ public class ProductionPostingService : IProductionPostingService
             lines.Add(new(opex.AccountID, 0, conversionCost, 0, conversionCost, baseCurrencyId, "هزینه ساخت ثابت/متغیر"));
         }
 
-        // اگر فقط مواد بود و جمع اعتبار کمتر از بدهکار شد (نباید رخ دهد) — اعتبارسنجی Journal انجام می‌دهد
+        // اگر فقط مواد بود و جمع اعتبار کمتر از دیبت شد (نباید رخ دهد) — اعتبارسنجی Journal انجام می‌دهد
         _ = totalMaterialCost;
 
         return await _journal.PostAsync(

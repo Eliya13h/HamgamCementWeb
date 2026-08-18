@@ -14,7 +14,8 @@ public record JournalLineDraft(
     string? Description = null,
     int? CashBoxId = null,
     int? PartyId = null,
-    int? CostCenterId = null);
+    int? CostCenterId = null,
+    PartySettlementPartyType? PartyType = null);
 
 public interface IJournalPostingService
 {
@@ -86,18 +87,18 @@ public class JournalPostingService : IJournalPostingService
         {
             if (line.Debit < 0 || line.Credit < 0 || line.DebitInBaseCurrency < 0 || line.CreditInBaseCurrency < 0)
             {
-                throw new InvalidOperationException("مبالغ بدهکار و بستانکار نمی‌توانند منفی باشند.");
+                throw new InvalidOperationException("مبالغ دیبت و کریدیت نمی‌توانند منفی باشند.");
             }
 
             if ((line.Debit > 0 && line.Credit > 0) || (line.Debit == 0 && line.Credit == 0))
             {
-                throw new InvalidOperationException("هر ردیف سند باید فقط بدهکار یا فقط بستانکار باشد.");
+                throw new InvalidOperationException("هر ردیف سند باید فقط دیبت یا فقط کریدیت باشد.");
             }
 
             if ((line.DebitInBaseCurrency > 0 && line.CreditInBaseCurrency > 0)
                 || (line.DebitInBaseCurrency == 0 && line.CreditInBaseCurrency == 0))
             {
-                throw new InvalidOperationException("هر ردیف سند در ارز پایه باید فقط بدهکار یا فقط بستانکار باشد.");
+                throw new InvalidOperationException("هر ردیف سند در ارز پایه باید فقط دیبت یا فقط کریدیت باشد.");
             }
         }
 
@@ -106,7 +107,7 @@ public class JournalPostingService : IJournalPostingService
         if (Math.Abs(totalDebit - totalCredit) > 0.01m)
         {
             throw new InvalidOperationException(
-                $"سند نامتوازن است. بدهکار: {totalDebit:N2} — بستانکار: {totalCredit:N2}");
+                $"سند نامتوازن است. دیبت: {totalDebit:N2} — کریدیت: {totalCredit:N2}");
         }
 
         var accountIds = lines.Select(l => l.AccountId).Distinct().ToList();
@@ -158,6 +159,7 @@ public class JournalPostingService : IJournalPostingService
                 CreditInBaseCurrency = draft.CreditInBaseCurrency,
                 CashBoxId = draft.CashBoxId,
                 PartyId = draft.PartyId,
+                PartyType = draft.PartyType,
                 CostCenterId = draft.CostCenterId,
                 IsActive = true,
                 IsDeleted = false,
@@ -292,7 +294,8 @@ public class JournalPostingService : IJournalPostingService
                 string.IsNullOrWhiteSpace(l.Description) ? $"معکوس {original.EntryNumber}" : $"معکوس — {l.Description}",
                 l.CashBoxId,
                 l.PartyId,
-                l.CostCenterId))
+                l.CostCenterId,
+                l.PartyType))
             .ToList();
 
         return await PostAsync(

@@ -39,6 +39,9 @@ public class Expense : BaseEntity
     // دسته‌بندی حسابداری مصرف
     public int ExpenseCategoryId { get; set; }
 
+    // مرکز هزینه اختیاری برای گزارش تحلیلی
+    public int? CostCenterId { get; set; }
+
     // منبع ثبت: فاکتور خرید، متفرقه و ...
     public FinancialEntrySource Source { get; set; } = FinancialEntrySource.Miscellaneous;
 
@@ -50,6 +53,9 @@ public class Expense : BaseEntity
 
     [ForeignKey(nameof(ExpenseCategoryId))]
     public virtual ExpenseCategory Category { get; set; } = null!;
+
+    [ForeignKey(nameof(CostCenterId))]
+    public virtual CostCenter? CostCenter { get; set; }
 
     [ForeignKey(nameof(JournalEntryId))]
     public virtual JournalEntry? JournalEntry { get; set; }

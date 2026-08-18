@@ -2,6 +2,7 @@ using System.ComponentModel.DataAnnotations;
 using System.Security.Claims;
 using HamgamCementWeb.Server.Data;
 using HamgamCementWeb.Server.Data.Models.People;
+using HamgamCementWeb.Server.Services;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
@@ -16,155 +17,99 @@ public class AttendanceController : ControllerBase
     // تعداد روز کاری پیش‌فرض ماه برای محاسبه غیبت پیشنهادی
     public const int DefaultWorkDaysPerMonth = 26;
 
-    private readonly AppDbContext _db;
+    // ضریب پیش‌فرض اضافه‌کار
+    public const decimal DefaultOvertimeCoefficient = 1.5m;
 
-    public AttendanceController(AppDbContext db)
+    private readonly AppDbContext _db;
+    private readonly IAttendanceReadService _attendanceRead;
+
+    public AttendanceController(AppDbContext db, IAttendanceReadService attendanceRead)
     {
         _db = db;
+        _attendanceRead = attendanceRead;
     }
 
     /// <summary>
-    /// لیست حضور در یک بازهٔ تاریخ — فرانت ماه شمسی را به from/to میلادی تبدیل می‌کند.
+    /// خلاصه حضور ماهانه شمسی — کارمندان فعال + رکوردهای همان ماه.
     /// </summary>
     [HttpGet]
-    public async Task<IActionResult> GetRange(
-        [FromQuery] DateTime from,
-        [FromQuery] DateTime to,
+    public async Task<IActionResult> GetMonth(
+        [FromQuery] int year,
+        [FromQuery] int month,
         CancellationToken cancellationToken)
     {
-        var fromDay = from.Date;
-        var toDay = to.Date;
-        if (toDay < fromDay)
+        if (year < 1300 || year > 1600)
         {
-            return BadRequest(new { message = "بازه تاریخ معتبر نیست." });
+            return BadRequest(new { message = "سال معتبر نیست." });
         }
 
-        var employees = await _db.Employees
-            .AsNoTracking()
-            .Where(e => e.IsDeleted != true && e.IsActive == true)
-            .OrderBy(e => e.Family)
-            .ThenBy(e => e.Name)
-            .Select(e => new
+        if (month < 1 || month > 12)
+        {
+            return BadRequest(new { message = "ماه معتبر نیست." });
+        }
+
+        var employees = await _attendanceRead.ListActiveEmployeesAsync(cancellationToken);
+        var saved = await _attendanceRead.ListMonthAsync(year, month, cancellationToken);
+        var byEmployee = saved.ToDictionary(a => a.EmployeeId);
+
+        var rows = employees.Select(emp =>
+        {
+            byEmployee.TryGetValue(emp.EmployeeId, out var row);
+            return new
             {
-                employeeId = e.EmployeeID,
-                fullName = (e.Name + " " + e.Family).Trim(),
-                departmentName = e.Department != null ? e.Department.Name : "",
-                baseSalary = e.Sallary,
-            })
-            .ToListAsync(cancellationToken);
-
-        var rows = await _db.Attendances
-            .AsNoTracking()
-            .Where(a =>
-                a.IsDeleted != true
-                && a.Date >= fromDay
-                && a.Date <= toDay)
-            .Select(a => new
-            {
-                attendanceId = a.AttendanceID,
-                employeeId = a.EmployeeId,
-                date = a.Date.ToString("yyyy-MM-dd"),
-                isPresent = a.IsPresent,
-                lateMinutes = a.LateMinutes,
-                overtimeMinutes = a.OvertimeMinutes,
-                note = a.Note,
-            })
-            .ToListAsync(cancellationToken);
-
-        return Ok(new
-        {
-            from = fromDay.ToString("yyyy-MM-dd"),
-            to = toDay.ToString("yyyy-MM-dd"),
-            workDaysPerMonth = DefaultWorkDaysPerMonth,
-            employees,
-            attendances = rows,
-        });
-    }
-
-    /// <summary>
-    /// ثبت یا به‌روزرسانی یک روز برای یک کارمند.
-    /// </summary>
-    [HttpPut]
-    public async Task<IActionResult> Upsert(
-        [FromBody] SaveAttendanceRequest request,
-        CancellationToken cancellationToken)
-    {
-        if (!ModelState.IsValid)
-        {
-            return ValidationProblem(ModelState);
-        }
-
-        if (request.LateMinutes < 0 || request.OvertimeMinutes < 0)
-        {
-            return BadRequest(new { message = "دقیقه دیرکرد و اضافه‌کاری نمی‌تواند منفی باشد." });
-        }
-
-        var employeeExists = await _db.Employees
-            .AnyAsync(e => e.EmployeeID == request.EmployeeId && e.IsDeleted != true, cancellationToken);
-        if (!employeeExists)
-        {
-            return BadRequest(new { message = "کارمند یافت نشد." });
-        }
-
-        var day = request.Date.Date;
-        var row = await _db.Attendances
-            .FirstOrDefaultAsync(
-                a => a.EmployeeId == request.EmployeeId
-                     && a.Date == day
-                     && a.IsDeleted != true,
-                cancellationToken);
-
-        var userId = ResolveCurrentUserId();
-
-        if (row is null)
-        {
-            row = new Attendance
-            {
-                EmployeeId = request.EmployeeId,
-                Date = day,
-                IsPresent = request.IsPresent,
-                LateMinutes = request.IsPresent ? request.LateMinutes : 0,
-                OvertimeMinutes = request.IsPresent ? request.OvertimeMinutes : 0,
-                Note = request.Note?.Trim(),
-                CreatedAt = DateTime.Now,
-                CreatedBy = userId,
-                IsActive = true,
-                IsDeleted = false,
+                attendanceId = row?.AttendanceID,
+                employeeId = emp.EmployeeId,
+                fullName = emp.FullName,
+                departmentName = emp.DepartmentName,
+                baseSalary = emp.BaseSalary,
+                year,
+                month,
+                presentDays = row?.PresentDays ?? 0,
+                absentDays = row?.AbsentDays ?? 0,
+                leavePaidDays = row?.LeavePaidDays ?? 0,
+                leaveUnpaidDays = row?.LeaveUnpaidDays ?? 0,
+                holidayPaidDays = row?.HolidayPaidDays ?? 0,
+                holidayUnpaidDays = row?.HolidayUnpaidDays ?? 0,
+                lateHours = row?.LateHours ?? 0m,
+                earlyLeaveHours = row?.EarlyLeaveHours ?? 0m,
+                overtimeHours = row?.OvertimeHours ?? 0m,
+                overtimeCoefficient = row?.OvertimeCoefficient ?? DefaultOvertimeCoefficient,
+                note = row?.Note ?? "",
+                isSaved = row is not null,
             };
-            _db.Attendances.Add(row);
-        }
-        else
-        {
-            row.IsPresent = request.IsPresent;
-            row.LateMinutes = request.IsPresent ? request.LateMinutes : 0;
-            row.OvertimeMinutes = request.IsPresent ? request.OvertimeMinutes : 0;
-            row.Note = request.Note?.Trim();
-            row.UpdatedAt = DateTime.Now;
-            row.UpdatedBy = userId;
-            row.IsUpdated = true;
-        }
-
-        await _db.SaveChangesAsync(cancellationToken);
+        }).ToList();
 
         return Ok(new
         {
-            message = "حضور ثبت شد.",
-            attendanceId = row.AttendanceID,
-            date = row.Date.ToString("yyyy-MM-dd"),
+            year,
+            month,
+            workDaysPerMonth = DefaultWorkDaysPerMonth,
+            defaultOvertimeCoefficient = DefaultOvertimeCoefficient,
+            rows,
         });
     }
 
     /// <summary>
-    /// ثبت سریع حضور چند کارمند برای یک روز (چک‌باکس گروهی).
+    /// ثبت/به‌روزرسانی دسته‌ای خلاصه حضور برای یک ماه شمسی.
     /// </summary>
-    [HttpPut("day")]
-    public async Task<IActionResult> UpsertDay(
-        [FromBody] SaveAttendanceDayRequest request,
+    [HttpPut("month")]
+    public async Task<IActionResult> UpsertMonth(
+        [FromBody] SaveAttendanceMonthRequest request,
         CancellationToken cancellationToken)
     {
         if (!ModelState.IsValid)
         {
             return ValidationProblem(ModelState);
+        }
+
+        if (request.Year < 1300 || request.Year > 1600)
+        {
+            return BadRequest(new { message = "سال معتبر نیست." });
+        }
+
+        if (request.Month < 1 || request.Month > 12)
+        {
+            return BadRequest(new { message = "ماه معتبر نیست." });
         }
 
         if (request.Items is null || request.Items.Count == 0)
@@ -172,56 +117,128 @@ public class AttendanceController : ControllerBase
             return BadRequest(new { message = "لیست کارمندان خالی است." });
         }
 
-        var day = request.Date.Date;
-        var userId = ResolveCurrentUserId();
-        var employeeIds = request.Items.Select(i => i.EmployeeId).Distinct().ToList();
+        foreach (var item in request.Items)
+        {
+            var validationError = ValidateItem(item);
+            if (validationError is not null)
+            {
+                return BadRequest(new { message = validationError });
+            }
+        }
 
+        var employeeIds = request.Items.Select(i => i.EmployeeId).Distinct().ToList();
+        if (employeeIds.Count != request.Items.Count)
+        {
+            return BadRequest(new { message = "کارمند تکراری در لیست وجود دارد." });
+        }
+
+        var validEmployeeIds = await _db.Employees
+            .AsNoTracking()
+            .Where(e => e.IsDeleted != true && employeeIds.Contains(e.EmployeeID))
+            .Select(e => e.EmployeeID)
+            .ToListAsync(cancellationToken);
+
+        if (validEmployeeIds.Count != employeeIds.Count)
+        {
+            return BadRequest(new { message = "یک یا چند کارمند معتبر نیست." });
+        }
+
+        var userId = ResolveCurrentUserId();
         var existing = await _db.Attendances
             .Where(a =>
                 a.IsDeleted != true
-                && a.Date == day
+                && a.Year == request.Year
+                && a.Month == request.Month
                 && employeeIds.Contains(a.EmployeeId))
             .ToListAsync(cancellationToken);
 
         var byEmployee = existing.ToDictionary(a => a.EmployeeId);
 
-        foreach (var item in request.Items)
+        await using var tx = await _db.Database.BeginTransactionAsync(cancellationToken);
+        try
         {
-            if (item.LateMinutes < 0 || item.OvertimeMinutes < 0)
+            foreach (var item in request.Items)
             {
-                return BadRequest(new { message = "دقیقه دیرکرد و اضافه‌کاری نمی‌تواند منفی باشد." });
+                if (byEmployee.TryGetValue(item.EmployeeId, out var row))
+                {
+                    ApplyItem(row, item);
+                    row.UpdatedAt = DateTime.Now;
+                    row.UpdatedBy = userId;
+                    row.IsUpdated = true;
+                }
+                else
+                {
+                    var created = new Attendance
+                    {
+                        EmployeeId = item.EmployeeId,
+                        Year = request.Year,
+                        Month = request.Month,
+                        CreatedAt = DateTime.Now,
+                        CreatedBy = userId,
+                        IsActive = true,
+                        IsDeleted = false,
+                    };
+                    ApplyItem(created, item);
+                    _db.Attendances.Add(created);
+                }
             }
 
-            if (byEmployee.TryGetValue(item.EmployeeId, out var row))
-            {
-                row.IsPresent = item.IsPresent;
-                row.LateMinutes = item.IsPresent ? item.LateMinutes : 0;
-                row.OvertimeMinutes = item.IsPresent ? item.OvertimeMinutes : 0;
-                row.Note = item.Note?.Trim();
-                row.UpdatedAt = DateTime.Now;
-                row.UpdatedBy = userId;
-                row.IsUpdated = true;
-            }
-            else
-            {
-                _db.Attendances.Add(new Attendance
-                {
-                    EmployeeId = item.EmployeeId,
-                    Date = day,
-                    IsPresent = item.IsPresent,
-                    LateMinutes = item.IsPresent ? item.LateMinutes : 0,
-                    OvertimeMinutes = item.IsPresent ? item.OvertimeMinutes : 0,
-                    Note = item.Note?.Trim(),
-                    CreatedAt = DateTime.Now,
-                    CreatedBy = userId,
-                    IsActive = true,
-                    IsDeleted = false,
-                });
-            }
+            await _db.SaveChangesAsync(cancellationToken);
+            await tx.CommitAsync(cancellationToken);
+        }
+        catch
+        {
+            await tx.RollbackAsync(cancellationToken);
+            throw;
         }
 
-        await _db.SaveChangesAsync(cancellationToken);
-        return Ok(new { message = "حضور روز ثبت شد.", date = day.ToString("yyyy-MM-dd"), count = request.Items.Count });
+        return Ok(new
+        {
+            message = "خلاصه حضور ماه ثبت شد.",
+            year = request.Year,
+            month = request.Month,
+            count = request.Items.Count,
+        });
+    }
+
+    private static string? ValidateItem(AttendanceMonthItem item)
+    {
+        if (item.PresentDays < 0
+            || item.AbsentDays < 0
+            || item.LeavePaidDays < 0
+            || item.LeaveUnpaidDays < 0
+            || item.HolidayPaidDays < 0
+            || item.HolidayUnpaidDays < 0)
+        {
+            return "تعداد روزها نمی‌تواند منفی باشد.";
+        }
+
+        if (item.LateHours < 0
+            || item.EarlyLeaveHours < 0
+            || item.OvertimeHours < 0
+            || item.OvertimeCoefficient < 0)
+        {
+            return "ساعت‌ها و ضریب اضافه‌کار نمی‌تواند منفی باشد.";
+        }
+
+        return null;
+    }
+
+    private static void ApplyItem(Attendance row, AttendanceMonthItem item)
+    {
+        row.PresentDays = item.PresentDays;
+        row.AbsentDays = item.AbsentDays;
+        row.LeavePaidDays = item.LeavePaidDays;
+        row.LeaveUnpaidDays = item.LeaveUnpaidDays;
+        row.HolidayPaidDays = item.HolidayPaidDays;
+        row.HolidayUnpaidDays = item.HolidayUnpaidDays;
+        row.LateHours = item.LateHours;
+        row.EarlyLeaveHours = item.EarlyLeaveHours;
+        row.OvertimeHours = item.OvertimeHours;
+        row.OvertimeCoefficient = item.OvertimeCoefficient <= 0
+            ? DefaultOvertimeCoefficient
+            : item.OvertimeCoefficient;
+        row.Note = string.IsNullOrWhiteSpace(item.Note) ? null : item.Note.Trim();
     }
 
     private int? ResolveCurrentUserId()
@@ -230,45 +247,37 @@ public class AttendanceController : ControllerBase
         return int.TryParse(userIdClaim, out var userId) ? userId : null;
     }
 
-    public class SaveAttendanceRequest
+    public class SaveAttendanceMonthRequest
+    {
+        [Range(1300, 1600)]
+        public int Year { get; set; }
+
+        [Range(1, 12)]
+        public int Month { get; set; }
+
+        [Required]
+        public List<AttendanceMonthItem> Items { get; set; } = [];
+    }
+
+    public class AttendanceMonthItem
     {
         [Range(1, int.MaxValue)]
         public int EmployeeId { get; set; }
 
-        [Required]
-        public DateTime Date { get; set; }
+        public int PresentDays { get; set; }
+        public int AbsentDays { get; set; }
+        public int LeavePaidDays { get; set; }
+        public int LeaveUnpaidDays { get; set; }
+        public int HolidayPaidDays { get; set; }
+        public int HolidayUnpaidDays { get; set; }
 
-        public bool IsPresent { get; set; }
+        public decimal LateHours { get; set; }
+        public decimal EarlyLeaveHours { get; set; }
+        public decimal OvertimeHours { get; set; }
 
-        public int LateMinutes { get; set; }
+        public decimal OvertimeCoefficient { get; set; } = DefaultOvertimeCoefficient;
 
-        public int OvertimeMinutes { get; set; }
-
-        [MaxLength(500)]
-        public string? Note { get; set; }
-    }
-
-    public class SaveAttendanceDayRequest
-    {
-        [Required]
-        public DateTime Date { get; set; }
-
-        [Required]
-        public List<AttendanceDayItem> Items { get; set; } = [];
-    }
-
-    public class AttendanceDayItem
-    {
-        [Range(1, int.MaxValue)]
-        public int EmployeeId { get; set; }
-
-        public bool IsPresent { get; set; }
-
-        public int LateMinutes { get; set; }
-
-        public int OvertimeMinutes { get; set; }
-
-        [MaxLength(500)]
+        [MaxLength(2000)]
         public string? Note { get; set; }
     }
 }

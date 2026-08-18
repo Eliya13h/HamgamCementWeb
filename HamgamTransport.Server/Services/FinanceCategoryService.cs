@@ -30,20 +30,11 @@ public class FinanceCategoryService : IFinanceCategoryService
 
     public async Task EnsureSystemCategoriesAsync(CancellationToken cancellationToken = default)
     {
-        await EnsureExpenseCategoryAsync(
-            FinanceCategoryCode.ProductPurchase,
-            "خرید محصولات",
-            "مصرف ناشی از خرید کالا",
-            cancellationToken);
+        // ترانسپورت: فقط دسته‌های متفرقه عواید/مصارف — بدون خرید/فروش محصول
         await EnsureExpenseCategoryAsync(
             FinanceCategoryCode.MiscellaneousExpense,
             "متفرقه",
             "مصارف متفرقه",
-            cancellationToken);
-        await EnsureRevenueCategoryAsync(
-            FinanceCategoryCode.ProductSale,
-            "فروش محصولات",
-            "درآمد ناشی از فروش کالا",
             cancellationToken);
         await EnsureRevenueCategoryAsync(
             FinanceCategoryCode.MiscellaneousRevenue,

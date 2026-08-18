@@ -2,7 +2,6 @@
 using Dapper;
 using HamgamTransport.Server.Controllers.Common;
 using HamgamTransport.Server.Data;
-using HamgamTransport.Server.Data.Models.Invoice;
 using Microsoft.EntityFrameworkCore;
 
 namespace HamgamTransport.Server.Services;
@@ -17,11 +16,6 @@ public interface ICustomerReadService
         CustomerDataTableQuery query,
         CancellationToken cancellationToken = default);
 
-    Task<CustomerInvoiceDataTableResult> QuerySaleInvoicesDataTableAsync(
-        int customerId,
-        CustomerInvoiceDataTableQuery query,
-        CancellationToken cancellationToken = default);
-
     Task<bool> CustomerExistsAsync(int customerId, bool includeDeleted, CancellationToken cancellationToken = default);
 
     Task<string> GetBaseCurrencySymbolAsync(CancellationToken cancellationToken = default);
@@ -30,36 +24,16 @@ public interface ICustomerReadService
 public sealed class CustomerReadService : ICustomerReadService
 {
     private const string SummaryCte = """
-        WITH PurchaseTotals AS (
+        WITH RevenueTotals AS (
             SELECT
-                si.CustomerId,
-                SUM(CASE
-                    WHEN si.DocumentType = 1 THEN si.TotalAmountInBaseCurrency
-                    WHEN si.DocumentType = 3 THEN -si.TotalAmountInBaseCurrency
-                    ELSE 0
-                END) AS TotalPurchase,
-                -- دریافت فاکتور + بازپرداخت برگشت فروش (PaidAmount برگشت با علامت منفی برای فرمول مانده)
-                SUM(CASE
-                    WHEN si.DocumentType = 1 THEN
-                        CASE
-                            WHEN si.TotalAmount <> 0
-                                THEN ROUND(si.PaidAmount * si.TotalAmountInBaseCurrency / si.TotalAmount, 4)
-                            ELSE ROUND(si.PaidAmount * ISNULL(NULLIF(si.BaseUnitsPerUnitAtTransaction, 0), 1), 4)
-                        END
-                    WHEN si.DocumentType = 3 THEN
-                        -CASE
-                            WHEN si.TotalAmount <> 0
-                                THEN ROUND(si.PaidAmount * si.TotalAmountInBaseCurrency / si.TotalAmount, 4)
-                            ELSE ROUND(si.PaidAmount * ISNULL(NULLIF(si.BaseUnitsPerUnitAtTransaction, 0), 1), 4)
-                        END
-                    ELSE 0
-                END) AS InvoicePayment
-            FROM SaleInvoices si
-            WHERE ISNULL(si.IsDeleted, 0) = 0
-              AND si.IsPosted = 1
-            GROUP BY si.CustomerId
+                r.CustomerId,
+                SUM(r.AmountInBaseCurrency) AS TotalPurchase
+            FROM Revenues r
+            WHERE ISNULL(r.IsDeleted, 0) = 0
+              AND r.JournalEntryId IS NOT NULL
+              AND r.CustomerId IS NOT NULL
+            GROUP BY r.CustomerId
         ),
-        -- دریافت/پرداخت مستقل از فاکتور (تخصیص‌شده‌ها داخل PaidAmount فاکتور هستند)
         SettlementTotals AS (
             SELECT
                 ps.PartyId AS CustomerId,
@@ -67,8 +41,6 @@ public sealed class CustomerReadService : ICustomerReadService
             FROM PartySettlements ps
             WHERE ISNULL(ps.IsDeleted, 0) = 0
               AND ps.PartyType = 1
-              AND ps.SaleInvoiceId IS NULL
-              AND ps.PurchaseInvoiceId IS NULL
             GROUP BY ps.PartyId
         ),
         CustomerSummary AS (
@@ -87,26 +59,24 @@ public sealed class CustomerReadService : ICustomerReadService
                 c.CustomerType,
                 CASE WHEN ISNULL(c.IsActive, 0) = 1 THEN 1 ELSE 0 END AS IsActive,
                 CASE WHEN ISNULL(c.IsDeleted, 0) = 1 THEN 1 ELSE 0 END AS IsDeleted,
-                ISNULL(pt.TotalPurchase, 0) AS TotalPurchase,
-                ISNULL(pt.InvoicePayment, 0) + ISNULL(st.UnallocatedPayment, 0) AS TotalPayment,
-                -- مانده منفی = مشتری به ما بدهکار است (فروش − دریافت)
+                ISNULL(rt.TotalPurchase, 0) AS TotalPurchase,
+                ISNULL(st.UnallocatedPayment, 0) AS TotalPayment,
                 ISNULL(c.InitialBalance, 0)
-                    - ISNULL(pt.TotalPurchase, 0)
-                    + ISNULL(pt.InvoicePayment, 0)
+                    - ISNULL(rt.TotalPurchase, 0)
                     + ISNULL(st.UnallocatedPayment, 0) AS Balance,
                 CASE
-                    WHEN ISNULL(c.InitialBalance, 0) - ISNULL(pt.TotalPurchase, 0) + ISNULL(pt.InvoicePayment, 0) + ISNULL(st.UnallocatedPayment, 0) > 0 THEN N'طلبکار'
-                    WHEN ISNULL(c.InitialBalance, 0) - ISNULL(pt.TotalPurchase, 0) + ISNULL(pt.InvoicePayment, 0) + ISNULL(st.UnallocatedPayment, 0) < 0 THEN N'بدهکار'
+                    WHEN ISNULL(c.InitialBalance, 0) - ISNULL(rt.TotalPurchase, 0) + ISNULL(st.UnallocatedPayment, 0) > 0 THEN N'طلبکار'
+                    WHEN ISNULL(c.InitialBalance, 0) - ISNULL(rt.TotalPurchase, 0) + ISNULL(st.UnallocatedPayment, 0) < 0 THEN N'بدهکار'
                     ELSE N'تسویه'
                 END AS AccountStatus,
                 CASE
-                    WHEN ISNULL(c.InitialBalance, 0) - ISNULL(pt.TotalPurchase, 0) + ISNULL(pt.InvoicePayment, 0) + ISNULL(st.UnallocatedPayment, 0) > 0 THEN 'creditor'
-                    WHEN ISNULL(c.InitialBalance, 0) - ISNULL(pt.TotalPurchase, 0) + ISNULL(pt.InvoicePayment, 0) + ISNULL(st.UnallocatedPayment, 0) < 0 THEN 'debtor'
+                    WHEN ISNULL(c.InitialBalance, 0) - ISNULL(rt.TotalPurchase, 0) + ISNULL(st.UnallocatedPayment, 0) > 0 THEN 'creditor'
+                    WHEN ISNULL(c.InitialBalance, 0) - ISNULL(rt.TotalPurchase, 0) + ISNULL(st.UnallocatedPayment, 0) < 0 THEN 'debtor'
                     ELSE 'settled'
                 END AS AccountStatusCode,
                 c.CreatedAt
             FROM Customers c
-            LEFT JOIN PurchaseTotals pt ON pt.CustomerId = c.CustomerID
+            LEFT JOIN RevenueTotals rt ON rt.CustomerId = c.CustomerID
             LEFT JOIN SettlementTotals st ON st.CustomerId = c.CustomerID
             LEFT JOIN Accounts acc
                 ON acc.SystemCode = CONCAT(N'CUST_', c.CustomerID)
@@ -125,21 +95,6 @@ public sealed class CustomerReadService : ICustomerReadService
         [6] = "s.TotalPayment",
         [7] = "s.Balance",
         [8] = "s.AccountStatus",
-    };
-
-    private static readonly Dictionary<int, string> InvoiceOrderColumns = new()
-    {
-        [1] = "si.InvoiceNumber",
-        [2] = "si.InvoiceDate",
-        [4] = "si.TotalAmountInBaseCurrency",
-        [5] = """
-            CASE
-                WHEN si.TotalAmount <> 0
-                    THEN ROUND(si.PaidAmount * si.TotalAmountInBaseCurrency / si.TotalAmount, 4)
-                ELSE ROUND(si.PaidAmount * ISNULL(NULLIF(si.BaseUnitsPerUnitAtTransaction, 0), 1), 4)
-            END
-            """,
-        [6] = "si.Status",
     };
 
     private readonly AppDbContext _db;
@@ -301,136 +256,6 @@ public sealed class CustomerReadService : ICustomerReadService
         return new CustomerDataTableResult(rows, recordsTotal, recordsFiltered);
     }
 
-    public async Task<CustomerInvoiceDataTableResult> QuerySaleInvoicesDataTableAsync(
-        int customerId,
-        CustomerInvoiceDataTableQuery query,
-        CancellationToken cancellationToken = default)
-    {
-        var search = query.Search?.Trim() ?? string.Empty;
-        var hasSearch = search.Length > 0;
-
-        var parameters = new DynamicParameters();
-        parameters.Add("CustomerId", customerId);
-        parameters.Add("Start", query.Start);
-        parameters.Add("Length", query.Length);
-        parameters.Add("Search", hasSearch ? $"%{search}%" : null);
-        parameters.Add("SearchRaw", hasSearch ? search : null);
-        parameters.Add("StatusProforma", (int)InvoiceStatus.Proforma);
-        parameters.Add("StatusOrder", (int)InvoiceStatus.Order);
-        parameters.Add("StatusQuotation", (int)InvoiceStatus.Quotation);
-        parameters.Add("StatusInvoice", (int)InvoiceStatus.Invoice);
-
-        const string baseWhere = """
-            FROM SaleInvoices si
-            WHERE ISNULL(si.IsDeleted, 0) = 0
-              AND si.CustomerId = @CustomerId
-            """;
-
-        var searchClause = hasSearch
-            ? """
-              AND (
-                  si.InvoiceNumber LIKE @Search
-                  OR ISNULL(si.Description, '') LIKE @Search
-                  OR CAST(si.TotalAmountInBaseCurrency AS NVARCHAR(50)) LIKE @Search
-                  OR CAST(
-                        CASE
-                            WHEN si.TotalAmount <> 0
-                                THEN ROUND(si.PaidAmount * si.TotalAmountInBaseCurrency / si.TotalAmount, 4)
-                            ELSE ROUND(si.PaidAmount * ISNULL(NULLIF(si.BaseUnitsPerUnitAtTransaction, 0), 1), 4)
-                        END
-                     AS NVARCHAR(50)) LIKE @Search
-                  OR (@SearchRaw LIKE N'%پیش%' AND si.Status = @StatusProforma)
-                  OR (@SearchRaw LIKE N'%آردر%' AND si.Status = @StatusOrder)
-                  OR (@SearchRaw LIKE N'%استعلام%' AND si.Status = @StatusQuotation)
-                  OR (@SearchRaw LIKE N'%فاکتور%' AND si.Status = @StatusInvoice)
-              )
-              """
-            : string.Empty;
-
-        var orderClause = BuildOrderClause(InvoiceOrderColumns, query.Order, "si.InvoiceDate DESC");
-
-        var countSql = "SELECT COUNT(*) " + baseWhere + searchClause;
-        var dataSql = $"""
-            SELECT
-                si.SaleInvoiceID AS SaleInvoiceId,
-                si.InvoiceNumber,
-                si.InvoiceDate,
-                si.Status,
-                si.TotalAmountInBaseCurrency AS TotalAmount,
-                CASE
-                    WHEN si.TotalAmount <> 0
-                        THEN ROUND(si.PaidAmount * si.TotalAmountInBaseCurrency / si.TotalAmount, 4)
-                    ELSE ROUND(si.PaidAmount * ISNULL(NULLIF(si.BaseUnitsPerUnitAtTransaction, 0), 1), 4)
-                END AS PaidAmount,
-                (
-                    SELECT COUNT(*)
-                    FROM SalesItems x
-                    WHERE x.SaleInvoiceId = si.SaleInvoiceID
-                      AND ISNULL(x.IsDeleted, 0) = 0
-                ) AS ItemsCount,
-                si.IsPosted,
-                COUNT(*) OVER() AS RecordsFiltered
-            {baseWhere}
-            {searchClause}
-            {orderClause}
-            OFFSET @Start ROWS FETCH NEXT @Length ROWS ONLY
-            """;
-
-        const string totalsSql = """
-            SELECT
-                ISNULL(SUM(CASE
-                    WHEN si.DocumentType = 1 THEN si.TotalAmountInBaseCurrency
-                    WHEN si.DocumentType = 3 THEN -si.TotalAmountInBaseCurrency
-                    ELSE 0
-                END), 0) AS TotalPurchase,
-                ISNULL(SUM(CASE
-                    WHEN si.DocumentType = 1 THEN
-                        CASE
-                            WHEN si.TotalAmount <> 0
-                                THEN ROUND(si.PaidAmount * si.TotalAmountInBaseCurrency / si.TotalAmount, 4)
-                            ELSE ROUND(si.PaidAmount * ISNULL(NULLIF(si.BaseUnitsPerUnitAtTransaction, 0), 1), 4)
-                        END
-                    WHEN si.DocumentType = 3 THEN
-                        -CASE
-                            WHEN si.TotalAmount <> 0
-                                THEN ROUND(si.PaidAmount * si.TotalAmountInBaseCurrency / si.TotalAmount, 4)
-                            ELSE ROUND(si.PaidAmount * ISNULL(NULLIF(si.BaseUnitsPerUnitAtTransaction, 0), 1), 4)
-                        END
-                    ELSE 0
-                END), 0) AS TotalPayment
-            FROM SaleInvoices si
-            WHERE ISNULL(si.IsDeleted, 0) = 0
-              AND si.IsPosted = 1
-              AND si.CustomerId = @CustomerId
-            """;
-
-        var connection = await OpenConnectionAsync(cancellationToken);
-
-        var recordsTotal = await connection.ExecuteScalarAsync<int>(
-            new CommandDefinition(
-                "SELECT COUNT(*) " + baseWhere,
-                new { CustomerId = customerId },
-                cancellationToken: cancellationToken));
-
-        var rows = (await connection.QueryAsync<CustomerInvoiceRow>(
-            new CommandDefinition(dataSql, parameters, cancellationToken: cancellationToken))).AsList();
-
-        var recordsFiltered = rows.Count > 0
-            ? rows[0].RecordsFiltered
-            : hasSearch
-                ? await connection.ExecuteScalarAsync<int>(
-                    new CommandDefinition(countSql, parameters, cancellationToken: cancellationToken))
-                : recordsTotal;
-
-        var totals = await connection.QuerySingleAsync<CustomerInvoiceTotals>(
-            new CommandDefinition(
-                totalsSql,
-                new { CustomerId = customerId },
-                cancellationToken: cancellationToken));
-
-        return new CustomerInvoiceDataTableResult(rows, recordsTotal, recordsFiltered, totals);
-    }
-
     public async Task<bool> CustomerExistsAsync(
         int customerId,
         bool includeDeleted,
@@ -575,36 +400,9 @@ public sealed class CustomerSummaryRow
     public int RecordsFiltered { get; set; }
 }
 
-public sealed class CustomerInvoiceRow
-{
-    public int SaleInvoiceId { get; set; }
-    public string InvoiceNumber { get; set; } = string.Empty;
-    public DateTime InvoiceDate { get; set; }
-    public InvoiceStatus Status { get; set; }
-    public decimal TotalAmount { get; set; }
-    public decimal PaidAmount { get; set; }
-    public int ItemsCount { get; set; }
-    public bool IsPosted { get; set; }
-    public int RecordsFiltered { get; set; }
-}
-
-public sealed class CustomerInvoiceTotals
-{
-    public decimal TotalPurchase { get; set; }
-    public decimal TotalPayment { get; set; }
-}
-
 public sealed class CustomerDataTableQuery
 {
     public bool IncludeDeleted { get; set; }
-    public int Start { get; set; }
-    public int Length { get; set; }
-    public string? Search { get; set; }
-    public List<DataTableOrder>? Order { get; set; }
-}
-
-public sealed class CustomerInvoiceDataTableQuery
-{
     public int Start { get; set; }
     public int Length { get; set; }
     public string? Search { get; set; }
@@ -615,9 +413,3 @@ public sealed record CustomerDataTableResult(
     IReadOnlyList<CustomerSummaryRow> Rows,
     int RecordsTotal,
     int RecordsFiltered);
-
-public sealed record CustomerInvoiceDataTableResult(
-    IReadOnlyList<CustomerInvoiceRow> Rows,
-    int RecordsTotal,
-    int RecordsFiltered,
-    CustomerInvoiceTotals Totals);

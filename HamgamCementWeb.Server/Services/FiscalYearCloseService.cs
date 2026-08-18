@@ -141,7 +141,7 @@ public class FiscalYearCloseService : IFiscalYearCloseService
                 var baseAmount = Math.Abs(netBase) >= 0.01m ? Math.Abs(netBase) : docAmount;
                 var isDebitBalance = netBase > 0.005m || (Math.Abs(netBase) < 0.005m && netDoc > 0);
 
-                // مانده بدهکار → بستانکار می‌کنیم تا صفر شود؛ مانده بستانکار → بدهکار
+                // مانده دیبت → کریدیت می‌کنیم تا صفر شود؛ مانده کریدیت → دیبت
                 if (isDebitBalance)
                 {
                     drafts.Add(new JournalLineDraft(
@@ -172,7 +172,7 @@ public class FiscalYearCloseService : IFiscalYearCloseService
             {
                 if (balancing > 0)
                 {
-                    // بدهکار بیشتر بوده → بستانکار سود انباشته (سود)
+                    // دیبت بیشتر بوده → کریدیت سود انباشته (سود)
                     drafts.Add(new JournalLineDraft(
                         retained.AccountID,
                         0,

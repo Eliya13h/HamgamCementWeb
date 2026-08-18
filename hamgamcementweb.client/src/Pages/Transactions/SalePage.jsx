@@ -52,9 +52,11 @@ const emptyHeader = {
   status: '1',
   currencyId: '',
   description: '',
+  isCash: true,
   paidAmount: '',
   paymentTermDays: '',
   dueDate: '',
+  externalInvoiceNumber: '',
   taxPercent: '',
   taxAmount: '',
 }
@@ -99,7 +101,6 @@ function SalePage() {
   const [referenceInvoiceNumber, setReferenceInvoiceNumber] = useState('')
   const [pastReturns, setPastReturns] = useState([])
   const [returnSource, setReturnSource] = useState(null)
-  const [formTab, setFormTab] = useState('header')
   const [installments, setInstallments] = useState([])
   const [installmentCount, setInstallmentCount] = useState('1')
   const [installmentsLoading, setInstallmentsLoading] = useState(false)
@@ -214,7 +215,7 @@ function SalePage() {
 
   const paidAmountNumeric = Number(header.paidAmount) || 0
   const remainingAmount = Math.max(0, totals.total - paidAmountNumeric)
-  const isCashInvoice = totals.total > 0 && paidAmountNumeric >= totals.total
+  const isCashInvoice = header.isCash !== false
   const isInvoiceStatus = String(header.status) === '4'
   const isQuotationStatus = String(header.status) === '1'
   const showPaymentField = !isQuotationStatus
@@ -228,9 +229,11 @@ function SalePage() {
     if (paidAmountTouched) return
     setHeader((prev) => ({
       ...prev,
-      paidAmount: totals.total > 0 ? String(totals.total) : '',
+      paidAmount: prev.isCash !== false
+        ? (totals.total > 0 ? String(totals.total) : '')
+        : '0',
     }))
-  }, [totals.total, paidAmountTouched, showPaymentField])
+  }, [totals.total, paidAmountTouched, showPaymentField, header.isCash])
 
   const reloadTable = useCallback(() => {
     tableRef.current?.dt()?.ajax.reload(null, false)
@@ -253,7 +256,6 @@ function SalePage() {
     setPaidAmountTouched(false)
     setPostedTotals(null)
     setInvoiceCodePreview('')
-    setFormTab('header')
     setDocumentType(INVOICE_DOCUMENT_TYPE.Invoice)
     setReferenceInvoiceNumber('')
     setPastReturns([])
@@ -262,58 +264,33 @@ function SalePage() {
     setInstallmentCount('1')
   }, [])
 
-  const openCreate = useCallback(async () => {
+  const openCreate = useCallback(() => {
     setFormError('')
-    setFormTab('header')
     setExchangeRateTouched(false)
     setPaidAmountTouched(false)
     setExchangeRate('')
+    setInvoiceCodePreview('')
+    setDocumentType(INVOICE_DOCUMENT_TYPE.Invoice)
+    setReferenceInvoiceNumber('')
+    setPastReturns([])
+    setInstallments([])
+    setInstallmentCount('1')
+    setPostedTotals(null)
 
-    let defaultCurrencyId = ''
-    let defaultWarehouseId = ''
-    try {
-      const [base, ratesData, warehouseList] = await Promise.all([
-        fetchBaseCurrency(),
-        fetchCurrencyRates().catch(() => null),
-        fetchWarehouseOptions().catch(() => []),
-      ])
-      if (base?.currencyID) {
-        defaultCurrencyId = String(base.currencyID)
-        setBaseCurrencyId(defaultCurrencyId)
-        setBaseCurrencySymbol(base.symbol ?? '')
-      }
-      if (ratesData) {
-        const map = {}
-        for (const row of ratesData.rates ?? []) {
-          map[String(row.currencyId)] = row.baseUnitsPerUnit
-        }
-        setCurrencyRates(map)
-      }
-      if (warehouseList.length > 0) {
-        setWarehouses(warehouseList)
-        defaultWarehouseId = String(warehouseList[0].value)
-      }
-    } catch {
-      defaultCurrencyId = ''
-    }
-
-    if (!defaultWarehouseId && warehouses.length > 0) {
-      defaultWarehouseId = String(warehouses[0].value)
-    }
-
+    const defaultWarehouseId = warehouses[0] ? String(warehouses[0].value) : ''
     setHeader({
       ...emptyHeader,
+      isCash: true,
       invoiceDate: todayGregorianIso(),
-      currencyId: defaultCurrencyId,
+      currencyId: baseCurrencyId,
       warehouseId: defaultWarehouseId,
       taxPercent: defaultTaxPercent,
     })
     setLines([{ ...emptyLine }])
     setEditId(null)
     setViewPosted(false)
-    setPostedTotals(null)
     setShowForm(true)
-  }, [warehouses, defaultTaxPercent])
+  }, [warehouses, defaultTaxPercent, baseCurrencyId])
 
   const openEdit = useCallback(async (row, readOnly = false) => {
     setFormError('')
@@ -321,6 +298,10 @@ function SalePage() {
       const invoice = await saleInvoicesApi.getById(row.saleInvoiceId)
       setInvoiceCodePreview(invoice.invoiceNumber ?? row.invoiceNumber ?? '')
       const invoiceRate = invoice.baseUnitsPerUnitAtTransaction || 1
+      const isCash = invoice.isCash !== false
+      const dueDate = invoice.dueDate ? String(invoice.dueDate).slice(0, 10) : ''
+      const paymentTermDays = invoice.paymentTermDays ?? ''
+      setPaidAmountTouched(true)
       setHeader({
         customerId: invoice.customerId,
         warehouseId: invoice.warehouseId,
@@ -328,9 +309,11 @@ function SalePage() {
         status: String(invoice.status),
         currencyId: invoice.currencyId,
         description: invoice.description ?? '',
+        isCash,
         paidAmount: invoice.paidAmount ?? invoice.totalAmount ?? '',
-        paymentTermDays: invoice.paymentTermDays ?? '',
-        dueDate: invoice.dueDate ? String(invoice.dueDate).slice(0, 10) : '',
+        paymentTermDays,
+        dueDate,
+        externalInvoiceNumber: invoice.externalInvoiceNumber ?? '',
         taxPercent: invoice.taxPercent ?? '',
         taxAmount: invoice.taxAmount ?? '',
       })
@@ -373,19 +356,6 @@ function SalePage() {
       setDocumentType(invoice.documentType ?? INVOICE_DOCUMENT_TYPE.Invoice)
       setReferenceInvoiceNumber(invoice.referenceInvoiceNumber ?? '')
       setViewPosted(readOnly || invoice.isPosted)
-      if (
-        (readOnly || invoice.isPosted) &&
-        (invoice.documentType ?? INVOICE_DOCUMENT_TYPE.Invoice) === INVOICE_DOCUMENT_TYPE.Invoice
-      ) {
-        try {
-          const history = await saleInvoicesApi.fetchReturns(invoice.saleInvoiceId)
-          setPastReturns(history ?? [])
-        } catch {
-          setPastReturns([])
-        }
-      } else {
-        setPastReturns([])
-      }
       if (invoice.isPosted) {
         setPostedTotals({
           totalCostInBaseCurrency: invoice.totalCostInBaseCurrency,
@@ -395,6 +365,17 @@ function SalePage() {
         setPostedTotals(null)
       }
       setShowForm(true)
+      if (
+        (readOnly || invoice.isPosted) &&
+        (invoice.documentType ?? INVOICE_DOCUMENT_TYPE.Invoice) === INVOICE_DOCUMENT_TYPE.Invoice
+      ) {
+        saleInvoicesApi
+          .fetchReturns(invoice.saleInvoiceId)
+          .then((history) => setPastReturns(history ?? []))
+          .catch(() => setPastReturns([]))
+      } else {
+        setPastReturns([])
+      }
     } catch (error) {
       setLoadError(error.message)
     }
@@ -404,12 +385,28 @@ function SalePage() {
     setHeader((prev) => ({ ...prev, [name]: value }))
   }
 
-  const setDueDateFromTerm = () => {
-    if (header.dueDate || !header.invoiceDate || Number(header.paymentTermDays) <= 0) return
-    const date = new Date(`${header.invoiceDate}T00:00:00`)
-    if (Number.isNaN(date.getTime())) return
-    date.setDate(date.getDate() + Number(header.paymentTermDays))
-    handleHeaderChange('dueDate', date.toISOString().slice(0, 10))
+  const handleIsCashChange = (nextIsCash) => {
+    setPaidAmountTouched(false)
+    setHeader((prev) => ({
+      ...prev,
+      isCash: nextIsCash,
+      paidAmount: nextIsCash
+        ? (totals.total > 0 ? String(totals.total) : '')
+        : '0',
+      ...(nextIsCash ? { paymentTermDays: '', dueDate: '' } : {}),
+    }))
+  }
+
+  const setTermDaysFromDueDate = (dueDate) => {
+    if (!header.invoiceDate || !dueDate) {
+      handleHeaderChange('paymentTermDays', '')
+      return
+    }
+    const start = new Date(`${header.invoiceDate}T00:00:00`)
+    const end = new Date(`${dueDate}T00:00:00`)
+    if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) return
+    const days = Math.round((end.getTime() - start.getTime()) / 86400000)
+    handleHeaderChange('paymentTermDays', String(Math.max(0, days)))
   }
 
   const generateInstallments = async () => {
@@ -610,6 +607,10 @@ function SalePage() {
       }
       if (totals.total > 0 && paid > totals.total) {
         setFormError('مبلغ دریافت‌شده نمی‌تواند بیشتر از جمع فاکتور باشد.')
+        return
+      }
+      if (header.isCash === false && !header.dueDate) {
+        setFormError('برای فاکتور نسیه، تاریخ سررسید را انتخاب کنید.')
         return
       }
     }
@@ -883,7 +884,7 @@ function SalePage() {
           <div className="modal show d-block users-modal" tabIndex="-1" data-bs-focus="false">
             <div className="modal-dialog modal-dialog-centered modal-dialog-scrollable modal-xl">
               <form ref={formRef} className="modal-content" noValidate onSubmit={handleSubmit}>
-                <div className="modal-header">
+                <div className="modal-header border-0 pb-0">
                   <h5 className="modal-title">
                     {viewPosted
                       ? documentType === INVOICE_DOCUMENT_TYPE.SaleReturn
@@ -895,141 +896,50 @@ function SalePage() {
                   </h5>
                   <button type="button" className="btn-close" aria-label="بستن" onClick={closeModals} />
                 </div>
-                <div className="modal-body">
+                <div className="modal-body pt-3">
                   {formError && <div className="alert alert-danger py-2">{formError}</div>}
                   {documentType === INVOICE_DOCUMENT_TYPE.SaleReturn && referenceInvoiceNumber && (
                     <div className="alert alert-secondary py-2">
                       برگشت از فاکتور مبدأ: <strong>{referenceInvoiceNumber}</strong>
                     </div>
                   )}
-                  {viewPosted &&
-                    documentType === INVOICE_DOCUMENT_TYPE.Invoice &&
-                    pastReturns.length > 0 && (
-                      <div className="mb-3">
-                        <h6 className="mb-2">سوابق برگشت این فاکتور</h6>
-                        <div className="table-responsive">
-                          <table className="table table-sm table-bordered mb-0">
-                            <thead>
-                              <tr>
-                                <th>شماره برگشت</th>
-                                <th>تاریخ</th>
-                                <th>مبلغ</th>
-                              </tr>
-                            </thead>
-                            <tbody>
-                              {pastReturns.map((row) => (
-                                <tr key={row.invoiceId}>
-                                  <td>{row.invoiceNumber}</td>
-                                  <td>{formatJalaliDate(row.invoiceDate)}</td>
-                                  <td>{formatAmount(row.totalAmount)}</td>
-                                </tr>
-                              ))}
-                            </tbody>
-                          </table>
-                        </div>
+
+                  <div className="users-form-section">
+                    <span className="users-form-section-title">اطلاعات فاکتور</span>
+                    <div className="row g-3">
+                      <div className="col-md-3">
+                        <label className="form-label">مشتری</label>
+                        <SearchableSelect
+                          options={customers}
+                          value={header.customerId}
+                          onChange={(next) => handleHeaderChange('customerId', next)}
+                          placeholder="انتخاب کنید..."
+                          searchPlaceholder="جستجوی مشتری..."
+                          required
+                          requiredMessage="لطفاً مشتری را انتخاب کنید."
+                          disabled={viewPosted}
+                        />
                       </div>
-                    )}
-                  {editId && documentType === INVOICE_DOCUMENT_TYPE.Invoice && (
-                    <div className="mb-3">
-                      <h6 className="mb-2">اقساط</h6>
-                      {!viewPosted && (
-                        <div className="d-flex align-items-end gap-2 mb-2">
-                          <div>
-                            <label className="form-label small mb-1">تعداد</label>
-                            <input
-                              type="number"
-                              min="1"
-                              className="form-control form-control-sm"
-                              value={installmentCount}
-                              onChange={(e) => setInstallmentCount(e.target.value)}
-                            />
-                          </div>
-                          <button
-                            type="button"
-                            className="btn btn-sm btn-outline-primary"
-                            disabled={installmentsLoading}
-                            onClick={generateInstallments}
-                          >
-                            {installmentsLoading ? 'در حال ایجاد...' : 'ایجاد اقساط'}
-                          </button>
-                        </div>
-                      )}
-                      {installments.length > 0 ? (
-                        <div className="table-responsive">
-                          <table className="table table-sm table-bordered mb-0">
-                            <thead><tr><th>شماره</th><th>سررسید</th><th>مبلغ</th><th>مانده</th></tr></thead>
-                            <tbody>
-                              {installments.map((item, index) => (
-                                <tr key={item.invoiceInstallmentId ?? index}>
-                                  <td>{item.installmentNo ?? index + 1}</td>
-                                  <td>{formatJalaliDate(item.dueDate)}</td>
-                                  <td><AmountDisplay value={item.amount} symbol={invoiceCurrencySymbol} /></td>
-                                  <td><AmountDisplay value={item.remaining} symbol={invoiceCurrencySymbol} /></td>
-                                </tr>
-                              ))}
-                            </tbody>
-                          </table>
-                        </div>
-                      ) : <small className="text-muted">قسطی ایجاد نشده است.</small>}
-                    </div>
-                  )}
-
-                  <ul className="nav nav-tabs mb-3">
-                    <li className="nav-item">
-                      <button
-                        type="button"
-                        className={`nav-link${formTab === 'header' ? ' active' : ''}`}
-                        onClick={() => setFormTab('header')}
-                      >
-                        مشخصات
-                      </button>
-                    </li>
-                    <li className="nav-item">
-                      <button
-                        type="button"
-                        className={`nav-link${formTab === 'lines' ? ' active' : ''}`}
-                        onClick={() => setFormTab('lines')}
-                      >
-                        اقلام
-                      </button>
-                    </li>
-                  </ul>
-
-                  {formTab === 'header' && (
-                  <div className="row g-3 mb-3">
-                    <div className="col-md-3">
-                      <label className="form-label">مشتری</label>
-                      <SearchableSelect
-                        options={customers}
-                        value={header.customerId}
-                        onChange={(next) => handleHeaderChange('customerId', next)}
-                        placeholder="انتخاب کنید..."
-                        searchPlaceholder="جستجوی مشتری..."
-                        required
-                        requiredMessage="لطفاً مشتری را انتخاب کنید."
-                        disabled={viewPosted}
-                      />
-                    </div>
-                    <div className="col-md-3">
-                      <label className="form-label">انبار</label>
-                      <select
-                        className="form-select"
-                        value={header.warehouseId}
-                        required
-                        disabled={viewPosted}
-                        onChange={(e) => handleHeaderChange('warehouseId', e.target.value)}
-                        {...persianValidity('لطفاً انبار را انتخاب کنید.')}
-                      >
-                        <option value="">انتخاب کنید...</option>
-                        {warehouses.map((o) => (
-                          <option key={o.value} value={o.value}>
-                            {o.label}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-                    <div className="col-md-3">
-                      <label className="form-label">تاریخ (شمسی)</label>
+                      <div className="col-md-3">
+                        <label className="form-label">انبار</label>
+                        <select
+                          className="form-select"
+                          value={header.warehouseId}
+                          required
+                          disabled={viewPosted}
+                          onChange={(e) => handleHeaderChange('warehouseId', e.target.value)}
+                          {...persianValidity('لطفاً انبار را انتخاب کنید.')}
+                        >
+                          <option value="">انتخاب کنید...</option>
+                          {warehouses.map((o) => (
+                            <option key={o.value} value={o.value}>
+                              {o.label}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                      <div className="col-md-3">
+                        <label className="form-label">تاریخ (شمسی)</label>
                       <JalaliDateField
                         value={header.invoiceDate}
                         onChange={(next) => handleHeaderChange('invoiceDate', next)}
@@ -1039,148 +949,141 @@ function SalePage() {
                       />
                     </div>
                     <div className="col-md-3">
-                      <label className="form-label">ارز فاکتور</label>
-                      <select
-                        className="form-select"
-                        value={header.currencyId}
-                        required
-                        disabled={viewPosted}
-                        onChange={(e) => handleCurrencyChange(e.target.value)}
-                        {...persianValidity('لطفاً ارز فاکتور را انتخاب کنید.')}
-                      >
-                        <option value="">انتخاب کنید...</option>
-                        {currencies.map((o) => (
-                          <option key={o.value} value={o.value}>
-                            {o.label}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-                    <div className="col-md-3">
-                      <label className="form-label">مهلت پرداخت (روز)</label>
+                      <label className="form-label">شماره فاکتور بیرونی</label>
                       <input
-                        type="number"
-                        min="0"
+                        type="text"
                         className="form-control"
-                        value={header.paymentTermDays}
+                        value={header.externalInvoiceNumber}
                         disabled={viewPosted}
-                        onChange={(e) => handleHeaderChange('paymentTermDays', e.target.value)}
-                        onBlur={setDueDateFromTerm}
+                        maxLength={100}
+                        onChange={(e) => handleHeaderChange('externalInvoiceNumber', e.target.value)}
                       />
                     </div>
-                    <div className="col-md-3">
-                      <label className="form-label">تاریخ سررسید (شمسی)</label>
-                      <JalaliDateField
-                        value={header.dueDate}
-                        onChange={(next) => handleHeaderChange('dueDate', next)}
-                        disabled={viewPosted}
-                      />
-                    </div>
-                    <div className="col-md-3">
-                      <label className="form-label">وضعیت</label>
-                      <select
-                        className="form-select"
-                        value={header.status}
-                        disabled={viewPosted}
-                        onChange={(e) => handleHeaderChange('status', e.target.value)}
-                      >
-                        {INVOICE_STATUSES.map((s) => (
-                          <option key={s.value} value={s.value}>
-                            {s.label}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-                    <div className="col-md-3">
-                      <label className="form-label">نرخ به ارز پایه</label>
-                      {isNonBaseCurrency ? (
+                      <div className="col-md-3">
+                        <label className="form-label">ارز فاکتور</label>
+                        <select
+                          className="form-select"
+                          value={header.currencyId}
+                          required
+                          disabled={viewPosted}
+                          onChange={(e) => handleCurrencyChange(e.target.value)}
+                          {...persianValidity('لطفاً ارز فاکتور را انتخاب کنید.')}
+                        >
+                          <option value="">انتخاب کنید...</option>
+                          {currencies.map((o) => (
+                            <option key={o.value} value={o.value}>
+                              {o.label}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                      <div className="col-md-3">
+                        <label className="form-label">وضعیت</label>
+                        <select
+                          className="form-select"
+                          value={header.status}
+                          disabled={viewPosted}
+                          onChange={(e) => handleHeaderChange('status', e.target.value)}
+                        >
+                          {INVOICE_STATUSES.map((s) => (
+                            <option key={s.value} value={s.value}>
+                              {s.label}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                      <div className="col-md-3">
+                        <label className="form-label">نرخ به ارز پایه</label>
+                        {isNonBaseCurrency ? (
+                          <input
+                            type="number"
+                            min="0"
+                            step="any"
+                            className="form-control"
+                            value={exchangeRate}
+                            required
+                            disabled={viewPosted}
+                            onChange={(e) => handleExchangeRateChange(e.target.value)}
+                            {...persianValidity('لطفاً نرخ ارز را وارد کنید.')}
+                          />
+                        ) : (
+                          <input
+                            type="text"
+                            className="form-control"
+                            readOnly
+                            value={
+                              rateSnapshot
+                                ? rateSnapshot.isBaseCurrency
+                                  ? 'ارز پایه (۱:۱)'
+                                  : formatAmount(rateSnapshot.baseUnitsPerUnit)
+                                : header.currencyId
+                                  ? 'در حال بارگذاری...'
+                                  : '—'
+                            }
+                          />
+                        )}
+                      </div>
+                      <div className="col-md-3">
+                        <label className="form-label">مالیات (%)</label>
                         <input
                           type="number"
                           min="0"
+                          max="100"
                           step="any"
                           className="form-control"
-                          value={exchangeRate}
-                          required
+                          value={header.taxPercent}
                           disabled={viewPosted}
-                          onChange={(e) => handleExchangeRateChange(e.target.value)}
-                          {...persianValidity('لطفاً نرخ ارز را وارد کنید.')}
+                          onChange={(e) => handleHeaderChange('taxPercent', e.target.value)}
                         />
-                      ) : (
-                        <input
-                          type="text"
-                          className="form-control"
-                          readOnly
-                          value={
-                            rateSnapshot
-                              ? rateSnapshot.isBaseCurrency
-                                ? 'ارز پایه (۱:۱)'
-                                : formatAmount(rateSnapshot.baseUnitsPerUnit)
-                              : header.currencyId
-                                ? 'در حال بارگذاری...'
-                                : '—'
-                          }
-                        />
+                      </div>
+                      {!showPaymentField && (
+                        <div className="col-12">
+                          <label className="form-label">توضیحات</label>
+                          <input
+                            type="text"
+                            className="form-control"
+                            value={header.description}
+                            disabled={viewPosted}
+                            onChange={(e) => handleHeaderChange('description', e.target.value)}
+                          />
+                        </div>
                       )}
                     </div>
-                    <div className="col-md-3">
-                      <label className="form-label">جمع اقلام</label>
-                      <AmountField
-                        value={lineTotals.total}
-                        onChange={() => {}}
-                        symbol={invoiceCurrencySymbol}
-                        readOnly
-                      />
-                    </div>
-                    <div className="col-md-3">
-                      <label className="form-label">مالیات (%)</label>
-                      <input
-                        type="number"
-                        min="0"
-                        max="100"
-                        step="any"
-                        className="form-control"
-                        value={header.taxPercent}
-                        disabled={viewPosted}
-                        onChange={(e) => handleHeaderChange('taxPercent', e.target.value)}
-                      />
-                    </div>
-                    <div className="col-md-3">
-                      <label className="form-label">مبلغ مالیات</label>
-                      <AmountField
-                        value={taxAmount}
-                        onChange={() => {}}
-                        symbol={invoiceCurrencySymbol}
-                        readOnly
-                      />
-                    </div>
-                    <div className="col-md-3">
-                      <label className="form-label">کل فاکتور</label>
-                      <AmountField
-                        value={totals.total}
-                        onChange={() => {}}
-                        symbol={invoiceCurrencySymbol}
-                        readOnly
-                      />
-                    </div>
-                    {showPaymentField && (
-                      <div className="col-md-3">
-                        <label className="form-label">مقدار دریافت‌شده</label>
-                        <AmountField
-                          value={header.paidAmount}
-                          onChange={(next) => {
-                            setPaidAmountTouched(true)
-                            handleHeaderChange('paidAmount', next)
-                          }}
-                          symbol={invoiceCurrencySymbol}
-                          required
-                          disabled={viewPosted}
-                          min="0"
-                          max={totals.total > 0 ? String(totals.total) : undefined}
-                        />
-                        {totals.total > 0 && (
+                  </div>
+
+                  {showPaymentField && (
+                    <div className="users-form-section">
+                      <span className="users-form-section-title">پرداخت</span>
+                      <div className="row g-3">
+                        <div className="col-md-3">
+                          <label className="form-label">نوع فاکتور</label>
+                          <select
+                            className="form-select"
+                            value={isCashInvoice ? 'cash' : 'credit'}
+                            disabled={viewPosted}
+                            onChange={(e) => handleIsCashChange(e.target.value === 'cash')}
+                          >
+                            <option value="cash">نقد</option>
+                            <option value="credit">نسیه</option>
+                          </select>
+                        </div>
+                        <div className="col-md-3">
+                          <label className="form-label">مقدار دریافت‌شده</label>
+                          <AmountField
+                            value={header.paidAmount}
+                            onChange={(next) => {
+                              setPaidAmountTouched(true)
+                              handleHeaderChange('paidAmount', next)
+                            }}
+                            symbol={invoiceCurrencySymbol}
+                            required
+                            disabled={viewPosted}
+                            min="0"
+                            max={totals.total > 0 ? String(totals.total) : undefined}
+                          />
                           <small className={`text-muted d-block mt-1${isCashInvoice ? '' : ' text-warning'}`}>
                             {isCashInvoice ? (
-                              'فاکتور نقدی — کل مبلغ دریافت می‌شود'
+                              'فاکتور نقدی — پیش‌فرض: کل مبلغ'
                             ) : (
                               <>
                                 فاکتور نسیه — مانده:{' '}
@@ -1188,40 +1091,72 @@ function SalePage() {
                               </>
                             )}
                           </small>
+                        </div>
+                        {!isCashInvoice && (
+                          <div className="col-md-3">
+                            <label className="form-label">تاریخ سررسید</label>
+                            <JalaliDateField
+                              value={header.dueDate}
+                              onChange={(next) => {
+                                handleHeaderChange('dueDate', next)
+                                setTermDaysFromDueDate(next)
+                              }}
+                              required
+                              requiredMessage="لطفاً تاریخ سررسید را انتخاب کنید."
+                              disabled={viewPosted}
+                            />
+                          </div>
                         )}
+                        <div className="col-12">
+                          <label className="form-label">توضیحات</label>
+                          <input
+                            type="text"
+                            className="form-control"
+                            value={header.description}
+                            disabled={viewPosted}
+                            onChange={(e) => handleHeaderChange('description', e.target.value)}
+                          />
+                        </div>
                       </div>
-                    )}
-                    <div className="col-12">
-                      <label className="form-label">توضیحات</label>
-                      <input
-                        type="text"
-                        className="form-control"
-                        value={header.description}
-                        disabled={viewPosted}
-                        onChange={(e) => handleHeaderChange('description', e.target.value)}
-                      />
                     </div>
-                  </div>
                   )}
 
-                  {formTab === 'lines' && (
-                  <>
-                  <div className="d-flex align-items-center justify-content-between mb-2">
-                    <h6 className="mb-0">ردیف‌های فروش</h6>
-                    {!viewPosted && (
-                      <button
-                        type="button"
-                        className="btn btn-sm btn-outline-secondary d-inline-flex align-items-center gap-1"
-                        onClick={addLine}
-                      >
-                        <Icon name="plus" />
-                        <span>ردیف جدید</span>
-                      </button>
-                    )}
+                  <div className="invoice-totals-bar">
+                    <div className="invoice-totals-bar-item">
+                      <span className="invoice-totals-bar-label">جمع اقلام</span>
+                      <AmountDisplay value={lineTotals.total} symbol={invoiceCurrencySymbol} />
+                    </div>
+                    <div className="invoice-totals-bar-item">
+                      <span className="invoice-totals-bar-label">
+                        مالیات{header.taxPercent ? ` (${header.taxPercent}٪)` : ''}
+                      </span>
+                      <AmountDisplay value={taxAmount} symbol={invoiceCurrencySymbol} />
+                    </div>
+                    <div className="invoice-totals-bar-item is-total">
+                      <span className="invoice-totals-bar-label">کل فاکتور</span>
+                      <span className="invoice-totals-bar-value">
+                        <AmountDisplay value={totals.total} symbol={invoiceCurrencySymbol} />
+                      </span>
+                    </div>
                   </div>
 
-                  <div className="table-responsive">
-                    <table className="table align-middle purchase-lines-table">
+                  <div className="users-form-section">
+                    <div className="d-flex align-items-center justify-content-between mb-2">
+                      <span className="users-form-section-title mb-0">ردیف‌های فروش</span>
+                      {!viewPosted && (
+                        <button
+                          type="button"
+                          className="btn btn-sm btn-outline-primary d-inline-flex align-items-center gap-1"
+                          onClick={addLine}
+                        >
+                          <Icon name="plus" />
+                          <span>ردیف جدید</span>
+                        </button>
+                      )}
+                    </div>
+
+                    <div className="table-responsive border rounded-3">
+                    <table className="table table-sm align-middle mb-0 purchase-lines-table">
                       <colgroup>
                         <col className="col-product" />
                         <col className="col-unit" />
@@ -1458,11 +1393,91 @@ function SalePage() {
                         )}
                       </div>
                     )}
-                  </>
+                  </div>
+
+                  {viewPosted &&
+                    documentType === INVOICE_DOCUMENT_TYPE.Invoice &&
+                    pastReturns.length > 0 && (
+                      <div className="users-form-section">
+                        <span className="users-form-section-title">سوابق برگشت این فاکتور</span>
+                        <div className="table-responsive border rounded-3">
+                          <table className="table table-sm mb-0">
+                            <thead>
+                              <tr>
+                                <th>شماره برگشت</th>
+                                <th>تاریخ</th>
+                                <th>مبلغ</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {pastReturns.map((row) => (
+                                <tr key={row.invoiceId}>
+                                  <td>{row.invoiceNumber}</td>
+                                  <td>{formatJalaliDate(row.invoiceDate)}</td>
+                                  <td>{formatAmount(row.totalAmount)}</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      </div>
+                    )}
+                  {editId && documentType === INVOICE_DOCUMENT_TYPE.Invoice && (
+                    <div className="users-form-section">
+                      <span className="users-form-section-title">اقساط</span>
+                      {!viewPosted && (
+                        <div className="d-flex align-items-end gap-2 mb-2">
+                          <div>
+                            <label className="form-label small mb-1">تعداد</label>
+                            <input
+                              type="number"
+                              min="1"
+                              className="form-control form-control-sm"
+                              value={installmentCount}
+                              onChange={(e) => setInstallmentCount(e.target.value)}
+                            />
+                          </div>
+                          <button
+                            type="button"
+                            className="btn btn-sm btn-outline-primary"
+                            disabled={installmentsLoading}
+                            onClick={generateInstallments}
+                          >
+                            {installmentsLoading ? 'در حال ایجاد...' : 'ایجاد اقساط'}
+                          </button>
+                        </div>
+                      )}
+                      {installments.length > 0 ? (
+                        <div className="table-responsive border rounded-3">
+                          <table className="table table-sm mb-0">
+                            <thead>
+                              <tr>
+                                <th>شماره</th>
+                                <th>سررسید</th>
+                                <th>مبلغ</th>
+                                <th>مانده</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {installments.map((item, index) => (
+                                <tr key={item.invoiceInstallmentId ?? index}>
+                                  <td>{item.installmentNo ?? index + 1}</td>
+                                  <td>{formatJalaliDate(item.dueDate)}</td>
+                                  <td><AmountDisplay value={item.amount} symbol={invoiceCurrencySymbol} /></td>
+                                  <td><AmountDisplay value={item.remaining} symbol={invoiceCurrencySymbol} /></td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      ) : (
+                        <small className="text-muted">قسطی ایجاد نشده است.</small>
+                      )}
+                    </div>
                   )}
                 </div>
-                <div className="modal-footer">
-                  <button type="button" className="btn btn-secondary" onClick={closeModals}>
+                <div className="modal-footer border-0 pt-0">
+                  <button type="button" className="btn btn-outline-secondary" onClick={closeModals}>
                     بستن
                   </button>
                   {editId && (

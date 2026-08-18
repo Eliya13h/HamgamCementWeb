@@ -149,3 +149,8 @@ export async function fetchCashBoxOptions() {
   const items = await request('/api/finance/cash-boxes/options')
   return items ?? []
 }
+
+export async function fetchBankAccountOptions() {
+  const items = await request('/api/finance/bank-accounts/options')
+  return items ?? []
+}

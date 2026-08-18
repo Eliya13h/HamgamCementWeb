@@ -352,7 +352,7 @@ public class FinanceStatementService : IFinanceStatementService
         };
     }
 
-    // تراز آزمایشی تا تاریخ — جمع بدهکار/بستانکار ارز پایه برای حساب‌های قابل‌ثبت
+    // تراز آزمایشی تا تاریخ — جمع دیبت/کریدیت ارز پایه برای حساب‌های قابل‌ثبت
     public async Task<object> GetTrialBalanceAsync(
         DateTime? asOf,
         CancellationToken cancellationToken = default)
@@ -429,7 +429,7 @@ public class FinanceStatementService : IFinanceStatementService
         };
     }
 
-    // سررسید دریافتنی — فاکتورهای فروش باز تا تاریخ
+    // سررسید دریافتنی — مانده مشتریان از دفتر
     public async Task<object> GetArAgingAsync(
         DateTime? asOf,
         CancellationToken cancellationToken = default)
@@ -441,117 +441,32 @@ public class FinanceStatementService : IFinanceStatementService
 
         var rows = (await connection.QueryAsync<AgingInvoiceRow>(
             """
-            SELECT i.SaleInvoiceID AS InvoiceId,
-                   i.InvoiceNumber,
-                   i.CustomerId AS PartyId,
-                   c.Name AS PartyName,
-                   i.InvoiceDate,
-                   ins.DueDate,
-                   ins.Amount - (
-                       ins.PaidAmount - ISNULL((
-                           SELECT SUM(ps.Amount)
-                           FROM PartySettlements ps
-                           WHERE ps.InstallmentId = ins.InvoiceInstallmentID
-                             AND ISNULL(ps.IsDeleted, 0) = 0
-                             AND ps.SettlementDate > @AsOfEnd
-                       ), 0)
-                   ) AS OpenAmount,
-                   CASE WHEN i.TotalAmount > 0
-                        THEN (
-                            ins.Amount - (
-                                ins.PaidAmount - ISNULL((
-                                    SELECT SUM(ps.Amount)
-                                    FROM PartySettlements ps
-                                    WHERE ps.InstallmentId = ins.InvoiceInstallmentID
-                                      AND ISNULL(ps.IsDeleted, 0) = 0
-                                      AND ps.SettlementDate > @AsOfEnd
-                                ), 0)
-                            )
-                        ) * (i.TotalAmountInBaseCurrency / i.TotalAmount)
-                        ELSE 0 END AS OpenAmountInBase
-            FROM SaleInvoices i
-            INNER JOIN Customers c ON c.CustomerID = i.CustomerId AND ISNULL(c.IsDeleted, 0) = 0
-            INNER JOIN InvoiceInstallments ins ON ins.InvoiceId = i.SaleInvoiceID
-              AND ins.InvoiceKind = @SaleInstallmentKind AND ISNULL(ins.IsDeleted, 0) = 0
-            WHERE ISNULL(i.IsDeleted, 0) = 0
-              AND i.IsPosted = 1
-              AND i.DocumentType = @InvoiceDocType
-              AND i.InvoiceDate <= @AsOfEnd
-              AND ins.Amount - (
-                  ins.PaidAmount - ISNULL((
-                      SELECT SUM(ps.Amount)
-                      FROM PartySettlements ps
-                      WHERE ps.InstallmentId = ins.InvoiceInstallmentID
-                        AND ISNULL(ps.IsDeleted, 0) = 0
-                        AND ps.SettlementDate > @AsOfEnd
-                  ), 0)
-              ) > 0.01
-
-            UNION ALL
-
-            SELECT i.SaleInvoiceID AS InvoiceId,
-                   i.InvoiceNumber,
-                   i.CustomerId AS PartyId,
-                   c.Name AS PartyName,
-                   i.InvoiceDate,
-                   ISNULL(i.DueDate, i.InvoiceDate) AS DueDate,
-                   i.TotalAmount - (
-                       i.PaidAmount - ISNULL((
-                           SELECT SUM(ps.Amount)
-                           FROM PartySettlements ps
-                           WHERE ps.SaleInvoiceId = i.SaleInvoiceID
-                             AND ps.InstallmentId IS NULL
-                             AND ISNULL(ps.IsDeleted, 0) = 0
-                             AND ps.SettlementDate > @AsOfEnd
-                       ), 0)
-                   ) AS OpenAmount,
-                   i.TotalAmountInBaseCurrency
-                     - CASE WHEN i.TotalAmount > 0
-                            THEN (
-                                i.PaidAmount - ISNULL((
-                                    SELECT SUM(ps.Amount)
-                                    FROM PartySettlements ps
-                                    WHERE ps.SaleInvoiceId = i.SaleInvoiceID
-                                      AND ps.InstallmentId IS NULL
-                                      AND ISNULL(ps.IsDeleted, 0) = 0
-                                      AND ps.SettlementDate > @AsOfEnd
-                                ), 0)
-                            ) * (i.TotalAmountInBaseCurrency / i.TotalAmount)
-                            ELSE 0 END AS OpenAmountInBase
-            FROM SaleInvoices i
-            INNER JOIN Customers c ON c.CustomerID = i.CustomerId AND ISNULL(c.IsDeleted, 0) = 0
-            WHERE ISNULL(i.IsDeleted, 0) = 0
-              AND i.IsPosted = 1
-              AND i.DocumentType = @InvoiceDocType
-              AND i.InvoiceDate <= @AsOfEnd
-              AND i.TotalAmount - (
-                  i.PaidAmount - ISNULL((
-                      SELECT SUM(ps.Amount)
-                      FROM PartySettlements ps
-                      WHERE ps.SaleInvoiceId = i.SaleInvoiceID
-                        AND ps.InstallmentId IS NULL
-                        AND ISNULL(ps.IsDeleted, 0) = 0
-                        AND ps.SettlementDate > @AsOfEnd
-                  ), 0)
-              ) > 0.01
-              AND NOT EXISTS (
-                  SELECT 1 FROM InvoiceInstallments ins
-                  WHERE ins.InvoiceId = i.SaleInvoiceID
-                    AND ins.InvoiceKind = @SaleInstallmentKind
-                    AND ISNULL(ins.IsDeleted, 0) = 0)
-            ORDER BY InvoiceDate, InvoiceNumber
+            SELECT
+                c.CustomerID AS InvoiceId,
+                CONCAT(N'C-', c.CustomerID) AS InvoiceNumber,
+                c.CustomerID AS PartyId,
+                c.Name AS PartyName,
+                MAX(je.EntryDate) AS InvoiceDate,
+                MAX(je.EntryDate) AS DueDate,
+                SUM(jl.DebitInBaseCurrency - jl.CreditInBaseCurrency) AS OpenAmountInBase,
+                SUM(jl.Debit - jl.Credit) AS OpenAmount
+            FROM Customers c
+            INNER JOIN Accounts a ON a.SystemCode = CONCAT(N'CUST_', c.CustomerID) AND ISNULL(a.IsDeleted, 0) = 0
+            INNER JOIN JournalLines jl ON jl.AccountId = a.AccountID AND ISNULL(jl.IsDeleted, 0) = 0
+            INNER JOIN JournalEntries je ON je.JournalEntryID = jl.JournalEntryId
+                AND ISNULL(je.IsDeleted, 0) = 0 AND je.IsPosted = 1
+                AND je.EntryDate <= @AsOfEnd
+            WHERE ISNULL(c.IsDeleted, 0) = 0
+            GROUP BY c.CustomerID, c.Name
+            HAVING SUM(jl.DebitInBaseCurrency - jl.CreditInBaseCurrency) > 0.01
+            ORDER BY MAX(je.EntryDate), c.Name
             """,
-            new
-            {
-                AsOfEnd = asOfEnd,
-                InvoiceDocType = (int)InvoiceDocumentType.Invoice,
-                SaleInstallmentKind = (int)InvoiceInstallmentKind.Sale,
-            })).AsList();
+            new { AsOfEnd = asOfEnd })).AsList();
 
         return BuildAgingResult(asOfDate, rows);
     }
 
-    // سررسید پرداختنی — فاکتورهای خرید باز تا تاریخ
+    // سررسید پرداختنی — مانده تأمین‌کنندگان از دفتر
     public async Task<object> GetApAgingAsync(
         DateTime? asOf,
         CancellationToken cancellationToken = default)
@@ -563,112 +478,27 @@ public class FinanceStatementService : IFinanceStatementService
 
         var rows = (await connection.QueryAsync<AgingInvoiceRow>(
             """
-            SELECT i.PurchaseInvoiceID AS InvoiceId,
-                   i.InvoiceNumber,
-                   i.SupplierId AS PartyId,
-                   s.Name AS PartyName,
-                   i.InvoiceDate,
-                   ins.DueDate,
-                   ins.Amount - (
-                       ins.PaidAmount - ISNULL((
-                           SELECT SUM(ps.Amount)
-                           FROM PartySettlements ps
-                           WHERE ps.InstallmentId = ins.InvoiceInstallmentID
-                             AND ISNULL(ps.IsDeleted, 0) = 0
-                             AND ps.SettlementDate > @AsOfEnd
-                       ), 0)
-                   ) AS OpenAmount,
-                   CASE WHEN i.TotalAmount > 0
-                        THEN (
-                            ins.Amount - (
-                                ins.PaidAmount - ISNULL((
-                                    SELECT SUM(ps.Amount)
-                                    FROM PartySettlements ps
-                                    WHERE ps.InstallmentId = ins.InvoiceInstallmentID
-                                      AND ISNULL(ps.IsDeleted, 0) = 0
-                                      AND ps.SettlementDate > @AsOfEnd
-                                ), 0)
-                            )
-                        ) * (i.TotalAmountInBaseCurrency / i.TotalAmount)
-                        ELSE 0 END AS OpenAmountInBase
-            FROM PurchaseInvoices i
-            INNER JOIN Suppliers s ON s.SupplierID = i.SupplierId AND ISNULL(s.IsDeleted, 0) = 0
-            INNER JOIN InvoiceInstallments ins ON ins.InvoiceId = i.PurchaseInvoiceID
-              AND ins.InvoiceKind = @PurchaseInstallmentKind AND ISNULL(ins.IsDeleted, 0) = 0
-            WHERE ISNULL(i.IsDeleted, 0) = 0
-              AND i.IsPosted = 1
-              AND i.DocumentType = @InvoiceDocType
-              AND i.InvoiceDate <= @AsOfEnd
-              AND ins.Amount - (
-                  ins.PaidAmount - ISNULL((
-                      SELECT SUM(ps.Amount)
-                      FROM PartySettlements ps
-                      WHERE ps.InstallmentId = ins.InvoiceInstallmentID
-                        AND ISNULL(ps.IsDeleted, 0) = 0
-                        AND ps.SettlementDate > @AsOfEnd
-                  ), 0)
-              ) > 0.01
-
-            UNION ALL
-
-            SELECT i.PurchaseInvoiceID AS InvoiceId,
-                   i.InvoiceNumber,
-                   i.SupplierId AS PartyId,
-                   s.Name AS PartyName,
-                   i.InvoiceDate,
-                   ISNULL(i.DueDate, i.InvoiceDate) AS DueDate,
-                   i.TotalAmount - (
-                       i.PaidAmount - ISNULL((
-                           SELECT SUM(ps.Amount)
-                           FROM PartySettlements ps
-                           WHERE ps.PurchaseInvoiceId = i.PurchaseInvoiceID
-                             AND ps.InstallmentId IS NULL
-                             AND ISNULL(ps.IsDeleted, 0) = 0
-                             AND ps.SettlementDate > @AsOfEnd
-                       ), 0)
-                   ) AS OpenAmount,
-                   i.TotalAmountInBaseCurrency
-                     - CASE WHEN i.TotalAmount > 0
-                            THEN (
-                                i.PaidAmount - ISNULL((
-                                    SELECT SUM(ps.Amount)
-                                    FROM PartySettlements ps
-                                    WHERE ps.PurchaseInvoiceId = i.PurchaseInvoiceID
-                                      AND ps.InstallmentId IS NULL
-                                      AND ISNULL(ps.IsDeleted, 0) = 0
-                                      AND ps.SettlementDate > @AsOfEnd
-                                ), 0)
-                            ) * (i.TotalAmountInBaseCurrency / i.TotalAmount)
-                            ELSE 0 END AS OpenAmountInBase
-            FROM PurchaseInvoices i
-            INNER JOIN Suppliers s ON s.SupplierID = i.SupplierId AND ISNULL(s.IsDeleted, 0) = 0
-            WHERE ISNULL(i.IsDeleted, 0) = 0
-              AND i.IsPosted = 1
-              AND i.DocumentType = @InvoiceDocType
-              AND i.InvoiceDate <= @AsOfEnd
-              AND i.TotalAmount - (
-                  i.PaidAmount - ISNULL((
-                      SELECT SUM(ps.Amount)
-                      FROM PartySettlements ps
-                      WHERE ps.PurchaseInvoiceId = i.PurchaseInvoiceID
-                        AND ps.InstallmentId IS NULL
-                        AND ISNULL(ps.IsDeleted, 0) = 0
-                        AND ps.SettlementDate > @AsOfEnd
-                  ), 0)
-              ) > 0.01
-              AND NOT EXISTS (
-                  SELECT 1 FROM InvoiceInstallments ins
-                  WHERE ins.InvoiceId = i.PurchaseInvoiceID
-                    AND ins.InvoiceKind = @PurchaseInstallmentKind
-                    AND ISNULL(ins.IsDeleted, 0) = 0)
-            ORDER BY InvoiceDate, InvoiceNumber
+            SELECT
+                s.SupplierID AS InvoiceId,
+                CONCAT(N'S-', s.SupplierID) AS InvoiceNumber,
+                s.SupplierID AS PartyId,
+                s.Name AS PartyName,
+                MAX(je.EntryDate) AS InvoiceDate,
+                MAX(je.EntryDate) AS DueDate,
+                SUM(jl.CreditInBaseCurrency - jl.DebitInBaseCurrency) AS OpenAmountInBase,
+                SUM(jl.Credit - jl.Debit) AS OpenAmount
+            FROM Suppliers s
+            INNER JOIN Accounts a ON a.SystemCode = CONCAT(N'SUPP_', s.SupplierID) AND ISNULL(a.IsDeleted, 0) = 0
+            INNER JOIN JournalLines jl ON jl.AccountId = a.AccountID AND ISNULL(jl.IsDeleted, 0) = 0
+            INNER JOIN JournalEntries je ON je.JournalEntryID = jl.JournalEntryId
+                AND ISNULL(je.IsDeleted, 0) = 0 AND je.IsPosted = 1
+                AND je.EntryDate <= @AsOfEnd
+            WHERE ISNULL(s.IsDeleted, 0) = 0
+            GROUP BY s.SupplierID, s.Name
+            HAVING SUM(jl.CreditInBaseCurrency - jl.DebitInBaseCurrency) > 0.01
+            ORDER BY MAX(je.EntryDate), s.Name
             """,
-            new
-            {
-                AsOfEnd = asOfEnd,
-                InvoiceDocType = (int)InvoiceDocumentType.Invoice,
-                PurchaseInstallmentKind = (int)InvoiceInstallmentKind.Purchase,
-            })).AsList();
+            new { AsOfEnd = asOfEnd })).AsList();
 
         return BuildAgingResult(asOfDate, rows);
     }
@@ -1042,7 +872,7 @@ public class FinanceStatementService : IFinanceStatementService
         netIncomeInBase = x.NetIncomeInBase,
     };
 
-    // درآمد: ماهیت بستانکار؛ هزینه/بهای تمام‌شده: ماهیت بدهکار
+    // درآمد: ماهیت کریدیت؛ هزینه/بهای تمام‌شده: ماهیت دیبت
     private static decimal SignedPlAmount(CurrencyBalanceRow row) =>
         (AccountType)row.AccountType switch
         {

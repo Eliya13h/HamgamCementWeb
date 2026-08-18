@@ -9,6 +9,8 @@ public interface ITripPostingService
 {
     Task<JournalEntry> PostTripRevenueAsync(int tripId, int? userId, CancellationToken cancellationToken = default);
     Task<JournalEntry> PostTripExpenseAsync(int tripExpenseId, int? userId, CancellationToken cancellationToken = default);
+    Task<JournalEntry?> PostTripDistributionAsync(int tripId, int? userId, CancellationToken cancellationToken = default);
+    Task EnsureTripRevenueAndDistributionAsync(int tripId, int? userId, CancellationToken cancellationToken = default);
     Task<JournalEntry?> SettleTripAsync(int tripId, int? userId, CancellationToken cancellationToken = default);
 }
 
@@ -105,6 +107,12 @@ public class TripPostingService : ITripPostingService
         trip.RevenueJournalEntryId = entry.JournalEntryID;
         trip.Status = trip.Status == TripStatus.Planned ? TripStatus.Delivered : trip.Status;
         await _db.SaveChangesAsync(cancellationToken);
+
+        if (trip.Status is TripStatus.Delivered or TripStatus.Settled && !trip.IsDistributionPosted)
+        {
+            await PostTripDistributionAsync(tripId, userId, cancellationToken);
+        }
+
         return entry;
     }
 
@@ -125,7 +133,6 @@ public class TripPostingService : ITripPostingService
         }
 
         var expenseAccount = await _accounts.GetBySystemCodeAsync(AccountSystemCode.MiscExpense, cancellationToken);
-        var creditAccountId = await ResolvePaymentAccountAsync(expense.CashBoxId, expense.BankAccountId, cancellationToken);
 
         if (expense.CashBoxId is int cashBoxId)
         {
@@ -140,12 +147,26 @@ public class TripPostingService : ITripPostingService
             .Select(c => c.CurrencyID)
             .FirstAsync(cancellationToken);
 
+        JournalLineDraft creditLine;
+        if (expense.PartyType is PartySettlementPartyType partyType && expense.PartyId is int partyId
+            && expense.CashBoxId is null && expense.BankAccountId is null)
+        {
+            var partyAccount = await ResolvePartyAccountAsync(partyType, partyId, cancellationToken);
+            creditLine = new(partyAccount.AccountID, 0, expense.Amount, 0, expense.AmountInBaseCurrency, expense.CurrencyId,
+                expense.Title, PartyId: partyId);
+        }
+        else
+        {
+            var creditAccountId = await ResolvePaymentAccountAsync(expense.CashBoxId, expense.BankAccountId, cancellationToken);
+            creditLine = new(creditAccountId, 0, expense.Amount, 0, expense.AmountInBaseCurrency, expense.CurrencyId,
+                expense.Title, CashBoxId: expense.CashBoxId);
+        }
+
         var lines = new List<JournalLineDraft>
         {
             new(expenseAccount.AccountID, expense.Amount, 0, expense.AmountInBaseCurrency, 0, expense.CurrencyId,
                 expense.Title, CostCenterId: costCenterId),
-            new(creditAccountId, 0, expense.Amount, 0, expense.AmountInBaseCurrency, expense.CurrencyId,
-                expense.Title, CashBoxId: expense.CashBoxId),
+            creditLine,
         };
 
         var entry = await _journal.PostAsync(
@@ -164,27 +185,53 @@ public class TripPostingService : ITripPostingService
         return entry;
     }
 
-    public async Task<JournalEntry?> SettleTripAsync(
+    public async Task EnsureTripRevenueAndDistributionAsync(
+        int tripId,
+        int? userId,
+        CancellationToken cancellationToken = default)
+    {
+        var trip = await _db.TransportTrips
+            .AsNoTracking()
+            .FirstOrDefaultAsync(t => t.TransportTripId == tripId && t.IsDeleted != true, cancellationToken)
+            ?? throw new InvalidOperationException("سفر یافت نشد.");
+
+        if (trip.Status is not (TripStatus.Delivered or TripStatus.Settled))
+        {
+            return;
+        }
+
+        if (!trip.IsRevenuePosted)
+        {
+            await PostTripRevenueAsync(tripId, userId, cancellationToken);
+            return;
+        }
+
+        if (!trip.IsDistributionPosted)
+        {
+            await PostTripDistributionAsync(tripId, userId, cancellationToken);
+        }
+    }
+
+    public async Task<JournalEntry?> PostTripDistributionAsync(
         int tripId,
         int? userId,
         CancellationToken cancellationToken = default)
     {
         var trip = await LoadTripForSettlementAsync(tripId, cancellationToken);
 
+        if (trip.IsDistributionPosted)
+        {
+            return null;
+        }
+
         if (!trip.IsRevenuePosted)
         {
             throw new InvalidOperationException("ابتدا درآمد سفر را ثبت کنید.");
         }
 
-        if (trip.Status == TripStatus.Settled)
+        if (trip.Status == TripStatus.Cancelled)
         {
-            throw new InvalidOperationException("این سفر قبلاً تسویه شده است.");
-        }
-
-        var unpostedExpenses = trip.Expenses.Any(e => e.IsDeleted != true && !e.IsPosted);
-        if (unpostedExpenses)
-        {
-            throw new InvalidOperationException("ابتدا تمام هزینه‌های سفر را ثبت کنید.");
+            throw new InvalidOperationException("سفر لغوشده قابل توزیع سهم نیست.");
         }
 
         var totalExpenses = trip.Expenses.Where(e => e.IsDeleted != true).Sum(e => e.AmountInBaseCurrency);
@@ -209,7 +256,7 @@ public class TripPostingService : ITripPostingService
 
         if (distributionTotal <= 0)
         {
-            trip.Status = TripStatus.Settled;
+            trip.IsDistributionPosted = true;
             await _db.SaveChangesAsync(cancellationToken);
             return null;
         }
@@ -225,7 +272,7 @@ public class TripPostingService : ITripPostingService
                 .FirstAsync(cancellationToken);
             var ownerAccount = await _accounts.EnsureVehicleOwnerAccountAsync(owner.VehicleOwnerId, owner.Name, cancellationToken);
             lines.Add(new(ownerAccount.AccountID, 0, primaryAmount, 0, primaryAmount, baseCurrencyId,
-                $"سهم مالک کشنده — سفر {trip.TripNumber}"));
+                $"سهم مالک کشنده — سفر {trip.TripNumber}", PartyId: owner.VehicleOwnerId));
         }
 
         if (trip.SecondaryVehicleId is int secondaryVehicleId && secondaryAmount > 0)
@@ -236,7 +283,7 @@ public class TripPostingService : ITripPostingService
                 .FirstAsync(cancellationToken);
             var ownerAccount = await _accounts.EnsureVehicleOwnerAccountAsync(owner.VehicleOwnerId, owner.Name, cancellationToken);
             lines.Add(new(ownerAccount.AccountID, 0, secondaryAmount, 0, secondaryAmount, baseCurrencyId,
-                $"سهم مالک بونکر — سفر {trip.TripNumber}"));
+                $"سهم مالک بونکر — سفر {trip.TripNumber}", PartyId: owner.VehicleOwnerId));
         }
 
         if (trip.DriverId is int driverId && driverAmount > 0)
@@ -244,7 +291,7 @@ public class TripPostingService : ITripPostingService
             var driverName = await _db.Drivers.Where(d => d.DriverId == driverId).Select(d => d.Name).FirstAsync(cancellationToken);
             var driverAccount = await _accounts.EnsureDriverAccountAsync(driverId, driverName, cancellationToken);
             lines.Add(new(driverAccount.AccountID, 0, driverAmount, 0, driverAmount, baseCurrencyId,
-                $"سهم راننده — سفر {trip.TripNumber}"));
+                $"سهم راننده — سفر {trip.TripNumber}", PartyId: driverId));
         }
 
         var entry = await _journal.PostAsync(
@@ -257,6 +304,42 @@ public class TripPostingService : ITripPostingService
             userId,
             cancellationToken);
 
+        trip.IsDistributionPosted = true;
+        trip.DistributionJournalEntryId = entry.JournalEntryID;
+        await _db.SaveChangesAsync(cancellationToken);
+        return entry;
+    }
+
+    public async Task<JournalEntry?> SettleTripAsync(
+        int tripId,
+        int? userId,
+        CancellationToken cancellationToken = default)
+    {
+        var trip = await LoadTripForSettlementAsync(tripId, cancellationToken);
+
+        if (trip.Status == TripStatus.Settled)
+        {
+            throw new InvalidOperationException("این سفر قبلاً تسویه شده است.");
+        }
+
+        if (!trip.IsRevenuePosted)
+        {
+            throw new InvalidOperationException("ابتدا درآمد سفر را ثبت کنید.");
+        }
+
+        var unpostedExpenses = trip.Expenses.Any(e => e.IsDeleted != true && !e.IsPosted);
+        if (unpostedExpenses)
+        {
+            throw new InvalidOperationException("ابتدا تمام هزینه‌های سفر را ثبت کنید.");
+        }
+
+        JournalEntry? entry = null;
+        if (!trip.IsDistributionPosted)
+        {
+            entry = await PostTripDistributionAsync(tripId, userId, cancellationToken);
+        }
+
+        trip = await LoadTripForSettlementAsync(tripId, cancellationToken);
         trip.Status = TripStatus.Settled;
         await _db.SaveChangesAsync(cancellationToken);
         return entry;
@@ -313,7 +396,86 @@ public class TripPostingService : ITripPostingService
             }
         }
 
-        return (100m, 0m);
+        decimal primary = 100m;
+        decimal secondary = 0m;
+
+        if (trip.PrimaryVehicleId is int primaryId)
+        {
+            var primaryDefault = await _db.Vehicles.AsNoTracking()
+                .Where(v => v.VehicleId == primaryId)
+                .Select(v => v.DefaultIncomeSharePercent)
+                .FirstOrDefaultAsync(cancellationToken);
+            if (primaryDefault is decimal pd)
+            {
+                primary = pd;
+            }
+        }
+
+        if (trip.SecondaryVehicleId is int secondaryId)
+        {
+            var secondaryDefault = await _db.Vehicles.AsNoTracking()
+                .Where(v => v.VehicleId == secondaryId)
+                .Select(v => v.DefaultIncomeSharePercent)
+                .FirstOrDefaultAsync(cancellationToken);
+            if (secondaryDefault is decimal sd)
+            {
+                secondary = sd;
+            }
+        }
+
+        if (trip.SecondaryVehicleId is null)
+        {
+            return (primary, 0m);
+        }
+
+        return primary + secondary > 0 ? (primary, secondary) : (100m, 0m);
+    }
+
+    private async Task<Account> ResolvePartyAccountAsync(
+        PartySettlementPartyType partyType,
+        int partyId,
+        CancellationToken cancellationToken)
+    {
+        return partyType switch
+        {
+            PartySettlementPartyType.Customer => await ResolveCustomerAccountAsync(partyId, cancellationToken),
+            PartySettlementPartyType.Supplier => await ResolveSupplierAccountAsync(partyId, cancellationToken),
+            PartySettlementPartyType.VehicleOwner => await ResolveVehicleOwnerAccountAsync(partyId, cancellationToken),
+            PartySettlementPartyType.Driver => await ResolveDriverAccountAsync(partyId, cancellationToken),
+            _ => throw new InvalidOperationException("نوع طرف حساب نامعتبر است."),
+        };
+    }
+
+    private async Task<Account> ResolveCustomerAccountAsync(int customerId, CancellationToken cancellationToken)
+    {
+        var customer = await _db.Customers.AsNoTracking()
+            .FirstOrDefaultAsync(c => c.CustomerID == customerId && c.IsDeleted != true, cancellationToken)
+            ?? throw new InvalidOperationException("مشتری یافت نشد.");
+        return await _accounts.EnsureCustomerAccountAsync(customer.CustomerID, customer.Name, cancellationToken);
+    }
+
+    private async Task<Account> ResolveSupplierAccountAsync(int supplierId, CancellationToken cancellationToken)
+    {
+        var supplier = await _db.Suppliers.AsNoTracking()
+            .FirstOrDefaultAsync(s => s.SupplierID == supplierId && s.IsDeleted != true, cancellationToken)
+            ?? throw new InvalidOperationException("تأمین‌کننده یافت نشد.");
+        return await _accounts.EnsureSupplierAccountAsync(supplier.SupplierID, supplier.Name, cancellationToken);
+    }
+
+    private async Task<Account> ResolveVehicleOwnerAccountAsync(int ownerId, CancellationToken cancellationToken)
+    {
+        var owner = await _db.VehicleOwners.AsNoTracking()
+            .FirstOrDefaultAsync(o => o.VehicleOwnerId == ownerId && o.IsDeleted != true, cancellationToken)
+            ?? throw new InvalidOperationException("مالک وسیله یافت نشد.");
+        return await _accounts.EnsureVehicleOwnerAccountAsync(owner.VehicleOwnerId, owner.Name, cancellationToken);
+    }
+
+    private async Task<Account> ResolveDriverAccountAsync(int driverId, CancellationToken cancellationToken)
+    {
+        var driver = await _db.Drivers.AsNoTracking()
+            .FirstOrDefaultAsync(d => d.DriverId == driverId && d.IsDeleted != true, cancellationToken)
+            ?? throw new InvalidOperationException("راننده یافت نشد.");
+        return await _accounts.EnsureDriverAccountAsync(driver.DriverId, driver.Name, cancellationToken);
     }
 
     private async Task<int?> ResolveVehicleCostCenterAsync(int? vehicleId, CancellationToken cancellationToken)
@@ -347,6 +509,6 @@ public class TripPostingService : ITripPostingService
             return bank.AccountId;
         }
 
-        throw new InvalidOperationException("صندوق یا حساب بانکی برای پرداخت الزامی است.");
+        throw new InvalidOperationException("صندوق، حساب بانکی یا طرف حساب برای پرداخت الزامی است.");
     }
 }

@@ -764,3 +764,18 @@
 [data-bs-theme='light'] .warehouse-fill-cell.is-ok .warehouse-fill-bar > span {
   background: #1a7f37;
 }
+
+/* مدال سفرها — در تبلت پهن‌تر تا فیلدها جا شوند (نصف فاصلهٔ فعلی از لبه‌ها) */
+@media (min-width: 576px) and (max-width: 991.98px) {
+  .trips-page .trips-form-modal .modal-dialog.modal-xl {
+    /* عرض پیش‌فرض بوت‌استرپ در این بازه ۵۰۰px است */
+    max-width: calc((100vw + 500px) / 2);
+  }
+}
+
+@media (min-width: 992px) and (max-width: 1199.98px) {
+  .trips-page .trips-form-modal .modal-dialog.modal-xl {
+    /* عرض پیش‌فرض modal-xl در این بازه ۸۰۰px است */
+    max-width: calc((100vw + 800px) / 2);
+  }
+}

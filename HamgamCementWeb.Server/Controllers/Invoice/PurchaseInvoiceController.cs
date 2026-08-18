@@ -123,6 +123,7 @@ public class PurchaseInvoiceController : InvoiceControllerBase
             taxAmount = invoice.TaxAmount,
             paymentTermDays = invoice.PaymentTermDays,
             dueDate = invoice.DueDate,
+            externalInvoiceNumber = invoice.ExternalInvoiceNumber,
             paidAmount = invoice.PaidAmount,
             cashBoxId = invoice.CashBoxId,
             isCash = invoice.IsCash,
@@ -280,12 +281,19 @@ public class PurchaseInvoiceController : InvoiceControllerBase
             TaxPercent = request.TaxPercent,
             PaymentTermDays = request.PaymentTermDays,
             DueDate = request.DueDate,
+            ExternalInvoiceNumber = request.ExternalInvoiceNumber?.Trim(),
             Description = request.Description?.Trim(),
             IsDeleted = false,
             IsActive = true,
             CreatedAt = now,
             CreatedBy = userId,
         };
+
+        var cashCreditError = ApplyCashCreditTerms(invoice, request.IsCash, request.PaymentTermDays, request.DueDate);
+        if (cashCreditError is not null)
+        {
+            return BadRequest(new { message = cashCreditError });
+        }
 
         foreach (var line in request.Items)
         {
@@ -390,12 +398,17 @@ public class PurchaseInvoiceController : InvoiceControllerBase
         invoice.EntrySource = request.EntrySource;
         invoice.ProductionBatchId = request.ProductionBatchId;
         invoice.TaxPercent = request.TaxPercent;
-        invoice.PaymentTermDays = request.PaymentTermDays;
-        invoice.DueDate = request.DueDate;
         invoice.Description = request.Description?.Trim();
+        invoice.ExternalInvoiceNumber = request.ExternalInvoiceNumber?.Trim();
         invoice.IsUpdated = true;
         invoice.UpdatedAt = now;
         invoice.UpdatedBy = userId;
+
+        var cashCreditError = ApplyCashCreditTerms(invoice, request.IsCash, request.PaymentTermDays, request.DueDate);
+        if (cashCreditError is not null)
+        {
+            return BadRequest(new { message = cashCreditError });
+        }
 
         var incomingIds = request.Items
             .Where(x => x.PurchaseItemId is > 0)
@@ -554,6 +567,41 @@ public class PurchaseInvoiceController : InvoiceControllerBase
         return Ok(new { message = "فاکتور خرید با موفقیت حذف شد." });
     }
 
+    private static string? ApplyCashCreditTerms(
+        PurchaseInvoice invoice,
+        bool isCash,
+        int paymentTermDays,
+        DateTime? dueDate)
+    {
+        invoice.IsCash = isCash;
+        if (isCash)
+        {
+            invoice.PaymentTermDays = 0;
+            invoice.DueDate = null;
+            return null;
+        }
+
+        invoice.PaymentTermDays = ComputePaymentTermDays(invoice.InvoiceDate, dueDate, paymentTermDays);
+        invoice.DueDate = dueDate;
+        if (dueDate is null)
+        {
+            return "برای فاکتور نسیه، تاریخ سررسید را وارد کنید.";
+        }
+
+        return null;
+    }
+
+    private static int ComputePaymentTermDays(DateTime invoiceDate, DateTime? dueDate, int fallbackDays)
+    {
+        if (dueDate is not { } due)
+        {
+            return fallbackDays;
+        }
+
+        var days = (int)Math.Round((due.Date - invoiceDate.Date).TotalDays);
+        return days > 0 ? days : fallbackDays;
+    }
+
     private static string? TrySetPaidAmount(PurchaseInvoice invoice, decimal paidAmount)
     {
         if (paidAmount < 0)
@@ -567,7 +615,6 @@ public class PurchaseInvoiceController : InvoiceControllerBase
         }
 
         invoice.PaidAmount = paidAmount;
-        invoice.IsCash = invoice.TotalAmount > 0 && paidAmount >= invoice.TotalAmount;
         return null;
     }
 
@@ -644,6 +691,9 @@ public class PurchaseInvoiceController : InvoiceControllerBase
         [Range(0, double.MaxValue)]
         public decimal PaidAmount { get; set; }
 
+        // نقد یا نسیه — صریح از کاربر؛ از مبلغ پرداخت استنتاج نمی‌شود
+        public bool IsCash { get; set; } = true;
+
         // صندوق پرداخت نقدی — وقتی PaidAmount > 0 الزامی است
         public int? CashBoxId { get; set; }
 
@@ -654,6 +704,9 @@ public class PurchaseInvoiceController : InvoiceControllerBase
         public int PaymentTermDays { get; set; }
 
         public DateTime? DueDate { get; set; }
+
+        [MaxLength(100)]
+        public string? ExternalInvoiceNumber { get; set; }
 
         public decimal? BaseUnitsPerUnit { get; set; }
 

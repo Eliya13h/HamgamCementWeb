@@ -23,6 +23,24 @@ import {
   fetchAccountTree,
   journalEntriesApi,
 } from '../../services/ledgerApi'
+import {
+  fetchCustomerOptions,
+  fetchSupplierOptions,
+} from '../../services/transactionsApi'
+import { fetchShareholderOptions } from '../../services/equityApi'
+import { fetchEmployeeOptions } from '../../services/employeesApi'
+
+const PARTY_CUSTOMER = 1
+const PARTY_SUPPLIER = 2
+const PARTY_SHAREHOLDER = 3
+const PARTY_EMPLOYEE = 4
+
+const PARTY_TYPE_OPTIONS = [
+  { value: PARTY_CUSTOMER, label: 'مشتری' },
+  { value: PARTY_SUPPLIER, label: 'تأمین‌کننده' },
+  { value: PARTY_SHAREHOLDER, label: 'سهامدار' },
+  { value: PARTY_EMPLOYEE, label: 'کارمند' },
+]
 
 /** صفر سمت خالی خط سند را خالی نشان بده */
 function formatLineAmount(value) {
@@ -32,7 +50,20 @@ function formatLineAmount(value) {
 }
 
 function emptyLine() {
-  return { accountId: '', debit: '', credit: '', description: '', costCenterId: '' }
+  return {
+    accountId: '',
+    debit: '',
+    credit: '',
+    description: '',
+    costCenterId: '',
+    partyType: '',
+    partyId: '',
+  }
+}
+
+function partyTypeLabel(partyType) {
+  const found = PARTY_TYPE_OPTIONS.find((o) => o.value === Number(partyType))
+  return found?.label ?? ''
 }
 
 function JournalEntriesPage() {
@@ -52,6 +83,10 @@ function JournalEntriesPage() {
   const [postableAccounts, setPostableAccounts] = useState([])
   const [accountsLoading, setAccountsLoading] = useState(false)
   const [costCenters, setCostCenters] = useState([])
+  const [customers, setCustomers] = useState([])
+  const [suppliers, setSuppliers] = useState([])
+  const [shareholders, setShareholders] = useState([])
+  const [employees, setEmployees] = useState([])
   const [createForm, setCreateForm] = useState({
     entryDate: todayGregorianIso(),
     description: '',
@@ -59,6 +94,18 @@ function JournalEntriesPage() {
   })
   const [createError, setCreateError] = useState('')
   const [submitting, setSubmitting] = useState(false)
+
+  const partyOptionsForType = useCallback(
+    (partyType) => {
+      const type = Number(partyType)
+      if (type === PARTY_SUPPLIER) return suppliers
+      if (type === PARTY_SHAREHOLDER) return shareholders
+      if (type === PARTY_EMPLOYEE) return employees
+      if (type === PARTY_CUSTOMER) return customers
+      return []
+    },
+    [customers, suppliers, shareholders, employees],
+  )
 
   const reloadTable = useCallback(() => {
     tableRef.current?.dt()?.ajax.reload(null, false)
@@ -159,9 +206,21 @@ function JournalEntriesPage() {
     })
     setAccountsLoading(true)
     try {
-      const [tree, centers] = await Promise.all([fetchAccountTree(), costCentersApi.options()])
+      const [tree, centers, customerRows, supplierRows, shareholderRows, employeeRows] =
+        await Promise.all([
+          fetchAccountTree(),
+          costCentersApi.options(),
+          fetchCustomerOptions(),
+          fetchSupplierOptions(),
+          fetchShareholderOptions(),
+          fetchEmployeeOptions(),
+        ])
       setPostableAccounts((tree ?? []).filter((a) => a.isPostable))
       setCostCenters(centers ?? [])
+      setCustomers(customerRows ?? [])
+      setSuppliers(supplierRows ?? [])
+      setShareholders(shareholderRows ?? [])
+      setEmployees(employeeRows ?? [])
     } catch (err) {
       setCreateError(err.message || 'بارگذاری حساب‌ها ناموفق بود.')
       setPostableAccounts([])
@@ -183,6 +242,43 @@ function JournalEntriesPage() {
         i === index ? { ...line, ...patch } : line,
       ),
     }))
+  }
+
+  const applyPartyAccountSuggestion = async (index, partyType, partyId) => {
+    if (!partyType || !partyId || Number(partyType) === PARTY_EMPLOYEE) return
+    try {
+      const suggested = await journalEntriesApi.partyAccount(partyType, partyId)
+      if (!suggested?.accountId) return
+      setPostableAccounts((prev) => {
+        if (prev.some((a) => Number(a.accountId) === Number(suggested.accountId))) {
+          return prev
+        }
+        return [
+          ...prev,
+          {
+            accountId: suggested.accountId,
+            code: suggested.code,
+            name: suggested.name,
+            isPostable: true,
+          },
+        ]
+      })
+      updateLine(index, { accountId: String(suggested.accountId) })
+    } catch {
+      // پیشنهاد حساب اختیاری است؛ حساب را حسابدار آزادانه انتخاب می‌کند
+    }
+  }
+
+  const handlePartyTypeChange = (index, partyType) => {
+    updateLine(index, { partyType, partyId: '' })
+  }
+
+  const handlePartyIdChange = (index, partyId) => {
+    const line = createForm.lines[index]
+    updateLine(index, { partyId })
+    if (line?.partyType && partyId) {
+      void applyPartyAccountSuggestion(index, line.partyType, partyId)
+    }
   }
 
   const addLine = () => {
@@ -228,16 +324,21 @@ function JournalEntriesPage() {
       if (!line.accountId) {
         return `ردیف ${i + 1}: انتخاب حساب الزامی است.`
       }
+      const hasPartyType = Boolean(line.partyType)
+      const hasPartyId = Boolean(line.partyId)
+      if (hasPartyType !== hasPartyId) {
+        return `ردیف ${i + 1}: برای طرف‌حساب باید هم نوع و هم شخص انتخاب شوند.`
+      }
       if (debit < 0 || credit < 0) {
         return `ردیف ${i + 1}: مبلغ نمی‌تواند منفی باشد.`
       }
       if ((debit > 0 && credit > 0) || (debit === 0 && credit === 0)) {
-        return `ردیف ${i + 1}: باید فقط بدهکار یا فقط بستانکار باشد.`
+        return `ردیف ${i + 1}: باید فقط دیبت یا فقط کریدیت باشد.`
       }
     }
 
     if (Math.abs(totals.debit - totals.credit) > 0.0001) {
-      return 'جمع بدهکار و بستانکار باید برابر باشد.'
+      return 'جمع دیبت و کریدیت باید برابر باشد.'
     }
 
     return ''
@@ -271,6 +372,10 @@ function JournalEntriesPage() {
           credit: Number(line.credit) || 0,
           description: line.description.trim() || null,
           costCenterId: line.costCenterId ? Number(line.costCenterId) : null,
+          partyType:
+            line.partyType && line.partyId ? Number(line.partyType) : null,
+          partyId:
+            line.partyType && line.partyId ? Number(line.partyId) : null,
         })),
       })
       closeCreate()
@@ -415,8 +520,8 @@ function JournalEntriesPage() {
                   <th>تاریخ</th>
                   <th>شرح</th>
                   <th>منبع</th>
-                  <th>بدهکار</th>
-                  <th>بستانکار</th>
+                  <th>دیبت (Db)</th>
+                  <th>کریدیت (Cr)</th>
                   <th>عملیات</th>
                 </tr>
               </thead>
@@ -514,9 +619,11 @@ function JournalEntriesPage() {
                         <thead className="table-light">
                           <tr>
                             <th style={{ minWidth: 220 }}>حساب</th>
-                            <th style={{ minWidth: 160 }}>مرکز هزینه</th>
-                            <th style={{ width: 140 }}>بدهکار</th>
-                            <th style={{ width: 140 }}>بستانکار</th>
+                            <th style={{ minWidth: 130 }}>نوع طرف‌حساب</th>
+                            <th style={{ minWidth: 160 }}>شخص</th>
+                            <th style={{ minWidth: 140 }}>مرکز هزینه</th>
+                            <th style={{ width: 140 }}>دیبت (Db)</th>
+                            <th style={{ width: 140 }}>کریدیت (Cr)</th>
                             <th>شرح ردیف</th>
                             <th style={{ width: 70 }} />
                           </tr>
@@ -543,6 +650,39 @@ function JournalEntriesPage() {
                                       value={acc.accountId}
                                     >
                                       {acc.code} — {acc.name}
+                                    </option>
+                                  ))}
+                                </select>
+                              </td>
+                              <td>
+                                <select
+                                  className="form-select form-select-sm"
+                                  value={line.partyType}
+                                  onChange={(e) =>
+                                    handlePartyTypeChange(index, e.target.value)
+                                  }
+                                >
+                                  <option value="">—</option>
+                                  {PARTY_TYPE_OPTIONS.map((opt) => (
+                                    <option key={opt.value} value={opt.value}>
+                                      {opt.label}
+                                    </option>
+                                  ))}
+                                </select>
+                              </td>
+                              <td>
+                                <select
+                                  className="form-select form-select-sm"
+                                  value={line.partyId}
+                                  onChange={(e) =>
+                                    handlePartyIdChange(index, e.target.value)
+                                  }
+                                  disabled={!line.partyType}
+                                >
+                                  <option value="">—</option>
+                                  {partyOptionsForType(line.partyType).map((opt) => (
+                                    <option key={opt.value} value={opt.value}>
+                                      {opt.label}
                                     </option>
                                   ))}
                                 </select>
@@ -621,7 +761,9 @@ function JournalEntriesPage() {
                         </tbody>
                         <tfoot className="table-light">
                           <tr>
-                            <td className="fw-semibold">جمع</td>
+                            <td colSpan={4} className="fw-semibold">
+                              جمع
+                            </td>
                             <td className="text-end fw-semibold font-monospace">
                               {formatAmount(totals.debit)}
                             </td>
@@ -629,7 +771,7 @@ function JournalEntriesPage() {
                               {formatAmount(totals.credit)}
                             </td>
                             <td
-                              colSpan={3}
+                              colSpan={2}
                               className={
                                 Math.abs(totals.debit - totals.credit) > 0.0001
                                   ? 'text-danger small'
@@ -741,7 +883,7 @@ function JournalEntriesPage() {
                         <div className="col-md-3 col-6">
                           <div className="border rounded-3 p-3 h-100 bg-light bg-opacity-50">
                             <div className="text-muted small mb-1">
-                              جمع بدهکار
+                              جمع دیبت
                             </div>
                             <div className="fw-semibold text-end font-monospace">
                               {formatAmount(selected.totalDebitInBaseCurrency)}
@@ -751,7 +893,7 @@ function JournalEntriesPage() {
                         <div className="col-md-3 col-6">
                           <div className="border rounded-3 p-3 h-100 bg-light bg-opacity-50">
                             <div className="text-muted small mb-1">
-                              جمع بستانکار
+                              جمع کریدیت
                             </div>
                             <div className="fw-semibold text-end font-monospace">
                               {formatAmount(selected.totalCreditInBaseCurrency)}
@@ -780,12 +922,13 @@ function JournalEntriesPage() {
                               <th style={{ width: 48 }}>#</th>
                               <th style={{ width: 110 }}>کد حساب</th>
                               <th>حساب</th>
+                              <th>طرف‌حساب</th>
                               <th>شرح</th>
                               <th className="text-end" style={{ width: 140 }}>
-                                بدهکار
+                                دیبت (Db)
                               </th>
                               <th className="text-end" style={{ width: 140 }}>
-                                بستانکار
+                                کریدیت (Cr)
                               </th>
                             </tr>
                           </thead>
@@ -797,6 +940,13 @@ function JournalEntriesPage() {
                                   {line.accountCode}
                                 </td>
                                 <td>{line.accountName}</td>
+                                <td>
+                                  {line.partyName
+                                    ? `${partyTypeLabel(line.partyType)}${
+                                        partyTypeLabel(line.partyType) ? ' — ' : ''
+                                      }${line.partyName}`
+                                    : '—'}
+                                </td>
                                 <td className="text-muted">
                                   {line.description ?? '—'}
                                 </td>
@@ -811,7 +961,7 @@ function JournalEntriesPage() {
                             {(selected.lines ?? []).length === 0 && (
                               <tr>
                                 <td
-                                  colSpan={6}
+                                  colSpan={7}
                                   className="text-center text-muted py-4"
                                 >
                                   خطی برای این سند ثبت نشده است.
@@ -822,7 +972,7 @@ function JournalEntriesPage() {
                           {(selected.lines ?? []).length > 0 && (
                             <tfoot className="table-light">
                               <tr>
-                                <td colSpan={4} className="fw-semibold">
+                                <td colSpan={5} className="fw-semibold">
                                   جمع
                                 </td>
                                 <td className="text-end fw-semibold font-monospace">

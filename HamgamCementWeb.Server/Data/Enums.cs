@@ -222,10 +222,10 @@ namespace HamgamCementWeb.Server.Data
     // ماهیت مانده حساب
     public enum AccountNature
     {
-        [Display(Name = "بدهکار")]
+        [Display(Name = "دیبت")]
         Debit = 1,
 
-        [Display(Name = "بستانکار")]
+        [Display(Name = "کریدیت")]
         Credit = 2,
     }
 
@@ -426,7 +426,7 @@ namespace HamgamCementWeb.Server.Data
         Closed = 2,
     }
 
-    // نوع طرف تسویه دریافت/پرداخت
+    // نوع طرف تسویه دریافت/پرداخت و طرف‌حساب خط سند
     public enum PartySettlementPartyType
     {
         [Display(Name = "مشتری")]
@@ -434,6 +434,12 @@ namespace HamgamCementWeb.Server.Data
 
         [Display(Name = "تأمین‌کننده")]
         Supplier = 2,
+
+        [Display(Name = "سهامدار")]
+        Shareholder = 3,
+
+        [Display(Name = "کارمند")]
+        Employee = 4,
     }
 
 }

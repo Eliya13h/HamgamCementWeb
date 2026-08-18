@@ -352,7 +352,7 @@ public class FinanceStatementService : IFinanceStatementService
         };
     }
 
-    // تراز آزمایشی تا تاریخ — جمع بدهکار/بستانکار ارز پایه برای حساب‌های قابل‌ثبت
+    // تراز آزمایشی تا تاریخ — جمع دیبت/کریدیت ارز پایه برای حساب‌های قابل‌ثبت
     public async Task<object> GetTrialBalanceAsync(
         DateTime? asOf,
         CancellationToken cancellationToken = default)
@@ -1042,7 +1042,7 @@ public class FinanceStatementService : IFinanceStatementService
         netIncomeInBase = x.NetIncomeInBase,
     };
 
-    // درآمد: ماهیت بستانکار؛ هزینه/بهای تمام‌شده: ماهیت بدهکار
+    // درآمد: ماهیت کریدیت؛ هزینه/بهای تمام‌شده: ماهیت دیبت
     private static decimal SignedPlAmount(CurrencyBalanceRow row) =>
         (AccountType)row.AccountType switch
         {

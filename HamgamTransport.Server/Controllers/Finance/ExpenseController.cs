@@ -353,7 +353,7 @@ public class ExpenseController : FinanceControllerBase
     }
 
     private Task<bool> IsLinkedToInvoiceAsync(int expenseId, CancellationToken cancellationToken) =>
-        Db.PurchaseInvoices.AnyAsync(i => i.ExpenseId == expenseId && i.IsDeleted != true, cancellationToken);
+        Task.FromResult(false);
 
     public class SaveExpenseRequest
     {

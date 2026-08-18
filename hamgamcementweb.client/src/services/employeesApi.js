@@ -30,6 +30,17 @@ export async function fetchDepartments() {
   return parseResponse(response)
 }
 
+export async function fetchEmployeeOptions() {
+  const response = await fetch(`${BASE}/options`, {
+    credentials: 'include',
+  })
+  const rows = await parseResponse(response)
+  return (rows ?? []).map((r) => ({
+    value: r.value,
+    label: r.label,
+  }))
+}
+
 export async function createEmployee(payload) {
   const response = await fetch(BASE, {
     method: 'POST',

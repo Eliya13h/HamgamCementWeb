@@ -126,6 +126,7 @@ export const navItems = [
       { path: '/reporting/revenues', label: 'عواید' },
       { path: '/reporting/expenses', label: 'مصارف' },
       { path: '/reporting/journal', label: 'روزنامچه' },
+      { path: '/reporting/cost-centers', label: 'مراکز هزینه' },
     ],
   },
   {

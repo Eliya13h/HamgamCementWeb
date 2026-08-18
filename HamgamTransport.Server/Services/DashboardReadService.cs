@@ -1,7 +1,6 @@
 ﻿using System.Globalization;
 using Dapper;
 using HamgamTransport.Server.Data;
-using HamgamTransport.Server.Data.Models.Invoice;
 
 namespace HamgamTransport.Server.Services;
 
@@ -15,9 +14,6 @@ public interface IDashboardReadService
 
 public class DashboardReadService : IDashboardReadService
 {
-    private const decimal WarehouseFullPercent = 95m;
-    private const decimal WarehouseLowPercent = 20m;
-
     private readonly ISqlConnectionFactory _sql;
 
     public DashboardReadService(ISqlConnectionFactory sql)
@@ -25,7 +21,6 @@ public class DashboardReadService : IDashboardReadService
         _sql = sql;
     }
 
-    // کارت‌های بالای داشبورد: تولید امروز، فروش/خرید امروز و ماه جاری
     public async Task<object> GetSummaryAsync(CancellationToken cancellationToken = default)
     {
         var calendar = new PersianCalendar();
@@ -40,92 +35,69 @@ public class DashboardReadService : IDashboardReadService
 
         await using var connection = (System.Data.Common.DbConnection)await _sql.OpenAsync(cancellationToken);
 
-        var purchases = (await connection.QueryAsync<PerformanceAmountRow>(
+        var cancelledStatus = (int)TripStatus.Cancelled;
+
+        var todayTrips = await connection.ExecuteScalarAsync<int>(
             """
-            SELECT InvoiceDate AS EventDate,
-                   CAST(DocumentType AS int) AS DocumentType,
-                   TotalAmountInBaseCurrency AS AmountInBase
-            FROM PurchaseInvoices
+            SELECT COUNT(*)
+            FROM TransportTrips
             WHERE ISNULL(IsDeleted, 0) = 0
-              AND IsPosted = 1
-              AND EntrySource <> @ProductionEntrySource
-              AND InvoiceDate >= @RangeStart
-              AND InvoiceDate <= @RangeEnd
-              AND (
-                    DocumentType = @PurchaseReturn
-                    OR (DocumentType = @InvoiceDoc AND Status = @InvoiceStatus)
-                  )
+              AND Status <> @CancelledStatus
+              AND TripDate >= @TodayStart
+              AND TripDate <= @TodayEnd
             """,
-            new
-            {
-                RangeStart = monthStart,
-                RangeEnd = monthEnd,
-                ProductionEntrySource = (int)PurchaseEntrySource.Production,
-                PurchaseReturn = (int)InvoiceDocumentType.PurchaseReturn,
-                InvoiceDoc = (int)InvoiceDocumentType.Invoice,
-                InvoiceStatus = (int)InvoiceStatus.Invoice,
-            })).AsList();
+            new { TodayStart = todayStart, TodayEnd = todayEnd, CancelledStatus = cancelledStatus });
 
-        var sales = (await connection.QueryAsync<PerformanceAmountRow>(
+        var monthTrips = await connection.ExecuteScalarAsync<int>(
             """
-            SELECT InvoiceDate AS EventDate,
-                   CAST(DocumentType AS int) AS DocumentType,
-                   TotalAmountInBaseCurrency AS AmountInBase
-            FROM SaleInvoices
+            SELECT COUNT(*)
+            FROM TransportTrips
             WHERE ISNULL(IsDeleted, 0) = 0
-              AND IsPosted = 1
-              AND InvoiceDate >= @RangeStart
-              AND InvoiceDate <= @RangeEnd
-              AND (
-                    DocumentType = @SaleReturn
-                    OR (DocumentType = @InvoiceDoc AND Status = @InvoiceStatus)
-                  )
+              AND Status <> @CancelledStatus
+              AND TripDate >= @MonthStart
+              AND TripDate <= @MonthEnd
             """,
-            new
-            {
-                RangeStart = monthStart,
-                RangeEnd = monthEnd,
-                SaleReturn = (int)InvoiceDocumentType.SaleReturn,
-                InvoiceDoc = (int)InvoiceDocumentType.Invoice,
-                InvoiceStatus = (int)InvoiceStatus.Invoice,
-            })).AsList();
+            new { MonthStart = monthStart, MonthEnd = monthEnd, CancelledStatus = cancelledStatus });
 
-        var todayProduction = await connection.ExecuteScalarAsync<decimal>(
+        var todayTripRevenue = await connection.ExecuteScalarAsync<decimal>(
             """
-            SELECT ISNULL(SUM(ol.QuantityInBase), 0)
-            FROM ProductionOutputLines ol
-            INNER JOIN ProductionBatches pb ON pb.ProductionBatchID = ol.ProductionBatchId
-            WHERE ISNULL(ol.IsDeleted, 0) = 0
-              AND ISNULL(pb.IsDeleted, 0) = 0
-              AND pb.IsPosted = 1
-              AND pb.Status = @PostedStatus
-              AND pb.ProductionDate >= @TodayStart
-              AND pb.ProductionDate <= @TodayEnd
+            SELECT ISNULL(SUM(AmountInBaseCurrency), 0)
+            FROM TransportTrips
+            WHERE ISNULL(IsDeleted, 0) = 0
+              AND Status <> @CancelledStatus
+              AND IsRevenuePosted = 1
+              AND TripDate >= @TodayStart
+              AND TripDate <= @TodayEnd
             """,
-            new
-            {
-                TodayStart = todayStart,
-                TodayEnd = todayEnd,
-                PostedStatus = (int)ProductionBatchStatus.Posted,
-            });
+            new { TodayStart = todayStart, TodayEnd = todayEnd, CancelledStatus = cancelledStatus });
 
-        static decimal NetAmount(IEnumerable<PerformanceAmountRow> rows, DateTime start, DateTime end, int returnType) =>
-            rows
-                .Where(i => i.EventDate >= start && i.EventDate <= end)
-                .Sum(i => i.DocumentType == returnType ? -i.AmountInBase : i.AmountInBase);
+        var monthTripRevenue = await connection.ExecuteScalarAsync<decimal>(
+            """
+            SELECT ISNULL(SUM(AmountInBaseCurrency), 0)
+            FROM TransportTrips
+            WHERE ISNULL(IsDeleted, 0) = 0
+              AND Status <> @CancelledStatus
+              AND IsRevenuePosted = 1
+              AND TripDate >= @MonthStart
+              AND TripDate <= @MonthEnd
+            """,
+            new { MonthStart = monthStart, MonthEnd = monthEnd, CancelledStatus = cancelledStatus });
 
-        var todaySale = NetAmount(sales, todayStart, todayEnd, (int)InvoiceDocumentType.SaleReturn);
-        var todayPurchase = NetAmount(purchases, todayStart, todayEnd, (int)InvoiceDocumentType.PurchaseReturn);
-        var monthSale = NetAmount(sales, monthStart, monthEnd, (int)InvoiceDocumentType.SaleReturn);
-        var monthPurchase = NetAmount(purchases, monthStart, monthEnd, (int)InvoiceDocumentType.PurchaseReturn);
+        var activeVehicles = await connection.ExecuteScalarAsync<int>(
+            """
+            SELECT COUNT(*)
+            FROM Vehicles
+            WHERE ISNULL(IsDeleted, 0) = 0
+              AND ISNULL(IsActive, 1) = 1
+            """);
 
         return new
         {
-            todayProduction,
-            todaySale,
-            todayPurchase,
-            monthSale,
-            monthPurchase,
+            todayTrips,
+            monthTrips,
+            todayTripRevenue,
+            monthTripRevenue,
+            activeVehicles,
             monthLabel = JalaliDateHelper.AfghanMonthNames[month - 1],
             year,
             month,
@@ -165,61 +137,36 @@ public class DashboardReadService : IDashboardReadService
 
         var rangeStart = periods[0].Start;
         var rangeEnd = periods[^1].End;
+        var cancelledStatus = (int)TripStatus.Cancelled;
 
         await using var connection = (System.Data.Common.DbConnection)await _sql.OpenAsync(cancellationToken);
         var p = new DynamicParameters();
         p.Add("RangeStart", rangeStart);
         p.Add("RangeEnd", rangeEnd);
+        p.Add("CancelledStatus", cancelledStatus);
 
-        var purchases = (await connection.QueryAsync<PerformanceAmountRow>(
+        var tripRevenues = (await connection.QueryAsync<PerformanceSimpleRow>(
             """
-            SELECT InvoiceDate AS EventDate,
-                   CAST(DocumentType AS int) AS DocumentType,
-                   TotalAmountInBaseCurrency AS AmountInBase
-            FROM PurchaseInvoices
+            SELECT TripDate AS EventDate, AmountInBaseCurrency AS AmountInBase
+            FROM TransportTrips
             WHERE ISNULL(IsDeleted, 0) = 0
-              AND IsPosted = 1
-              AND EntrySource <> @ProductionEntrySource
-              AND InvoiceDate >= @RangeStart
-              AND InvoiceDate <= @RangeEnd
-              AND (
-                    DocumentType = @PurchaseReturn
-                    OR (DocumentType = @InvoiceDoc AND Status = @InvoiceStatus)
-                  )
-            """,
-            new
-            {
-                RangeStart = rangeStart,
-                RangeEnd = rangeEnd,
-                ProductionEntrySource = (int)PurchaseEntrySource.Production,
-                PurchaseReturn = (int)InvoiceDocumentType.PurchaseReturn,
-                InvoiceDoc = (int)InvoiceDocumentType.Invoice,
-                InvoiceStatus = (int)InvoiceStatus.Invoice,
-            })).AsList();
+              AND Status <> @CancelledStatus
+              AND IsRevenuePosted = 1
+              AND TripDate >= @RangeStart
+              AND TripDate <= @RangeEnd
+            """, p)).AsList();
 
-        var sales = (await connection.QueryAsync<PerformanceAmountRow>(
+        var tripExpenses = (await connection.QueryAsync<PerformanceSimpleRow>(
             """
-            SELECT InvoiceDate AS EventDate,
-                   CAST(DocumentType AS int) AS DocumentType,
-                   TotalAmountInBaseCurrency AS AmountInBase
-            FROM SaleInvoices
-            WHERE ISNULL(IsDeleted, 0) = 0
-              AND IsPosted = 1
-              AND InvoiceDate >= @RangeStart
-              AND InvoiceDate <= @RangeEnd
-              AND (
-                    DocumentType = @SaleReturn
-                    OR (DocumentType = @InvoiceDoc AND Status = @InvoiceStatus)
-                  )
-            """,
-            new
-            {
-                RangeStart = rangeStart,
-                RangeEnd = rangeEnd,
-                SaleReturn = (int)InvoiceDocumentType.SaleReturn,
-                InvoiceDoc = (int)InvoiceDocumentType.Invoice,
-                InvoiceStatus = (int)InvoiceStatus.Invoice,
-            })).AsList();
+            SELECT te.ExpenseDate AS EventDate, te.AmountInBaseCurrency AS AmountInBase
+            FROM TripExpenses te
+            INNER JOIN TransportTrips tt ON tt.TransportTripID = te.TransportTripId
+            WHERE ISNULL(te.IsDeleted, 0) = 0
+              AND ISNULL(tt.IsDeleted, 0) = 0
+              AND tt.Status <> @CancelledStatus
+              AND te.ExpenseDate >= @RangeStart
+              AND te.ExpenseDate <= @RangeEnd
+            """, p)).AsList();
 
         var revenues = (await connection.QueryAsync<PerformanceSimpleRow>(
             """
@@ -241,17 +188,13 @@ public class DashboardReadService : IDashboardReadService
 
         var points = periods.Select(period =>
         {
-            var purchase = purchases
-                .Where(i => i.EventDate >= period.Start && i.EventDate <= period.End)
-                .Sum(i => i.DocumentType == (int)InvoiceDocumentType.PurchaseReturn
-                    ? -i.AmountInBase
-                    : i.AmountInBase);
+            var tripRevenue = tripRevenues
+                .Where(r => r.EventDate >= period.Start && r.EventDate <= period.End)
+                .Sum(r => r.AmountInBase);
 
-            var sale = sales
-                .Where(i => i.EventDate >= period.Start && i.EventDate <= period.End)
-                .Sum(i => i.DocumentType == (int)InvoiceDocumentType.SaleReturn
-                    ? -i.AmountInBase
-                    : i.AmountInBase);
+            var tripExpense = tripExpenses
+                .Where(e => e.EventDate >= period.Start && e.EventDate <= period.End)
+                .Sum(e => e.AmountInBase);
 
             var revenue = revenues
                 .Where(r => r.EventDate >= period.Start && r.EventDate <= period.End)
@@ -266,8 +209,8 @@ public class DashboardReadService : IDashboardReadService
                 year = period.Year,
                 month = period.Month,
                 label = period.Label,
-                purchase,
-                sale,
+                tripRevenue,
+                tripExpense,
                 revenue,
                 expense,
             };
@@ -280,8 +223,8 @@ public class DashboardReadService : IDashboardReadService
             to = JalaliDateHelper.FormatDateWithMonthName(rangeEnd),
             totals = new
             {
-                purchase = points.Sum(x => x.purchase),
-                sale = points.Sum(x => x.sale),
+                tripRevenue = points.Sum(x => x.tripRevenue),
+                tripExpense = points.Sum(x => x.tripExpense),
                 revenue = points.Sum(x => x.revenue),
                 expense = points.Sum(x => x.expense),
             },
@@ -305,68 +248,48 @@ public class DashboardReadService : IDashboardReadService
                    OperationDate,
                    AmountInBase,
                    PartyName,
-                   WarehouseName,
-                   DocumentType,
-                   Status,
-                   IsPosted
+                   Status
             FROM (
-                SELECT N'purchase' AS OperationType,
-                       pi.PurchaseInvoiceID AS EntityId,
-                       pi.InvoiceNumber AS ReferenceNumber,
-                       pi.InvoiceDate AS OperationDate,
-                       pi.TotalAmountInBaseCurrency AS AmountInBase,
-                       s.Name AS PartyName,
-                       w.Name AS WarehouseName,
-                       CAST(pi.DocumentType AS int) AS DocumentType,
-                       CAST(pi.Status AS int) AS Status,
-                       CAST(pi.IsPosted AS bit) AS IsPosted
-                FROM PurchaseInvoices pi
-                INNER JOIN Suppliers s ON s.SupplierID = pi.SupplierId
-                INNER JOIN Warehouses w ON w.WarehouseID = pi.WarehouseId
-                WHERE ISNULL(pi.IsDeleted, 0) = 0
-                  AND pi.EntrySource <> @ProductionEntrySource
+                SELECT N'trip' AS OperationType,
+                       tt.TransportTripID AS EntityId,
+                       tt.TripNumber AS ReferenceNumber,
+                       tt.TripDate AS OperationDate,
+                       tt.AmountInBaseCurrency AS AmountInBase,
+                       c.Name AS PartyName,
+                       CAST(tt.Status AS int) AS Status
+                FROM TransportTrips tt
+                INNER JOIN Customers c ON c.CustomerID = tt.CustomerId
+                WHERE ISNULL(tt.IsDeleted, 0) = 0
 
                 UNION ALL
 
-                SELECT N'sale',
-                       si.SaleInvoiceID,
-                       si.InvoiceNumber,
-                       si.InvoiceDate,
-                       si.TotalAmountInBaseCurrency,
-                       c.Name,
-                       w.Name,
-                       CAST(si.DocumentType AS int),
-                       CAST(si.Status AS int),
-                       CAST(si.IsPosted AS bit)
-                FROM SaleInvoices si
-                INNER JOIN Customers c ON c.CustomerID = si.CustomerId
-                INNER JOIN Warehouses w ON w.WarehouseID = si.WarehouseId
-                WHERE ISNULL(si.IsDeleted, 0) = 0
+                SELECT N'revenue',
+                       r.RevenueID,
+                       ISNULL(NULLIF(LTRIM(RTRIM(r.Title)), N''), CAST(r.RevenueID AS nvarchar(20))),
+                       r.RevenueDate,
+                       r.AmountInBaseCurrency,
+                       ISNULL(rc.Name, N'عواید'),
+                       0
+                FROM Revenues r
+                LEFT JOIN RevenueCategories rc ON rc.RevenueCategoryID = r.RevenueCategoryId
+                WHERE ISNULL(r.IsDeleted, 0) = 0
 
                 UNION ALL
 
-                SELECT N'production',
-                       pb.ProductionBatchID,
-                       pb.BatchNumber,
-                       pb.ProductionDate,
-                       pb.TotalCostInBase,
-                       ISNULL(f.Name, N'تولید'),
-                       w.Name,
-                       NULL,
-                       CAST(pb.Status AS int),
-                       CAST(pb.IsPosted AS bit)
-                FROM ProductionBatches pb
-                INNER JOIN Warehouses w ON w.WarehouseID = pb.OutputWarehouseId
-                LEFT JOIN ProductionFormulas f ON f.ProductionFormulaID = pb.ProductionFormulaId
-                WHERE ISNULL(pb.IsDeleted, 0) = 0
+                SELECT N'expense',
+                       e.ExpenseID,
+                       ISNULL(NULLIF(LTRIM(RTRIM(e.Title)), N''), CAST(e.ExpenseID AS nvarchar(20))),
+                       e.ExpenseDate,
+                       e.AmountInBaseCurrency,
+                       ISNULL(ec.Name, N'مصارف'),
+                       0
+                FROM Expenses e
+                LEFT JOIN ExpenseCategories ec ON ec.ExpenseCategoryID = e.ExpenseCategoryId
+                WHERE ISNULL(e.IsDeleted, 0) = 0
             ) ops
             ORDER BY OperationDate DESC, EntityId DESC
             """,
-            new
-            {
-                Take = take,
-                ProductionEntrySource = (int)PurchaseEntrySource.Production,
-            })).AsList();
+            new { Take = take })).AsList();
 
         return rows.Select(MapOperation).ToList();
     }
@@ -375,108 +298,101 @@ public class DashboardReadService : IDashboardReadService
     {
         await using var connection = (System.Data.Common.DbConnection)await _sql.OpenAsync(cancellationToken);
 
-        var shortages = (await connection.QueryAsync<ProductShortageRow>(
-            """
-            SELECT p.ProductID AS ProductId,
-                   p.Code,
-                   p.Name,
-                   p.MinStockQuantity,
-                   ISNULL(SUM(s.QuantityInBase), 0) AS TotalStockQuantity,
-                   m.Name AS UnitName
-            FROM Products p
-            INNER JOIN Meaurments m ON m.MeaurmentID = p.BaseMeaurmentId
-            LEFT JOIN InventoryStocks s
-                   ON s.ProductId = p.ProductID
-                  AND ISNULL(s.IsDeleted, 0) = 0
-            WHERE ISNULL(p.IsDeleted, 0) = 0
-              AND ISNULL(p.IsActive, 1) = 1
-              AND p.MinStockQuantity > 0
-            GROUP BY p.ProductID, p.Code, p.Name, p.MinStockQuantity, m.Name
-            HAVING ISNULL(SUM(s.QuantityInBase), 0) < p.MinStockQuantity
-            ORDER BY (p.MinStockQuantity - ISNULL(SUM(s.QuantityInBase), 0)) DESC, p.Name
-            """)).AsList();
+        var plannedStatus = (int)TripStatus.Planned;
+        var inTransitStatus = (int)TripStatus.InTransit;
+        var deliveredStatus = (int)TripStatus.Delivered;
+        var cancelledStatus = (int)TripStatus.Cancelled;
 
-        var warehouses = (await connection.QueryAsync<WarehouseFillRow>(
+        var pendingTrips = (await connection.QueryAsync<TripAlertRow>(
             """
-            SELECT w.WarehouseID AS WarehouseId,
-                   w.Name,
-                   w.Capacity,
-                   cm.Name AS CapacityUnit,
-                   CAST(w.Capacity * cm.FactorToBase AS decimal(18,6)) AS CapacityInBase,
-                   ISNULL((
-                       SELECT SUM(s.QuantityInBase)
-                       FROM InventoryStocks s
-                       INNER JOIN Products p ON p.ProductID = s.ProductId
-                       WHERE s.WarehouseId = w.WarehouseID
-                         AND ISNULL(s.IsDeleted, 0) = 0
-                         AND s.QuantityInBase > 0
-                         AND p.BaseMeaurmentId = CASE
-                             WHEN cm.IsBaseUnit = 1 THEN cm.MeaurmentID
-                             ELSE cm.BaseMeaurmentId
-                         END
-                   ), 0) AS UsedInBase
-            FROM Warehouses w
-            INNER JOIN Meaurments cm ON cm.MeaurmentID = w.CapacityMeaurmentId
-            WHERE ISNULL(w.IsDeleted, 0) = 0
-              AND ISNULL(w.IsActive, 1) = 1
-              AND w.Capacity IS NOT NULL
-              AND w.Capacity > 0
-              AND w.CapacityMeaurmentId IS NOT NULL
-              AND cm.FactorToBase > 0
-            ORDER BY w.Name
-            """)).AsList();
+            SELECT tt.TransportTripID AS TripId,
+                   tt.TripNumber,
+                   tt.TripDate,
+                   CAST(tt.Status AS int) AS Status,
+                   tt.IsRevenuePosted,
+                   c.Name AS CustomerName
+            FROM TransportTrips tt
+            INNER JOIN Customers c ON c.CustomerID = tt.CustomerId
+            WHERE ISNULL(tt.IsDeleted, 0) = 0
+              AND tt.Status IN (@PlannedStatus, @InTransitStatus)
+            ORDER BY tt.TripDate, tt.TripNumber
+            """,
+            new { PlannedStatus = plannedStatus, InTransitStatus = inTransitStatus })).AsList();
+
+        var unpostedTrips = (await connection.QueryAsync<TripAlertRow>(
+            """
+            SELECT tt.TransportTripID AS TripId,
+                   tt.TripNumber,
+                   tt.TripDate,
+                   CAST(tt.Status AS int) AS Status,
+                   tt.IsRevenuePosted,
+                   c.Name AS CustomerName
+            FROM TransportTrips tt
+            INNER JOIN Customers c ON c.CustomerID = tt.CustomerId
+            WHERE ISNULL(tt.IsDeleted, 0) = 0
+              AND tt.Status <> @CancelledStatus
+              AND tt.IsRevenuePosted = 0
+              AND tt.TripDate <= @TodayEnd
+            ORDER BY tt.TripDate, tt.TripNumber
+            """,
+            new { CancelledStatus = cancelledStatus, TodayEnd = DateTime.Today.AddDays(1).AddTicks(-1) })).AsList();
+
+        var awaitingSettlement = (await connection.QueryAsync<TripAlertRow>(
+            """
+            SELECT tt.TransportTripID AS TripId,
+                   tt.TripNumber,
+                   tt.TripDate,
+                   CAST(tt.Status AS int) AS Status,
+                   tt.IsRevenuePosted,
+                   c.Name AS CustomerName
+            FROM TransportTrips tt
+            INNER JOIN Customers c ON c.CustomerID = tt.CustomerId
+            WHERE ISNULL(tt.IsDeleted, 0) = 0
+              AND tt.Status = @DeliveredStatus
+            ORDER BY tt.TripDate, tt.TripNumber
+            """,
+            new { DeliveredStatus = deliveredStatus })).AsList();
 
         var items = new List<object>();
 
-        foreach (var row in shortages)
+        foreach (var row in pendingTrips.Take(10))
         {
+            var statusLabel = row.Status == inTransitStatus ? "در مسیر" : "برنامه‌ریزی";
             items.Add(new
             {
-                type = "product_shortage",
-                severity = "warning",
-                title = $"کمبود محصول «{row.Name}»",
-                message =
-                    $"موجودی {FormatQty(row.TotalStockQuantity)} {row.UnitName} — حداقل مجاز {FormatQty(row.MinStockQuantity)} {row.UnitName}",
-                href = "/products/list",
-                productId = row.ProductId,
-                code = row.Code,
+                type = "trip_pending",
+                severity = row.Status == inTransitStatus ? "warning" : "info",
+                title = $"سفر {row.TripNumber} — {statusLabel}",
+                message = $"مشتری: {row.CustomerName} — {JalaliDateHelper.FormatDate(row.TripDate)}",
+                href = "/transport/trips",
+                tripId = row.TripId,
             });
         }
 
-        foreach (var warehouse in warehouses)
+        foreach (var row in unpostedTrips.Take(10))
         {
-            if (warehouse.CapacityInBase <= 0) continue;
-
-            var fillPercent = Math.Round(
-                Math.Min(100m, warehouse.UsedInBase / warehouse.CapacityInBase * 100m),
-                1);
-
-            if (fillPercent >= WarehouseFullPercent)
+            items.Add(new
             {
-                items.Add(new
-                {
-                    type = "warehouse_full",
-                    severity = "danger",
-                    title = $"انبار «{warehouse.Name}» پر شده است",
-                    message = $"پر بودن {fillPercent:0.#}٪ از ظرفیت ({FormatQty(warehouse.Capacity)} {warehouse.CapacityUnit})",
-                    href = "/inventory/warehouses",
-                    warehouseId = warehouse.WarehouseId,
-                    fillPercent,
-                });
-            }
-            else if (fillPercent < WarehouseLowPercent)
+                type = "trip_unposted",
+                severity = "warning",
+                title = $"درآمد حمل ثبت نشده — {row.TripNumber}",
+                message = $"مشتری: {row.CustomerName} — {JalaliDateHelper.FormatDate(row.TripDate)}",
+                href = "/transport/trips",
+                tripId = row.TripId,
+            });
+        }
+
+        foreach (var row in awaitingSettlement.Take(10))
+        {
+            items.Add(new
             {
-                items.Add(new
-                {
-                    type = "warehouse_low",
-                    severity = "info",
-                    title = $"انبار «{warehouse.Name}» کمتر از ۲۰٪ پر است",
-                    message = $"پر بودن {fillPercent:0.#}٪ — ظرفیت {FormatQty(warehouse.Capacity)} {warehouse.CapacityUnit}",
-                    href = "/inventory/warehouses",
-                    warehouseId = warehouse.WarehouseId,
-                    fillPercent,
-                });
-            }
+                type = "trip_awaiting_settlement",
+                severity = "info",
+                title = $"سفر تحویل‌شده — {row.TripNumber}",
+                message = $"در انتظار تسویه — مشتری: {row.CustomerName}",
+                href = "/transport/trips",
+                tripId = row.TripId,
+            });
         }
 
         return new
@@ -490,9 +406,9 @@ public class DashboardReadService : IDashboardReadService
     {
         var (typeLabel, href) = row.OperationType switch
         {
-            "purchase" => ("خرید", "/transactions/purchase"),
-            "sale" => ("فروش", "/transactions/sale"),
-            "production" => ("تولید", "/production/daily"),
+            "trip" => ("سفر", "/transport/trips"),
+            "revenue" => ("عواید", "/accounting/revenues"),
+            "expense" => ("مصارف", "/accounting/expenses"),
             _ => ("عملیات", "/"),
         };
 
@@ -507,9 +423,7 @@ public class DashboardReadService : IDashboardReadService
             dateLabel = JalaliDateHelper.FormatDate(row.OperationDate),
             amountInBase = row.AmountInBase,
             partyName = row.PartyName,
-            warehouseName = row.WarehouseName,
             statusLabel = BuildStatusLabel(row),
-            isPosted = row.IsPosted,
             href,
         };
     }
@@ -524,38 +438,18 @@ public class DashboardReadService : IDashboardReadService
 
     private static string BuildStatusLabel(RecentOperationRow row)
     {
-        if (row.OperationType == "production")
-        {
-            return row.IsPosted || row.Status == (int)ProductionBatchStatus.Posted
-                ? "ثبت‌شده"
-                : "پیش‌نویس";
-        }
-
-        if (row.DocumentType == (int)InvoiceDocumentType.PurchaseReturn)
-            return "برگشت از خرید";
-        if (row.DocumentType == (int)InvoiceDocumentType.SaleReturn)
-            return "برگشت از فروش";
+        if (row.OperationType != "trip")
+            return "ثبت‌شده";
 
         return row.Status switch
         {
-            (int)InvoiceStatus.Quotation => "استعلام",
-            (int)InvoiceStatus.Proforma => "پیش‌فاکتور",
-            (int)InvoiceStatus.Order => "آردر",
-            (int)InvoiceStatus.Invoice => row.IsPosted ? "ثبت‌شده" : "فاکتور",
-            _ => row.IsPosted ? "ثبت‌شده" : "در انتظار",
+            (int)TripStatus.Planned => "برنامه‌ریزی",
+            (int)TripStatus.InTransit => "در مسیر",
+            (int)TripStatus.Delivered => "تحویل‌شده",
+            (int)TripStatus.Settled => "تسویه‌شده",
+            (int)TripStatus.Cancelled => "لغو",
+            _ => "—",
         };
-    }
-
-    private static string FormatQty(decimal value)
-    {
-        return value.ToString("0.####", CultureInfo.InvariantCulture);
-    }
-
-    private sealed class PerformanceAmountRow
-    {
-        public DateTime EventDate { get; set; }
-        public int DocumentType { get; set; }
-        public decimal AmountInBase { get; set; }
     }
 
     private sealed class PerformanceSimpleRow
@@ -572,29 +466,16 @@ public class DashboardReadService : IDashboardReadService
         public DateTime OperationDate { get; set; }
         public decimal AmountInBase { get; set; }
         public string? PartyName { get; set; }
-        public string? WarehouseName { get; set; }
-        public int? DocumentType { get; set; }
         public int Status { get; set; }
-        public bool IsPosted { get; set; }
     }
 
-    private sealed class ProductShortageRow
+    private sealed class TripAlertRow
     {
-        public int ProductId { get; set; }
-        public string Code { get; set; } = string.Empty;
-        public string Name { get; set; } = string.Empty;
-        public decimal MinStockQuantity { get; set; }
-        public decimal TotalStockQuantity { get; set; }
-        public string UnitName { get; set; } = string.Empty;
-    }
-
-    private sealed class WarehouseFillRow
-    {
-        public int WarehouseId { get; set; }
-        public string Name { get; set; } = string.Empty;
-        public decimal Capacity { get; set; }
-        public string CapacityUnit { get; set; } = string.Empty;
-        public decimal CapacityInBase { get; set; }
-        public decimal UsedInBase { get; set; }
+        public int TripId { get; set; }
+        public string TripNumber { get; set; } = string.Empty;
+        public DateTime TripDate { get; set; }
+        public int Status { get; set; }
+        public bool IsRevenuePosted { get; set; }
+        public string CustomerName { get; set; } = string.Empty;
     }
 }

@@ -184,7 +184,7 @@ public class CurrencyExchangeService : ICurrencyExchangeService
         var baseCurrency = await _currencies.GetBaseCurrencyAsync(cancellationToken);
         var lines = new List<JournalLineDraft>
         {
-            // بدهکار مقصد (ورود ارز)
+            // دیبت مقصد (ورود ارز)
             new(
                 toAccountId,
                 request.ToAmount,
@@ -194,7 +194,7 @@ public class CurrencyExchangeService : ICurrencyExchangeService
                 request.ToCurrencyId,
                 $"ورود {toCurrency.CurrencyCode}",
                 CashBoxId: toCashBoxId),
-            // بستانکار مبدأ (خروج ارز)
+            // کریدیت مبدأ (خروج ارز)
             new(
                 fromAccountId,
                 0,

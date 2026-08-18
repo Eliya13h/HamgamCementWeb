@@ -20,10 +20,10 @@ const RANGE_OPTIONS = [
 ]
 
 const SERIES = [
-  { key: 'purchase', label: 'خرید', color: '#58a6ff', totalKey: 'purchase' },
-  { key: 'sale', label: 'فروش', color: '#f0883e', totalKey: 'sale' },
-  { key: 'revenue', label: 'درآمد', color: '#3fb950', totalKey: 'revenue' },
-  { key: 'expense', label: 'مصرف', color: '#f85149', totalKey: 'expense' },
+  { key: 'tripRevenue', label: 'درآمد حمل', color: '#3fb950', totalKey: 'tripRevenue' },
+  { key: 'tripExpense', label: 'هزینه سفر', color: '#f85149', totalKey: 'tripExpense' },
+  { key: 'revenue', label: 'سایر عواید', color: '#58a6ff', totalKey: 'revenue' },
+  { key: 'expense', label: 'سایر مصارف', color: '#f0883e', totalKey: 'expense' },
 ]
 
 function readCssVar(name, fallback) {
@@ -123,11 +123,11 @@ function PerformanceAnalysisChart() {
   }, [themeTick])
 
   const points = data?.points ?? []
-  const totals = data?.totals ?? { purchase: 0, sale: 0, revenue: 0, expense: 0 }
+  const totals = data?.totals ?? { tripRevenue: 0, tripExpense: 0, revenue: 0, expense: 0 }
   const hasValues = points.some(
     (point) =>
-      Number(point.purchase) ||
-      Number(point.sale) ||
+      Number(point.tripRevenue) ||
+      Number(point.tripExpense) ||
       Number(point.revenue) ||
       Number(point.expense),
   )
@@ -139,7 +139,7 @@ function PerformanceAnalysisChart() {
           <div>
             <h3 className="card-title mb-1">تحلیل عملکرد مالی</h3>
             <p className="performance-chart-subtitle mb-0">
-              مقایسه ماهانه خرید، فروش، درآمد و مصرف
+              مقایسه ماهانه درآمد/هزینه حمل و سایر عواید و مصارف
               {data?.from && data?.to ? ` · ${data.from} تا ${data.to}` : ''}
             </p>
           </div>

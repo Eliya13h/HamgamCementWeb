@@ -57,10 +57,11 @@ public class TransportTripController : TransportControllerBase
             $"""
              SELECT t.TransportTripId AS transportTripId, t.TripNumber AS tripNumber,
                     t.TripDate AS tripDate, t.Status AS status,
+                    t.FreightMode AS freightMode,
                     c.Name AS customerName, t.Origin AS origin, t.Destination AS destination,
                     t.WeightTon AS weightTon, t.RatePerTon AS ratePerTon,
                     t.Amount AS amount, t.AmountInBaseCurrency AS amountInBaseCurrency,
-                    t.IsRevenuePosted AS isRevenuePosted
+                    t.IsRevenuePosted AS isRevenuePosted, t.IsDistributionPosted AS isDistributionPosted
              FROM TransportTrips t
              INNER JOIN Customers c ON c.CustomerID = t.CustomerId
              {where}
@@ -68,7 +69,7 @@ public class TransportTripController : TransportControllerBase
              OFFSET @Offset ROWS FETCH NEXT @Fetch ROWS ONLY
              """, p)).ToList();
 
-        return Ok(new { request.Draw, recordsTotal, recordsFiltered, data = rows.Select((r, i) => { var d = (IDictionary<string, object>)r; return new { rowNumber = start + i + 1, transportTripId = d["transportTripId"], tripNumber = d["tripNumber"], tripDate = d["tripDate"], status = d["status"], customerName = d["customerName"], origin = d["origin"], destination = d["destination"], weightTon = d["weightTon"], ratePerTon = d["ratePerTon"], amount = d["amount"], amountInBaseCurrency = d["amountInBaseCurrency"], isRevenuePosted = d["isRevenuePosted"] }; }) });
+        return Ok(new { request.Draw, recordsTotal, recordsFiltered, data = rows.Select((r, i) => { var d = (IDictionary<string, object>)r; return new { rowNumber = start + i + 1, transportTripId = d["transportTripId"], tripNumber = d["tripNumber"], tripDate = d["tripDate"], status = d["status"], freightMode = d["freightMode"], customerName = d["customerName"], origin = d["origin"], destination = d["destination"], weightTon = d["weightTon"], ratePerTon = d["ratePerTon"], amount = d["amount"], amountInBaseCurrency = d["amountInBaseCurrency"], isRevenuePosted = d["isRevenuePosted"], isDistributionPosted = d["isDistributionPosted"] }; }) });
     }
 
     [HttpGet("{id:int}")]
@@ -86,6 +87,7 @@ public class TransportTripController : TransportControllerBase
             tripNumber = trip.TripNumber,
             tripDate = trip.TripDate,
             status = (int)trip.Status,
+            freightMode = (int)trip.FreightMode,
             customerId = trip.CustomerId,
             origin = trip.Origin,
             destination = trip.Destination,
@@ -107,6 +109,8 @@ public class TransportTripController : TransportControllerBase
             notes = trip.Notes,
             isRevenuePosted = trip.IsRevenuePosted,
             revenueJournalEntryId = trip.RevenueJournalEntryId,
+            isDistributionPosted = trip.IsDistributionPosted,
+            distributionJournalEntryId = trip.DistributionJournalEntryId,
             expenses = trip.Expenses.Select(e => new
             {
                 tripExpenseId = e.TripExpenseId,
@@ -120,6 +124,8 @@ public class TransportTripController : TransportControllerBase
                 vehicleId = e.VehicleId,
                 cashBoxId = e.CashBoxId,
                 bankAccountId = e.BankAccountId,
+                partyType = e.PartyType.HasValue ? (int)e.PartyType.Value : (int?)null,
+                partyId = e.PartyId,
                 isPosted = e.IsPosted,
                 journalEntryId = e.JournalEntryId,
             }),
@@ -132,7 +138,7 @@ public class TransportTripController : TransportControllerBase
         if (!ModelState.IsValid) return ValidationProblem(ModelState);
         await ApplyPairDefaultsAsync(request, ct);
 
-        var amount = Math.Round(request.WeightTon * request.RatePerTon, 4);
+        var amount = CalculateFreightAmount(request);
         var snapshot = await _currency.GetSnapshotAsync(request.CurrencyId, request.TripDate, ct);
         var amountBase = _currency.ConvertToBase(amount, snapshot);
 
@@ -142,6 +148,7 @@ public class TransportTripController : TransportControllerBase
             TripNumber = tripNumber,
             TripDate = request.TripDate,
             Status = request.Status,
+            FreightMode = request.FreightMode,
             CustomerId = request.CustomerId,
             Origin = request.Origin.Trim(),
             Destination = request.Destination.Trim(),
@@ -181,12 +188,13 @@ public class TransportTripController : TransportControllerBase
         await ApplyPairDefaultsAsync(request, ct);
         entity.TripDate = request.TripDate;
         entity.Status = request.Status;
+        entity.FreightMode = request.FreightMode;
         entity.CustomerId = request.CustomerId;
         entity.Origin = request.Origin.Trim();
         entity.Destination = request.Destination.Trim();
         entity.WeightTon = request.WeightTon;
         entity.RatePerTon = request.RatePerTon;
-        entity.Amount = Math.Round(request.WeightTon * request.RatePerTon, 4);
+        entity.Amount = CalculateFreightAmount(request);
         entity.CurrencyId = request.CurrencyId;
         entity.ExchangeRate = request.ExchangeRate;
         var snapshot = await _currency.GetSnapshotAsync(request.CurrencyId, request.TripDate, ct);
@@ -214,6 +222,19 @@ public class TransportTripController : TransportControllerBase
         if (entity is null) return NotFound();
         entity.Status = request.Status;
         await Db.SaveChangesAsync(ct);
+
+        if (request.Status is TripStatus.Delivered or TripStatus.Settled)
+        {
+            try
+            {
+                await _posting.EnsureTripRevenueAndDistributionAsync(id, ResolveCurrentUserId(), ct);
+            }
+            catch (InvalidOperationException ex)
+            {
+                return BadRequest(new { message = ex.Message });
+            }
+        }
+
         return Ok(new { message = "وضعیت به‌روز شد." });
     }
 
@@ -251,6 +272,12 @@ public class TransportTripController : TransportControllerBase
         if (!await Db.TransportTrips.AnyAsync(t => t.TransportTripId == id && t.IsDeleted != true, ct))
             return NotFound(new { message = "سفر یافت نشد." });
 
+        var hasParty = request.PartyType.HasValue && request.PartyId.HasValue;
+        var hasCash = request.CashBoxId.HasValue;
+        var hasBank = request.BankAccountId.HasValue;
+        if (!hasParty && !hasCash && !hasBank)
+            return BadRequest(new { message = "طرف حساب، صندوق یا حساب بانکی الزامی است." });
+
         var snapshot = await _currency.GetSnapshotAsync(request.CurrencyId, request.ExpenseDate, ct);
         var amountBase = _currency.ConvertToBase(request.Amount, snapshot);
         var expense = new TripExpense
@@ -266,6 +293,8 @@ public class TransportTripController : TransportControllerBase
             VehicleId = request.VehicleId,
             CashBoxId = request.CashBoxId,
             BankAccountId = request.BankAccountId,
+            PartyType = hasParty ? request.PartyType : null,
+            PartyId = hasParty ? request.PartyId : null,
             IsActive = true,
             IsDeleted = false,
             CreatedAt = DateTime.Now,
@@ -303,6 +332,13 @@ public class TransportTripController : TransportControllerBase
         return Ok(new { message = "حذف شد." });
     }
 
+    private static decimal CalculateFreightAmount(TransportTripRequest request)
+    {
+        return request.FreightMode == FreightMode.LumpSum
+            ? Math.Round(request.Amount, 4)
+            : Math.Round(request.WeightTon * request.RatePerTon, 4);
+    }
+
     private async Task ApplyPairDefaultsAsync(TransportTripRequest request, CancellationToken ct)
     {
         if (request.VehiclePairId is not int pairId) return;
@@ -327,11 +363,13 @@ public class TransportTripRequest
 {
     public DateTime TripDate { get; set; } = DateTime.Now;
     public TripStatus Status { get; set; } = TripStatus.Planned;
+    public FreightMode FreightMode { get; set; } = FreightMode.WeightBased;
     public int CustomerId { get; set; }
     [Required] public string Origin { get; set; } = string.Empty;
     [Required] public string Destination { get; set; } = string.Empty;
     public decimal WeightTon { get; set; }
     public decimal RatePerTon { get; set; }
+    public decimal Amount { get; set; }
     public int CurrencyId { get; set; }
     public decimal ExchangeRate { get; set; } = 1m;
     public int? VehiclePairId { get; set; }
@@ -362,4 +400,6 @@ public class TripExpenseRequest
     public int? VehicleId { get; set; }
     public int? CashBoxId { get; set; }
     public int? BankAccountId { get; set; }
+    public PartySettlementPartyType? PartyType { get; set; }
+    public int? PartyId { get; set; }
 }

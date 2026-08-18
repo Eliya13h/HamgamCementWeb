@@ -1,9 +1,10 @@
 using System.ComponentModel.DataAnnotations;
 using System.ComponentModel.DataAnnotations.Schema;
+using HamgamCementWeb.Server.Data;
 
 namespace HamgamCementWeb.Server.Data.Models.Finance;
 
-// خط سند دفترروزنامه — بدهکار یا بستانکار
+// خط سند دفترروزنامه — دیبت یا کریدیت
 public class JournalLine : BaseEntity
 {
     [Key]
@@ -37,6 +38,9 @@ public class JournalLine : BaseEntity
 
     // مشتری یا تأمین‌کننده مرتبط با خط تفصیلی
     public int? PartyId { get; set; }
+
+    // نوع طرف‌حساب برای رفع ابهام PartyId در سند دستی و گزارش‌ها
+    public PartySettlementPartyType? PartyType { get; set; }
 
     // مرکز هزینه اختیاری برای گزارش تحلیلی
     public int? CostCenterId { get; set; }

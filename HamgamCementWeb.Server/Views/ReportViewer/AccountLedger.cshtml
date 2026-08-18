@@ -1,0 +1,307 @@
+@model HamgamCementWeb.Server.Services.AccountLedgerPrintModel
+@using System.Globalization
+@{
+    Layout = null;
+    string Money(decimal value) => value.ToString("#,##0.##", CultureInfo.InvariantCulture);
+    var showCostCenter = Model.Rows.Any(r => !string.IsNullOrWhiteSpace(r.CostCenterLabel))
+        || !string.IsNullOrWhiteSpace(Model.CostCenterFilterLabel);
+}
+<!DOCTYPE html>
+<html lang="fa" dir="rtl">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>@Model.ReportTitle</title>
+    <style>
+        @@font-face {
+            font-family: 'NotoNastaliq';
+            src: url('/report-fonts/NotoNastaliqUrdu-SemiBold.ttf') format('truetype');
+            font-weight: 600;
+            font-style: normal;
+        }
+
+        :root {
+            --ink: #111;
+            --muted: #003060;
+            --line: #222;
+            --soft: #f3f3f3;
+            --softer: #ebebeb;
+        }
+
+        * { box-sizing: border-box; }
+
+        html, body {
+            margin: 0;
+            padding: 0;
+            background: #5a5a5a;
+            color: var(--ink);
+            font-family: Tahoma, 'Segoe UI', sans-serif;
+        }
+
+        .toolbar {
+            position: sticky;
+            top: 0;
+            z-index: 20;
+            display: flex;
+            gap: 8px;
+            justify-content: center;
+            padding: 12px;
+            background: #222;
+        }
+
+        .toolbar button {
+            border: 0;
+            border-radius: 8px;
+            padding: 10px 18px;
+            font-family: Tahoma, sans-serif;
+            font-size: 14px;
+            cursor: pointer;
+            background: #0f766e;
+            color: #fff;
+        }
+
+        .toolbar button.secondary { background: #444; }
+
+        .sheet-wrap { padding: 20px 0 40px; }
+
+        .page {
+            width: 210mm;
+            min-height: 297mm;
+            margin: 0 auto 16px;
+            padding: 8mm 8mm 10mm;
+            background: #fff;
+            box-shadow: 0 8px 24px rgba(0, 0, 0, 0.28);
+            display: flex;
+            flex-direction: column;
+        }
+
+        .brand-row {
+            display: grid;
+            grid-template-columns: 26mm 1fr 26mm;
+            gap: 4mm;
+            align-items: center;
+        }
+
+        .brand-row img {
+            width: 26mm;
+            height: 26mm;
+            object-fit: contain;
+        }
+
+        .brand-center { text-align: center; }
+
+        .brand-fa {
+            font-family: 'NotoNastaliq', Tahoma, serif;
+            font-size: 18px;
+            line-height: 1.5;
+            margin: 0;
+        }
+
+        .brand-en {
+            font-family: Georgia, 'Times New Roman', serif;
+            font-style: italic;
+            font-size: 14px;
+            margin: 2px 0 0;
+            color: #222;
+        }
+
+        .header-rule {
+            height: 2px;
+            margin: 3mm 0 2mm;
+            background: linear-gradient(90deg, transparent, #333 12%, #333 88%, transparent);
+        }
+
+        .meta-row {
+            display: grid;
+            grid-template-columns: 1fr 1.4fr 1fr;
+            gap: 2mm;
+            align-items: end;
+            font-size: 12px;
+        }
+
+        .meta-row .center { text-align: center; }
+        .meta-row .title { font-weight: 700; font-size: 15px; margin: 0; }
+        .meta-row .range { margin: 2px 0 0; font-size: 12px; }
+
+        .account-line {
+            margin: 3mm 0 2mm;
+            font-size: 13px;
+        }
+
+        .summary {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 6px;
+            margin-bottom: 3mm;
+            font-size: 12px;
+        }
+
+        .summary div {
+            border: 1px solid var(--line);
+            padding: 6px 8px;
+            background: var(--soft);
+        }
+
+        .ledger-table {
+            width: 100%;
+            border-collapse: collapse;
+            table-layout: fixed;
+            font-size: 11px;
+            margin-top: 2mm;
+        }
+
+        .ledger-table th,
+        .ledger-table td {
+            border: 1px solid var(--line);
+            padding: 2.2mm 1.5mm;
+            vertical-align: top;
+        }
+
+        .ledger-table th {
+            background: #fff;
+            color: var(--muted);
+            font-weight: 700;
+            text-align: center;
+            font-size: 12px;
+        }
+
+        .num {
+            text-align: left;
+            font-variant-numeric: tabular-nums;
+            direction: ltr;
+        }
+
+        .row-special { background: var(--soft); font-weight: 700; }
+        .row-total { background: var(--softer); font-weight: 700; }
+        .empty-note { text-align: center; color: #666; padding: 8mm 0; font-size: 13px; }
+
+        @@media print {
+            html, body { background: #fff; }
+            .toolbar { display: none !important; }
+            .sheet-wrap { padding: 0; }
+            .page {
+                width: 210mm;
+                min-height: auto;
+                margin: 0;
+                padding: 8mm;
+                box-shadow: none;
+            }
+            @@page { size: A4 portrait; margin: 0; }
+        }
+    </style>
+</head>
+<body>
+    <div class="toolbar no-print">
+        <button type="button" onclick="window.print()">چاپ / خروجی PDF</button>
+        <button type="button" class="secondary" onclick="window.close()">بستن</button>
+    </div>
+
+    <div class="sheet-wrap">
+        <section class="page">
+            <div class="brand-row">
+                <div>
+                    @if (!string.IsNullOrWhiteSpace(Model.CompanyLogoDataUri))
+                    {
+                        <img src="@Model.CompanyLogoDataUri" alt="لوگو شرکت" />
+                    }
+                </div>
+                <div class="brand-center">
+                    <p class="brand-fa">@Model.PersianCompanyName</p>
+                    <p class="brand-en">@Model.EnglishCompanyName</p>
+                </div>
+                <div>
+                    @if (!string.IsNullOrWhiteSpace(Model.ZmLogoDataUri))
+                    {
+                        <img src="@Model.ZmLogoDataUri" alt="لوگو" />
+                    }
+                </div>
+            </div>
+            <div class="header-rule"></div>
+            <div class="meta-row">
+                <div></div>
+                <div class="center">
+                    <p class="title">@Model.ReportTitle</p>
+                    <p class="range">@Model.ReportRangeDate</p>
+                </div>
+                <div style="text-align:left">تاریخ چاپ : @Model.PrintDate</div>
+            </div>
+
+            <p class="account-line">
+                حساب: <strong class="num">@Model.AccountCode</strong> — @Model.AccountName
+                @if (!string.IsNullOrWhiteSpace(Model.CostCenterFilterLabel))
+                {
+                    <span> | مرکز هزینه: <strong>@Model.CostCenterFilterLabel</strong></span>
+                }
+            </p>
+
+            <div class="summary">
+                <div>مانده اول دوره: <span class="num">@Money(Model.OpeningBalance)</span></div>
+                <div>جمع دیبت دوره: <span class="num">@Money(Model.PeriodDebit)</span></div>
+                <div>جمع کریدیت دوره: <span class="num">@Money(Model.PeriodCredit)</span></div>
+                <div>مانده پایان دوره: <span class="num">@Money(Model.ClosingBalance)</span></div>
+            </div>
+
+            <table class="ledger-table">
+                <thead>
+                    <tr>
+                        <th style="width:12%">تاریخ</th>
+                        <th style="width:12%">شماره سند</th>
+                        <th>شرح</th>
+                        @if (showCostCenter)
+                        {
+                            <th style="width:16%">مرکز هزینه</th>
+                        }
+                        <th style="width:12%">دیبت (Db)</th>
+                        <th style="width:12%">کریدیت (Cr)</th>
+                        <th style="width:12%">مانده</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr class="row-special">
+                        <td></td>
+                        <td></td>
+                        <td>مانده اول دوره</td>
+                        @if (showCostCenter)
+                        {
+                            <td></td>
+                        }
+                        <td class="num">@Money(Model.OpeningDebit)</td>
+                        <td class="num">@Money(Model.OpeningCredit)</td>
+                        <td class="num">@Money(Model.OpeningBalance)</td>
+                    </tr>
+                    @if (Model.Rows.Count == 0)
+                    {
+                        <tr>
+                            <td colspan="@(showCostCenter ? 7 : 6)" class="empty-note">در این بازه گردشی ثبت نشده است.</td>
+                        </tr>
+                    }
+                    else
+                    {
+                        foreach (var row in Model.Rows)
+                        {
+                            <tr>
+                                <td>@row.ShamsiDate</td>
+                                <td class="num">@row.EntryNumber</td>
+                                <td>@row.Description</td>
+                                @if (showCostCenter)
+                                {
+                                    <td>@(row.CostCenterLabel ?? "—")</td>
+                                }
+                                <td class="num">@(row.Debit == 0 ? "" : Money(row.Debit))</td>
+                                <td class="num">@(row.Credit == 0 ? "" : Money(row.Credit))</td>
+                                <td class="num">@Money(row.RunningBalance)</td>
+                            </tr>
+                        }
+                    }
+                    <tr class="row-total">
+                        <td colspan="@(showCostCenter ? 4 : 3)">مانده پایان دوره</td>
+                        <td class="num">@Money(Model.PeriodDebit)</td>
+                        <td class="num">@Money(Model.PeriodCredit)</td>
+                        <td class="num">@Money(Model.ClosingBalance)</td>
+                    </tr>
+                </tbody>
+            </table>
+        </section>
+    </div>
+</body>
+</html>

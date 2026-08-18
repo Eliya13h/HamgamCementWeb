@@ -77,65 +77,25 @@ public class VehicleTypeController : TransportControllerBase
     public async Task<IActionResult> Options(CancellationToken ct) =>
         Ok(await Db.VehicleTypes.AsNoTracking()
             .Where(v => v.IsDeleted != true && v.IsActive == true)
-            .OrderBy(v => v.Code)
-            .Select(v => new { value = v.VehicleTypeId, label = v.Name, defaultRole = (int)v.DefaultRole })
+            .OrderBy(v => v.VehicleTypeId)
+            .Select(v => new
+            {
+                value = v.VehicleTypeId,
+                label = v.Name,
+                code = v.Code,
+                defaultRole = (int)v.DefaultRole,
+            })
             .ToListAsync(ct));
 
     [HttpPost]
-    public async Task<IActionResult> Create([FromBody] VehicleTypeRequest request, CancellationToken ct)
-    {
-        if (!ModelState.IsValid) return ValidationProblem(ModelState);
-        var code = request.Code.Trim();
-        if (await Db.VehicleTypes.AnyAsync(v => v.Code == code && v.IsDeleted != true, ct))
-            return BadRequest(new { message = "کد تکراری است." });
-
-        var entity = new VehicleType
-        {
-            Code = code,
-            Name = request.Name.Trim(),
-            DefaultRole = request.DefaultRole,
-            IsActive = request.IsActive,
-            IsDeleted = false,
-            CreatedAt = DateTime.Now,
-            CreatedBy = ResolveCurrentUserId(),
-        };
-        Db.VehicleTypes.Add(entity);
-        await Db.SaveChangesAsync(ct);
-        return Ok(new { message = "ثبت شد.", vehicleTypeId = entity.VehicleTypeId });
-    }
+    public IActionResult Create() =>
+        BadRequest(new { message = "انواع وسیله سیستمی هستند و از این صفحه قابل ثبت نیستند." });
 
     [HttpPut("{id:int}")]
-    public async Task<IActionResult> Update(int id, [FromBody] VehicleTypeRequest request, CancellationToken ct)
-    {
-        var entity = await Db.VehicleTypes.FirstOrDefaultAsync(v => v.VehicleTypeId == id && v.IsDeleted != true, ct);
-        if (entity is null) return NotFound(new { message = "یافت نشد." });
-
-        entity.Name = request.Name.Trim();
-        entity.DefaultRole = request.DefaultRole;
-        entity.IsActive = request.IsActive;
-        entity.UpdatedAt = DateTime.Now;
-        entity.UpdatedBy = ResolveCurrentUserId();
-        await Db.SaveChangesAsync(ct);
-        return Ok(new { message = "به‌روزرسانی شد." });
-    }
+    public IActionResult Update(int id) =>
+        BadRequest(new { message = "انواع وسیله سیستمی هستند و قابل ویرایش نیستند." });
 
     [HttpDelete("{id:int}")]
-    public async Task<IActionResult> Delete(int id, CancellationToken ct)
-    {
-        var entity = await Db.VehicleTypes.FirstOrDefaultAsync(v => v.VehicleTypeId == id && v.IsDeleted != true, ct);
-        if (entity is null) return NotFound(new { message = "یافت نشد." });
-        entity.IsDeleted = true;
-        entity.DeletedAt = DateTime.Now;
-        entity.DeletedBy = ResolveCurrentUserId();
-        await Db.SaveChangesAsync(ct);
-        return Ok(new { message = "حذف شد." });
-    }
-}
-
-public class VehicleTypeRequest
-{
-    [Required, MaxLength(50)] public string Code { get; set; } = string.Empty;
-    [Required, MaxLength(200)] public string Name { get; set; } = string.Empty;
-    public VehicleRole DefaultRole { get; set; } = VehicleRole.Primary;
-    public bool IsActive { get; set; } = true;
+    public IActionResult Delete(int id) =>
+        BadRequest(new { message = "انواع وسیله سیستمی هستند و قابل حذف نیستند." });
 }

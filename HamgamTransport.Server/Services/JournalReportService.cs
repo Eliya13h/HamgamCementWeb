@@ -4,7 +4,6 @@ using System.Runtime.Versioning;
 using HamgamTransport.Server.Data;
 using HamgamTransport.Server.Data.Models;
 using HamgamTransport.Server.Data.Models.Finance;
-using HamgamTransport.Server.Data.Models.Invoice;
 using Microsoft.EntityFrameworkCore;
 using Stimulsoft.Report;
 using Stimulsoft.Report.Components;
@@ -19,6 +18,8 @@ public enum JournalReportType
     Expense,
     Production,
     General,
+    // سرویس‌ها و هزینه‌های سفر ترانسپورت
+    Transport,
 }
 
 public interface IJournalReportService
@@ -39,10 +40,24 @@ public interface IJournalReportService
         DateTime? dateTo,
         CancellationToken cancellationToken = default);
 
-    // نسخه چاپ HTML (A4) برای روزنامچه عمومی
+    // نسخه چاپ HTML (A4) برای روزنامچه عمومی / عواید / مصارف / حمل
     Task<StandardJournalPrintModel> BuildStandardJournalPrintModelAsync(
         DateTime? dateFrom,
         DateTime? dateTo,
+        CancellationToken cancellationToken = default);
+
+    Task<StandardJournalPrintModel> BuildFilteredJournalPrintModelAsync(
+        JournalReportType type,
+        DateTime? dateFrom,
+        DateTime? dateTo,
+        CancellationToken cancellationToken = default);
+
+    // چاپ HTML دفتر کل یک حساب
+    Task<AccountLedgerPrintModel> BuildAccountLedgerPrintModelAsync(
+        int accountId,
+        DateTime? dateFrom,
+        DateTime? dateTo,
+        int? partyId,
         CancellationToken cancellationToken = default);
 }
 
@@ -65,13 +80,7 @@ public class JournalReportService : IJournalReportService
         DateTime? dateTo,
         CancellationToken cancellationToken = default)
     {
-        return BuildInvoiceJournalReportAsync(
-            "روزنامچه خرید",
-            dateFrom,
-            dateTo,
-            LoadPurchaseRowsAsync,
-            GetPurchaseReturnDescription,
-            cancellationToken);
+        throw new NotSupportedException("روزنامچه خرید در سیستم ترانسپورت پشتیبانی نمی‌شود.");
     }
 
     public Task<StiReport> BuildSaleJournalReportAsync(
@@ -79,13 +88,7 @@ public class JournalReportService : IJournalReportService
         DateTime? dateTo,
         CancellationToken cancellationToken = default)
     {
-        return BuildInvoiceJournalReportAsync(
-            "روزنامچه فروش",
-            dateFrom,
-            dateTo,
-            LoadSaleRowsAsync,
-            GetSaleReturnDescription,
-            cancellationToken);
+        throw new NotSupportedException("روزنامچه فروش در سیستم ترانسپورت پشتیبانی نمی‌شود.");
     }
 
     public Task<StiReport> BuildStandardGeneralJournalReportAsync(
@@ -97,6 +100,19 @@ public class JournalReportService : IJournalReportService
     }
 
     public async Task<StandardJournalPrintModel> BuildStandardJournalPrintModelAsync(
+        DateTime? dateFrom,
+        DateTime? dateTo,
+        CancellationToken cancellationToken = default)
+    {
+        return await BuildFilteredJournalPrintModelAsync(
+            JournalReportType.General,
+            dateFrom,
+            dateTo,
+            cancellationToken);
+    }
+
+    public async Task<StandardJournalPrintModel> BuildFilteredJournalPrintModelAsync(
+        JournalReportType type,
         DateTime? dateFrom,
         DateTime? dateTo,
         CancellationToken cancellationToken = default)
@@ -120,10 +136,11 @@ public class JournalReportService : IJournalReportService
             .ToListAsync(cancellationToken);
 
         var accountMap = accounts.ToDictionary(a => a.AccountId);
-        var opening = await LoadOpeningBalanceAsync(dateFrom, cancellationToken);
-        var entries = await LoadStandardJournalEntriesAsync(dateFrom, dateTo, cancellationToken);
+        var sourceFilter = ResolveSourceFilter(type);
+        var opening = await LoadOpeningBalanceAsync(dateFrom, sourceFilter, cancellationToken);
+        var entries = await LoadStandardJournalEntriesAsync(dateFrom, dateTo, sourceFilter, cancellationToken);
         var rows = MapStandardJournalRows(entries, accountMap);
-        var info = BuildInfo(settings, "دفتر روزنامه عمومی", dateFrom, dateTo);
+        var info = BuildInfo(settings, GetHtmlJournalReportTitle(type), dateFrom, dateTo);
 
         return new StandardJournalPrintModel
         {
@@ -137,6 +154,125 @@ public class JournalReportService : IJournalReportService
             OpeningDebit = opening.Debit,
             OpeningCredit = opening.Credit,
             Pages = BuildPrintPages(rows, opening.Debit, opening.Credit),
+        };
+    }
+
+    public async Task<AccountLedgerPrintModel> BuildAccountLedgerPrintModelAsync(
+        int accountId,
+        DateTime? dateFrom,
+        DateTime? dateTo,
+        int? partyId,
+        CancellationToken cancellationToken = default)
+    {
+        var account = await _db.Accounts
+            .AsNoTracking()
+            .FirstOrDefaultAsync(a => a.AccountID == accountId && a.IsDeleted != true, cancellationToken)
+            ?? throw new InvalidOperationException("حساب یافت نشد.");
+
+        var today = DateTime.Today;
+        var solarYear = JalaliDateHelper.GetSolarYear(today);
+        var (yearStart, _) = JalaliDateHelper.GetSolarYearRange(solarYear);
+        var start = (dateFrom ?? yearStart).Date;
+        var end = (dateTo ?? today).Date;
+        if (start > end)
+        {
+            throw new InvalidOperationException("تاریخ شروع نباید بعد از تاریخ پایان باشد.");
+        }
+
+        var endInclusive = end.AddDays(1).AddTicks(-1);
+
+        var openingQuery = _db.JournalLines
+            .AsNoTracking()
+            .Where(l =>
+                l.AccountId == accountId &&
+                l.IsDeleted != true &&
+                l.JournalEntry.IsDeleted != true &&
+                l.JournalEntry.IsPosted &&
+                l.JournalEntry.EntryDate < start);
+        if (partyId is > 0)
+        {
+            openingQuery = openingQuery.Where(l => l.PartyId == partyId);
+        }
+
+        var openingDebit = await openingQuery.SumAsync(l => l.DebitInBaseCurrency, cancellationToken);
+        var openingCredit = await openingQuery.SumAsync(l => l.CreditInBaseCurrency, cancellationToken);
+        var openingBalance = openingDebit - openingCredit;
+
+        var linesQuery = _db.JournalLines
+            .AsNoTracking()
+            .Where(l =>
+                l.AccountId == accountId &&
+                l.IsDeleted != true &&
+                l.JournalEntry.IsDeleted != true &&
+                l.JournalEntry.IsPosted &&
+                l.JournalEntry.EntryDate >= start &&
+                l.JournalEntry.EntryDate <= endInclusive);
+        if (partyId is > 0)
+        {
+            linesQuery = linesQuery.Where(l => l.PartyId == partyId);
+        }
+
+        var lines = await linesQuery
+            .OrderBy(l => l.JournalEntry.EntryDate)
+            .ThenBy(l => l.JournalEntry.JournalEntryID)
+            .ThenBy(l => l.LineNo)
+            .Select(l => new
+            {
+                l.JournalEntry.EntryNumber,
+                l.JournalEntry.EntryDate,
+                EntryDescription = l.JournalEntry.Description,
+                LineDescription = l.Description,
+                Debit = l.DebitInBaseCurrency,
+                Credit = l.CreditInBaseCurrency,
+            })
+            .ToListAsync(cancellationToken);
+
+        var settings = await _db.GeneralSettings
+            .AsNoTracking()
+            .FirstOrDefaultAsync(s => s.Id == GeneralSettingsId, cancellationToken)
+            ?? new GeneralSettings();
+
+        var info = BuildInfo(
+            settings,
+            $"دفتر کل — {account.Code} {account.Name}",
+            start,
+            end);
+
+        var running = openingBalance;
+        var rows = new List<AccountLedgerPrintRow>();
+        foreach (var line in lines)
+        {
+            running += line.Debit - line.Credit;
+            var desc = !string.IsNullOrWhiteSpace(line.LineDescription)
+                ? line.LineDescription!
+                : (line.EntryDescription ?? string.Empty);
+            rows.Add(new AccountLedgerPrintRow
+            {
+                ShamsiDate = JalaliDateHelper.FormatDate(line.EntryDate),
+                EntryNumber = line.EntryNumber,
+                Description = desc,
+                Debit = line.Debit,
+                Credit = line.Credit,
+                RunningBalance = running,
+            });
+        }
+
+        return new AccountLedgerPrintModel
+        {
+            PersianCompanyName = info.PersianCompanyName,
+            EnglishCompanyName = info.EnglishCompanyName,
+            ReportTitle = info.ReportTitle,
+            ReportRangeDate = info.ReportRangeDate,
+            PrintDate = info.PrintDate,
+            CompanyLogoDataUri = ToImageDataUri(info.CompanyLogo),
+            ZmLogoDataUri = ToImageDataUri(info.ZmLogo),
+            AccountCode = account.Code,
+            AccountName = account.Name,
+            OpeningBalance = openingBalance,
+            ClosingBalance = running,
+            PeriodDebit = rows.Sum(r => r.Debit),
+            PeriodCredit = rows.Sum(r => r.Credit),
+            Rows = rows,
         };
     }
 
@@ -186,151 +322,6 @@ public class JournalReportService : IJournalReportService
         return BuildReport(info, products);
     }
 
-    private async Task<StiReport> BuildInvoiceJournalReportAsync(
-        string reportTitle,
-        DateTime? dateFrom,
-        DateTime? dateTo,
-        Func<DateTime?, DateTime?, CancellationToken, Task<List<JournalInvoiceItemRow>>> loadRowsAsync,
-        Func<JournalInvoiceItemRow, string?> getReturnDescription,
-        CancellationToken cancellationToken)
-    {
-        var rows = await loadRowsAsync(dateFrom, dateTo, cancellationToken);
-        var settings = await _db.GeneralSettings
-            .AsNoTracking()
-            .FirstOrDefaultAsync(s => s.Id == GeneralSettingsId, cancellationToken)
-            ?? new GeneralSettings();
-
-        var info = BuildInfo(settings, reportTitle, dateFrom, dateTo);
-        var products = rows
-            .Select((row, index) => MapProductRow(row, index + 1, getReturnDescription(row)))
-            .ToList();
-
-        return BuildReport(info, products);
-    }
-
-    private async Task<List<JournalInvoiceItemRow>> LoadPurchaseRowsAsync(
-        DateTime? dateFrom,
-        DateTime? dateTo,
-        CancellationToken cancellationToken)
-    {
-        var query = _db.PurchaseItems
-            .AsNoTracking()
-            .Where(i =>
-                i.IsDeleted != true &&
-                i.Invoice.IsDeleted != true &&
-                i.Invoice.IsPosted &&
-                (
-                    i.Invoice.DocumentType == InvoiceDocumentType.PurchaseReturn ||
-                    (i.Invoice.DocumentType == InvoiceDocumentType.Invoice &&
-                     i.Invoice.Status == InvoiceStatus.Invoice)));
-
-        if (dateFrom.HasValue)
-        {
-            query = query.Where(i => i.Invoice.InvoiceDate >= dateFrom.Value.Date);
-        }
-
-        if (dateTo.HasValue)
-        {
-            var end = dateTo.Value.Date.AddDays(1).AddTicks(-1);
-            query = query.Where(i => i.Invoice.InvoiceDate <= end);
-        }
-
-        return await query
-            .OrderBy(i => i.Invoice.InvoiceDate)
-            .ThenBy(i => i.Invoice.InvoiceNumber)
-            .ThenBy(i => i.PurchaseItemID)
-            .Select(i => new JournalInvoiceItemRow
-            {
-                InvoiceNumber = i.Invoice.InvoiceNumber,
-                ProductName = i.Product.Name,
-                ProductCode = i.Product.Code,
-                Quantity = i.Quantity,
-                UnitPrice = i.UnitPrice,
-                LineTotal = i.LineTotal,
-                LineTotalInBaseCurrency = i.LineTotalInBaseCurrency,
-                InvoiceDate = i.Invoice.InvoiceDate,
-                InvoiceSymbol = i.Invoice.Currency != null ? i.Invoice.Currency.Symbol : string.Empty,
-                BaseSymbol = i.Invoice.BaseCurrency != null ? i.Invoice.BaseCurrency.Symbol : string.Empty,
-                IsMultiCurrency = i.Invoice.CurrencyId != i.Invoice.BaseCurrencyId,
-                DocumentType = i.Invoice.DocumentType,
-                EntrySource = i.Invoice.EntrySource,
-                ReferenceEntrySource = i.Invoice.ReferencePurchaseInvoice != null
-                    ? i.Invoice.ReferencePurchaseInvoice.EntrySource
-                    : null,
-            })
-            .ToListAsync(cancellationToken);
-    }
-
-    private async Task<List<JournalInvoiceItemRow>> LoadSaleRowsAsync(
-        DateTime? dateFrom,
-        DateTime? dateTo,
-        CancellationToken cancellationToken)
-    {
-        var query = _db.SalesItems
-            .AsNoTracking()
-            .Where(i =>
-                i.IsDeleted != true &&
-                i.Invoice.IsDeleted != true &&
-                i.Invoice.IsPosted &&
-                (
-                    i.Invoice.DocumentType == InvoiceDocumentType.SaleReturn ||
-                    (i.Invoice.DocumentType == InvoiceDocumentType.Invoice &&
-                     (i.Invoice.Status == InvoiceStatus.Order || i.Invoice.Status == InvoiceStatus.Invoice))));
-
-        if (dateFrom.HasValue)
-        {
-            query = query.Where(i => i.Invoice.InvoiceDate >= dateFrom.Value.Date);
-        }
-
-        if (dateTo.HasValue)
-        {
-            var end = dateTo.Value.Date.AddDays(1).AddTicks(-1);
-            query = query.Where(i => i.Invoice.InvoiceDate <= end);
-        }
-
-        return await query
-            .OrderBy(i => i.Invoice.InvoiceDate)
-            .ThenBy(i => i.Invoice.InvoiceNumber)
-            .ThenBy(i => i.SalesItemID)
-            .Select(i => new JournalInvoiceItemRow
-            {
-                InvoiceNumber = i.Invoice.InvoiceNumber,
-                ProductName = i.Product.Name,
-                ProductCode = i.Product.Code,
-                Quantity = i.Quantity,
-                UnitPrice = i.UnitPrice,
-                LineTotal = i.LineTotal,
-                LineTotalInBaseCurrency = i.LineTotalInBaseCurrency,
-                InvoiceDate = i.Invoice.InvoiceDate,
-                InvoiceSymbol = i.Invoice.Currency != null ? i.Invoice.Currency.Symbol : string.Empty,
-                BaseSymbol = i.Invoice.BaseCurrency != null ? i.Invoice.BaseCurrency.Symbol : string.Empty,
-                IsMultiCurrency = i.Invoice.CurrencyId != i.Invoice.BaseCurrencyId,
-                DocumentType = i.Invoice.DocumentType,
-            })
-            .ToListAsync(cancellationToken);
-    }
-
-    private static string? GetPurchaseReturnDescription(JournalInvoiceItemRow row)
-    {
-        if (row.DocumentType != InvoiceDocumentType.PurchaseReturn)
-        {
-            return null;
-        }
-
-        if (row.EntrySource == PurchaseEntrySource.Production ||
-            row.ReferenceEntrySource == PurchaseEntrySource.Production)
-        {
-            return "برگشت از تولید";
-        }
-
-        return "برگشت از خرید";
-    }
-
-    private static string? GetSaleReturnDescription(JournalInvoiceItemRow row)
-    {
-        return row.DocumentType == InvoiceDocumentType.SaleReturn ? "برگشت از فروش" : null;
-    }
-
     private async Task<List<OperationalJournalRow>> LoadOperationalJournalRowsAsync(
         JournalReportType type,
         DateTime? dateFrom,
@@ -378,6 +369,8 @@ public class JournalReportService : IJournalReportService
             JournalReportType.Revenue => query.Where(e => e.Source == JournalSource.Revenue),
             JournalReportType.Expense => query.Where(e => e.Source == JournalSource.Expense),
             JournalReportType.Production => query.Where(e => e.Source == JournalSource.Production),
+            JournalReportType.Transport => query.Where(e =>
+                e.Source == JournalSource.TransportTrip || e.Source == JournalSource.TripExpense),
             JournalReportType.General => query.Where(e =>
                 e.Source == JournalSource.Manual
                 || (e.Source != JournalSource.PurchaseInvoice
@@ -394,6 +387,7 @@ public class JournalReportService : IJournalReportService
         JournalReportType.Revenue => "روزنامچه عواید",
         JournalReportType.Expense => "روزنامچه مصارف",
         JournalReportType.Production => "روزنامچه تولید",
+        JournalReportType.Transport => "روزنامچه حمل",
         JournalReportType.General => "روزنامچه عمومی",
         _ => "روزنامچه",
     };
@@ -423,8 +417,8 @@ public class JournalReportService : IJournalReportService
 
         var accountMap = accounts.ToDictionary(a => a.AccountId);
 
-        var opening = await LoadOpeningBalanceAsync(dateFrom, cancellationToken);
-        var entries = await LoadStandardJournalEntriesAsync(dateFrom, dateTo, cancellationToken);
+        var opening = await LoadOpeningBalanceAsync(dateFrom, null, cancellationToken);
+        var entries = await LoadStandardJournalEntriesAsync(dateFrom, dateTo, null, cancellationToken);
         var rows = MapStandardJournalRows(entries, accountMap);
 
         var info = BuildInfo(settings, "دفتر روزنامه عمومی", dateFrom, dateTo);
@@ -434,8 +428,28 @@ public class JournalReportService : IJournalReportService
         return BuildStandardReport(info, rows);
     }
 
+    private static JournalSource[]? ResolveSourceFilter(JournalReportType type) => type switch
+    {
+        JournalReportType.General => null,
+        JournalReportType.Revenue => [JournalSource.Revenue],
+        JournalReportType.Expense => [JournalSource.Expense],
+        JournalReportType.Transport => [JournalSource.TransportTrip, JournalSource.TripExpense],
+        JournalReportType.Production => [JournalSource.Production],
+        _ => null,
+    };
+
+    private static string GetHtmlJournalReportTitle(JournalReportType type) => type switch
+    {
+        JournalReportType.Revenue => "دفتر روزنامه عواید",
+        JournalReportType.Expense => "دفتر روزنامه مصارف",
+        JournalReportType.Transport => "دفتر روزنامه حمل و سرویس",
+        JournalReportType.Production => "دفتر روزنامه تولید",
+        _ => "دفتر روزنامه عمومی",
+    };
+
     private async Task<(decimal Debit, decimal Credit)> LoadOpeningBalanceAsync(
         DateTime? dateFrom,
+        JournalSource[]? sourceFilter,
         CancellationToken cancellationToken)
     {
         // بدون تاریخ شروع: مانده افتتاحیه گزارش صفر است (از ابتدای دفاتر)
@@ -453,6 +467,11 @@ public class JournalReportService : IJournalReportService
                 l.JournalEntry.IsPosted &&
                 l.JournalEntry.EntryDate < cutoff);
 
+        if (sourceFilter is { Length: > 0 })
+        {
+            query = query.Where(l => sourceFilter.Contains(l.JournalEntry.Source));
+        }
+
         var debit = await query.SumAsync(l => l.DebitInBaseCurrency, cancellationToken);
         var credit = await query.SumAsync(l => l.CreditInBaseCurrency, cancellationToken);
         return (debit, credit);
@@ -461,12 +480,18 @@ public class JournalReportService : IJournalReportService
     private async Task<List<StandardJournalEntryLoad>> LoadStandardJournalEntriesAsync(
         DateTime? dateFrom,
         DateTime? dateTo,
+        JournalSource[]? sourceFilter,
         CancellationToken cancellationToken)
     {
         var query = _db.JournalEntries
             .AsNoTracking()
             .Include(e => e.Lines)
             .Where(e => e.IsDeleted != true && e.IsPosted);
+
+        if (sourceFilter is { Length: > 0 })
+        {
+            query = query.Where(e => sourceFilter.Contains(e.Source));
+        }
 
         if (dateFrom.HasValue)
         {
@@ -516,7 +541,7 @@ public class JournalReportService : IJournalReportService
         foreach (var entry in entries)
         {
             var orderedLines = entry.Lines
-                .OrderBy(l => l.CreditInBase > 0 && l.DebitInBase <= 0 ? 1 : 0) // بدهکارها اول
+                .OrderBy(l => l.CreditInBase > 0 && l.DebitInBase <= 0 ? 1 : 0) // دیبت‌ها اول
                 .ThenBy(l => l.LineNo)
                 .ToList();
 
@@ -622,40 +647,6 @@ public class JournalReportService : IJournalReportService
             PrintDate = JalaliDateHelper.FormatDate(DateTime.Now),
             ReportTitle = reportTitle,
             ReportRangeDate = reportRangeDate,
-        };
-    }
-
-    private static JournalReportProduct MapProductRow(
-        JournalInvoiceItemRow row,
-        int rowNumber,
-        string? returnDescription)
-    {
-        var unitPriceInBase = row.Quantity > 0
-            ? row.LineTotalInBaseCurrency / row.Quantity
-            : 0m;
-
-        var descriptionParts = new List<string>();
-        if (!string.IsNullOrWhiteSpace(returnDescription))
-        {
-            descriptionParts.Add(returnDescription);
-        }
-
-        if (row.IsMultiCurrency)
-        {
-            descriptionParts.Add($"قیمت: {FormatMoney(row.UnitPrice, row.InvoiceSymbol)}");
-            descriptionParts.Add($"جمع: {FormatMoney(row.LineTotal, row.InvoiceSymbol)}");
-        }
-
-        return new JournalReportProduct
-        {
-            InvoiceNumber = row.InvoiceNumber,
-            ProductName = FormatProductDesc(row.ProductName, row.ProductCode),
-            ProductQTY = row.Quantity,
-            ProductPrice = FormatMoney(unitPriceInBase, row.BaseSymbol),
-            SubTotal = FormatMoney(row.LineTotalInBaseCurrency, row.BaseSymbol),
-            Description = descriptionParts.Count > 0 ? string.Join(" — ", descriptionParts) : string.Empty,
-            ShamsiDate = JalaliDateHelper.FormatDate(row.InvoiceDate),
-            RowNumber = rowNumber,
         };
     }
 
@@ -840,19 +831,6 @@ public class JournalReportService : IJournalReportService
         return candidates.FirstOrDefault(File.Exists) ?? string.Empty;
     }
 
-    private static string FormatProductDesc(string? name, string? code)
-    {
-        var productName = name?.Trim() ?? string.Empty;
-        var productCode = code?.Trim() ?? string.Empty;
-
-        if (productName.Length > 0 && productCode.Length > 0)
-        {
-            return $"{productName} ({productCode})";
-        }
-
-        return productName.Length > 0 ? productName : productCode;
-    }
-
     private static string FormatMoney(decimal amount, string symbol)
     {
         var formatted = amount.ToString("#,##0.##", CultureInfo.InvariantCulture);
@@ -896,23 +874,6 @@ public class JournalReportService : IJournalReportService
         public int? ParentAccountId { get; set; }
     }
 
-    private sealed class JournalInvoiceItemRow
-    {
-        public string InvoiceNumber { get; set; } = string.Empty;
-        public string ProductName { get; set; } = string.Empty;
-        public string? ProductCode { get; set; }
-        public decimal Quantity { get; set; }
-        public decimal UnitPrice { get; set; }
-        public decimal LineTotal { get; set; }
-        public decimal LineTotalInBaseCurrency { get; set; }
-        public DateTime InvoiceDate { get; set; }
-        public string InvoiceSymbol { get; set; } = string.Empty;
-        public string BaseSymbol { get; set; } = string.Empty;
-        public bool IsMultiCurrency { get; set; }
-        public InvoiceDocumentType DocumentType { get; set; }
-        public PurchaseEntrySource EntrySource { get; set; }
-        public PurchaseEntrySource? ReferenceEntrySource { get; set; }
-    }
 }
 
 public class JournalReportInfo
@@ -977,4 +938,32 @@ public class StandardJournalPrintPage
     public decimal TotalDebit { get; set; }
     public decimal TotalCredit { get; set; }
     public List<StandardJurnalRow> Rows { get; set; } = [];
+}
+
+public class AccountLedgerPrintModel
+{
+    public string PersianCompanyName { get; set; } = string.Empty;
+    public string EnglishCompanyName { get; set; } = string.Empty;
+    public string ReportTitle { get; set; } = string.Empty;
+    public string ReportRangeDate { get; set; } = string.Empty;
+    public string PrintDate { get; set; } = string.Empty;
+    public string? CompanyLogoDataUri { get; set; }
+    public string? ZmLogoDataUri { get; set; }
+    public string AccountCode { get; set; } = string.Empty;
+    public string AccountName { get; set; } = string.Empty;
+    public decimal OpeningBalance { get; set; }
+    public decimal ClosingBalance { get; set; }
+    public decimal PeriodDebit { get; set; }
+    public decimal PeriodCredit { get; set; }
+    public List<AccountLedgerPrintRow> Rows { get; set; } = [];
+}
+
+public class AccountLedgerPrintRow
+{
+    public string ShamsiDate { get; set; } = string.Empty;
+    public string EntryNumber { get; set; } = string.Empty;
+    public string Description { get; set; } = string.Empty;
+    public decimal Debit { get; set; }
+    public decimal Credit { get; set; }
+    public decimal RunningBalance { get; set; }
 }

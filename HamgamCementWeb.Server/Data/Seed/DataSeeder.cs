@@ -51,7 +51,7 @@ public static class DataSeeder
         // var cashBoxService = scope.ServiceProvider.GetRequiredService<ICashBoxService>();
         // await CashSchemaSeeder.EnsureDefaultCashBoxAsync(db, cashBoxService, cancellationToken);
         // await BankSchemaSeeder.EnsureAsync(db, cancellationToken);
-        // await AccountingCompletenessSchemaSeeder.EnsureAsync(db, cancellationToken);
+        await AccountingCompletenessSchemaSeeder.EnsureAsync(db, cancellationToken);
         // await CurrencyExchangeSchemaSeeder.EnsureAsync(db, cancellationToken);
         // await FixedAssetSchemaSeeder.EnsureAsync(db, cancellationToken);
         // await EquitySchemaSeeder.EnsureAsync(db, cancellationToken);

@@ -2,6 +2,7 @@ import CrudTablePage, { formatJalaliDate } from '../../components/common/CrudTab
 import { fetchCurrencyOptions } from '../../services/currencyApi'
 import { fetchSupplierOptions } from '../../services/transactionsApi'
 import { expensesApi, fetchAccountingExpenseCategoryOptions } from '../../services/financeApi'
+import { costCentersApi } from '../../services/ledgerApi'
 
 const columns = [
   { data: 'title', title: 'عنوان' },
@@ -11,6 +12,7 @@ const columns = [
     render: (data) => formatJalaliDate(data),
   },
   { data: 'categoryName', title: 'دسته‌بندی' },
+  { data: 'costCenterName', title: 'مرکز هزینه', orderable: false, defaultContent: '—' },
   { data: 'sourceLabel', title: 'منبع', orderable: false },
   { data: 'supplierName', title: 'تأمین‌کننده', orderable: false },
   {
@@ -50,6 +52,13 @@ const fields = [
     required: true,
     col: 6,
     loadOptions: fetchAccountingExpenseCategoryOptions,
+  },
+  {
+    name: 'costCenterId',
+    label: 'مرکز هزینه (اختیاری)',
+    type: 'select',
+    col: 6,
+    loadOptions: costCentersApi.options,
   },
   {
     name: 'supplierId',

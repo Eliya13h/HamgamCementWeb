@@ -37,6 +37,10 @@ public class TripExpense : BaseEntity
     public int? CashBoxId { get; set; }
     public int? BankAccountId { get; set; }
 
+    // طرف حساب هزینه وقتی پرداخت از صندوق/بانک نیست (مالک، راننده، مشتری، تأمین‌کننده)
+    public PartySettlementPartyType? PartyType { get; set; }
+    public int? PartyId { get; set; }
+
     public int? JournalEntryId { get; set; }
     public bool IsPosted { get; set; }
 }

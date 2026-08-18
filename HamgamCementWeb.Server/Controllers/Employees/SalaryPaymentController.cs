@@ -1,6 +1,7 @@
 using System.ComponentModel.DataAnnotations;
 using System.Security.Claims;
 using HamgamCementWeb.Server.Data;
+using HamgamCementWeb.Server.Data.Models.Finance;
 using HamgamCementWeb.Server.Data.Models.People;
 using HamgamCementWeb.Server.Services;
 using Microsoft.AspNetCore.Authorization;
@@ -15,26 +16,23 @@ namespace HamgamCementWeb.Server.Controllers.Employees;
 public class SalaryPaymentController : ControllerBase
 {
     // ۸ ساعت کاری در روز
-    private const int MinutesPerWorkDay = 480;
+    private const int HoursPerWorkDay = 8;
     private const int WorkDaysPerMonth = AttendanceController.DefaultWorkDaysPerMonth;
 
     private readonly AppDbContext _db;
     private readonly IJournalPostingService _journal;
     private readonly IAccountLookupService _accounts;
-    private readonly ICashBoxService _cashBoxes;
     private readonly ICashBalanceService _cashBalances;
 
     public SalaryPaymentController(
         AppDbContext db,
         IJournalPostingService journal,
         IAccountLookupService accounts,
-        ICashBoxService cashBoxes,
         ICashBalanceService cashBalances)
     {
         _db = db;
         _journal = journal;
         _accounts = accounts;
-        _cashBoxes = cashBoxes;
         _cashBalances = cashBalances;
     }
 
@@ -47,6 +45,7 @@ public class SalaryPaymentController : ControllerBase
         var query = _db.SalaryPayments
             .AsNoTracking()
             .Include(s => s.Employee)
+            .Include(s => s.CashBox)
             .Where(s => s.IsDeleted != true);
 
         if (year is int y)
@@ -84,12 +83,30 @@ public class SalaryPaymentController : ControllerBase
                 absentDays = s.AbsentDays,
                 totalLateMinutes = s.TotalLateMinutes,
                 totalOvertimeMinutes = s.TotalOvertimeMinutes,
+                cashBoxId = s.CashBoxId,
+                cashBoxName = s.CashBox != null ? s.CashBox.Name : null,
                 journalEntryId = s.JournalEntryId,
                 description = s.Description,
             })
             .ToListAsync(cancellationToken);
 
         return Ok(rows);
+    }
+
+    /// <summary>
+    /// گزینه‌های صندوق برای پرداخت حقوق — بدون وابستگی به پرمیشن هزینه.
+    /// </summary>
+    [HttpGet("cash-box-options")]
+    public async Task<IActionResult> CashBoxOptions(CancellationToken cancellationToken)
+    {
+        var items = await _db.CashBoxes
+            .AsNoTracking()
+            .Where(c => c.IsDeleted != true && c.IsActive == true)
+            .OrderBy(c => c.Code)
+            .Select(c => new { value = c.CashBoxID, label = c.Code + " — " + c.Name })
+            .ToListAsync(cancellationToken);
+
+        return Ok(items);
     }
 
     /// <summary>
@@ -101,20 +118,13 @@ public class SalaryPaymentController : ControllerBase
         [FromQuery] int employeeId,
         [FromQuery] int year,
         [FromQuery] int month,
-        [FromQuery] DateTime from,
-        [FromQuery] DateTime to,
+        [FromQuery] DateTime? from,
+        [FromQuery] DateTime? to,
         CancellationToken cancellationToken)
     {
         if (month < 1 || month > 12)
         {
             return BadRequest(new { message = "ماه معتبر نیست." });
-        }
-
-        var fromDay = from.Date;
-        var toDay = to.Date;
-        if (toDay < fromDay)
-        {
-            return BadRequest(new { message = "بازه تاریخ معتبر نیست." });
         }
 
         var employee = await _db.Employees
@@ -139,33 +149,43 @@ public class SalaryPaymentController : ControllerBase
             return Conflict(new { message = "برای این کارمند در این ماه قبلاً حقوق ثبت شده است." });
         }
 
-        var attendances = await _db.Attendances
+        var summary = await _db.Attendances
             .AsNoTracking()
-            .Where(a =>
-                a.IsDeleted != true
-                && a.EmployeeId == employeeId
-                && a.Date >= fromDay
-                && a.Date <= toDay)
-            .ToListAsync(cancellationToken);
+            .FirstOrDefaultAsync(
+                a => a.IsDeleted != true
+                     && a.EmployeeId == employeeId
+                     && a.Year == year
+                     && a.Month == month,
+                cancellationToken);
 
-        var presentDays = attendances.Count(a => a.IsPresent);
-        var totalLate = attendances.Where(a => a.IsPresent).Sum(a => a.LateMinutes);
-        var totalOt = attendances.Where(a => a.IsPresent).Sum(a => a.OvertimeMinutes);
-        var absentDays = Math.Max(0, WorkDaysPerMonth - presentDays);
+        var presentDays = summary?.PresentDays ?? 0;
+        var absentDays = summary?.AbsentDays ?? 0;
+        var leaveUnpaidDays = summary?.LeaveUnpaidDays ?? 0;
+        var holidayUnpaidDays = summary?.HolidayUnpaidDays ?? 0;
+        var lateHours = summary?.LateHours ?? 0m;
+        var overtimeHours = summary?.OvertimeHours ?? 0m;
+        var overtimeCoefficient = summary?.OvertimeCoefficient > 0
+            ? summary.OvertimeCoefficient
+            : AttendanceController.DefaultOvertimeCoefficient;
+
+        // غیبت قابل کسر = غیرحاضر + رخصت بدون حقوق + تعطیل بدون حقوق
+        var absentForDeduction = absentDays + leaveUnpaidDays + holidayUnpaidDays;
 
         var baseSalary = employee.Sallary;
-        var minuteRate = WorkDaysPerMonth > 0 && MinutesPerWorkDay > 0
-            ? baseSalary / (WorkDaysPerMonth * MinutesPerWorkDay)
-            : 0m;
         var dayRate = WorkDaysPerMonth > 0 ? baseSalary / WorkDaysPerMonth : 0m;
+        var hourRate = HoursPerWorkDay > 0 ? dayRate / HoursPerWorkDay : 0m;
 
         // پیشنهاد اولیه — کاربر در فرم می‌تواند دستی عوض کند
-        var suggestedOvertime = RoundMoney(totalOt * minuteRate * 1.5m);
-        var suggestedLate = RoundMoney(totalLate * minuteRate);
-        var suggestedAbsence = RoundMoney(absentDays * dayRate);
+        var suggestedOvertime = RoundMoney(overtimeHours * overtimeCoefficient * hourRate);
+        var suggestedLate = RoundMoney(lateHours * hourRate);
+        var suggestedAbsence = RoundMoney(absentForDeduction * dayRate);
 
         var suggestedNet = RoundMoney(
             baseSalary + suggestedOvertime - suggestedLate - suggestedAbsence);
+
+        // Snapshot قدیمی هنوز دقیقه نگه می‌دارد؛ تبدیل ساعت → دقیقه برای سازگاری
+        var totalLateMinutes = (int)Math.Round(lateHours * 60m, MidpointRounding.AwayFromZero);
+        var totalOvertimeMinutes = (int)Math.Round(overtimeHours * 60m, MidpointRounding.AwayFromZero);
 
         return Ok(new
         {
@@ -173,21 +193,31 @@ public class SalaryPaymentController : ControllerBase
             employeeName = $"{employee.Name} {employee.Family}".Trim(),
             year,
             month,
-            from = fromDay.ToString("yyyy-MM-dd"),
-            to = toDay.ToString("yyyy-MM-dd"),
+            from = from?.Date.ToString("yyyy-MM-dd"),
+            to = to?.Date.ToString("yyyy-MM-dd"),
             workDaysPerMonth = WorkDaysPerMonth,
-            minutesPerWorkDay = MinutesPerWorkDay,
+            hoursPerWorkDay = HoursPerWorkDay,
             baseSalary,
             presentDays,
             absentDays,
-            totalLateMinutes = totalLate,
-            totalOvertimeMinutes = totalOt,
+            leavePaidDays = summary?.LeavePaidDays ?? 0,
+            leaveUnpaidDays,
+            holidayPaidDays = summary?.HolidayPaidDays ?? 0,
+            holidayUnpaidDays,
+            lateHours,
+            earlyLeaveHours = summary?.EarlyLeaveHours ?? 0m,
+            overtimeHours,
+            overtimeCoefficient,
+            absentForDeduction,
+            totalLateMinutes,
+            totalOvertimeMinutes,
             suggestedOvertimeAmount = suggestedOvertime,
             suggestedLateDeduction = suggestedLate,
             suggestedAbsenceDeduction = suggestedAbsence,
             suggestedBenefitAmount = 0m,
             suggestedOtherDeduction = 0m,
             suggestedNetAmount = suggestedNet,
+            hasAttendanceSummary = summary is not null,
         });
     }
 
@@ -204,6 +234,24 @@ public class SalaryPaymentController : ControllerBase
         if (request.Month < 1 || request.Month > 12)
         {
             return BadRequest(new { message = "ماه معتبر نیست." });
+        }
+
+        if (request.CashBoxId is null or <= 0)
+        {
+            return BadRequest(new { message = "صندوق پرداخت را انتخاب کنید." });
+        }
+
+        var cashBoxId = request.CashBoxId.Value;
+
+        var cashBox = await _db.CashBoxes
+            .AsNoTracking()
+            .FirstOrDefaultAsync(
+                c => c.CashBoxID == cashBoxId && c.IsDeleted != true && c.IsActive == true,
+                cancellationToken);
+
+        if (cashBox is null)
+        {
+            return BadRequest(new { message = "صندوق پرداخت معتبر نیست." });
         }
 
         var employee = await _db.Employees
@@ -247,94 +295,127 @@ public class SalaryPaymentController : ControllerBase
 
         var userId = ResolveCurrentUserId();
         var paymentDate = request.PaymentDate?.Date ?? DateTime.Now.Date;
-
-        var cashBoxId = request.CashBoxId
-            ?? await _cashBoxes.ResolveUserCashBoxIdAsync(userId, cancellationToken);
         var baseCurrencyId = await ResolveBaseCurrencyIdAsync(cancellationToken);
 
-        if (cashBoxId is int boxId)
+        try
         {
-            try
-            {
-                await _cashBalances.EnsureSufficientBalanceAsync(boxId, baseCurrencyId, net, cancellationToken);
-            }
-            catch (InvalidOperationException ex)
-            {
-                return BadRequest(new { message = ex.Message });
-            }
+            await _cashBalances.EnsureSufficientBalanceAsync(cashBoxId, baseCurrencyId, net, cancellationToken);
+        }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(new { message = ex.Message });
         }
 
-        var payment = new SalaryPayment
+        // ناخالص = پایه + اضافه‌کار + مزایا
+        // کسورات = تأخیر + غیبت + سایر
+        // دابل‌انتری: دیبت هزینه حقوق (ناخالص) = کریدیت صندوق (خالص) + کریدیت کسورات
+        var gross = RoundMoney(
+            RoundMoney(request.BaseSalary)
+            + RoundMoney(request.OvertimeAmount)
+            + RoundMoney(request.BenefitAmount));
+        var deductions = RoundMoney(
+            RoundMoney(request.LateDeduction)
+            + RoundMoney(request.AbsenceDeduction)
+            + RoundMoney(request.OtherDeduction));
+
+        if (Math.Abs(gross - (net + deductions)) > 0.01m)
         {
-            EmployeeId = request.EmployeeId,
-            Year = request.Year,
-            Month = request.Month,
-            PaymentDate = paymentDate,
-            BaseSalary = RoundMoney(request.BaseSalary),
-            OvertimeAmount = RoundMoney(request.OvertimeAmount),
-            LateDeduction = RoundMoney(request.LateDeduction),
-            AbsenceDeduction = RoundMoney(request.AbsenceDeduction),
-            BenefitAmount = RoundMoney(request.BenefitAmount),
-            OtherDeduction = RoundMoney(request.OtherDeduction),
-            NetAmount = net,
-            PresentDays = request.PresentDays,
-            AbsentDays = request.AbsentDays,
-            TotalLateMinutes = request.TotalLateMinutes,
-            TotalOvertimeMinutes = request.TotalOvertimeMinutes,
-            CashBoxId = cashBoxId,
-            Description = request.Description?.Trim(),
-            CreatedAt = DateTime.Now,
-            CreatedBy = userId,
-            IsActive = true,
-            IsDeleted = false,
-        };
+            return BadRequest(new { message = "مبالغ حقوق نامتوازن است (ناخالص ≠ خالص + کسورات)." });
+        }
 
-        _db.SalaryPayments.Add(payment);
-        await _db.SaveChangesAsync(cancellationToken);
-
-        // ثبت سند دفتر: بدهکار ناخالص حقوق / بستانکار کسورات و خالص پرداختی
-        var salaryAccount = await _accounts.GetBySystemCodeAsync(AccountSystemCode.SalaryExpense, cancellationToken);
-        var deductionsAccount = await _accounts.GetBySystemCodeAsync(AccountSystemCode.SalaryDeductions, cancellationToken);
-        var creditAccountId = await ResolveCreditAccountIdAsync(cashBoxId, cancellationToken);
+        Account salaryAccount;
+        Account deductionsAccount;
+        try
+        {
+            salaryAccount = await _accounts.GetBySystemCodeAsync(AccountSystemCode.SalaryExpense, cancellationToken);
+            deductionsAccount = await _accounts.GetBySystemCodeAsync(AccountSystemCode.SalaryDeductions, cancellationToken);
+        }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(new { message = ex.Message });
+        }
 
         var employeeName = $"{employee.Name} {employee.Family}".Trim();
         var title = $"حقوق {employeeName} — {request.Year}/{request.Month:D2}";
 
-        var gross = RoundMoney(payment.BaseSalary + payment.OvertimeAmount + payment.BenefitAmount);
-        var deductions = RoundMoney(payment.LateDeduction + payment.AbsenceDeduction + payment.OtherDeduction);
-        var lines = new List<JournalLineDraft>
+        await using var tx = await _db.Database.BeginTransactionAsync(cancellationToken);
+        try
         {
-            new(salaryAccount.AccountID, gross, 0, gross, 0, baseCurrencyId, title),
-            new(creditAccountId, 0, net, 0, net, baseCurrencyId, title, CashBoxId: cashBoxId),
-        };
-        if (deductions > 0)
-        {
-            lines.Add(new JournalLineDraft(
-                deductionsAccount.AccountID, 0, deductions, 0, deductions, baseCurrencyId,
-                $"کسورات حقوق — {employeeName}"));
+            var payment = new SalaryPayment
+            {
+                EmployeeId = request.EmployeeId,
+                Year = request.Year,
+                Month = request.Month,
+                PaymentDate = paymentDate,
+                BaseSalary = RoundMoney(request.BaseSalary),
+                OvertimeAmount = RoundMoney(request.OvertimeAmount),
+                LateDeduction = RoundMoney(request.LateDeduction),
+                AbsenceDeduction = RoundMoney(request.AbsenceDeduction),
+                BenefitAmount = RoundMoney(request.BenefitAmount),
+                OtherDeduction = RoundMoney(request.OtherDeduction),
+                NetAmount = net,
+                PresentDays = request.PresentDays,
+                AbsentDays = request.AbsentDays,
+                TotalLateMinutes = request.TotalLateMinutes,
+                TotalOvertimeMinutes = request.TotalOvertimeMinutes,
+                CashBoxId = cashBoxId,
+                Description = request.Description?.Trim(),
+                CreatedAt = DateTime.Now,
+                CreatedBy = userId,
+                IsActive = true,
+                IsDeleted = false,
+            };
+
+            _db.SalaryPayments.Add(payment);
+            await _db.SaveChangesAsync(cancellationToken);
+
+            var lines = new List<JournalLineDraft>
+            {
+                // دیبت: هزینه حقوق (ناخالص)
+                new(salaryAccount.AccountID, gross, 0, gross, 0, baseCurrencyId, title),
+                // کریدیت: خروج از صندوق (خالص پرداختی)
+                new(cashBox.AccountId, 0, net, 0, net, baseCurrencyId, title, CashBoxId: cashBoxId),
+            };
+            if (deductions > 0)
+            {
+                // کریدیت: کسورات حقوق
+                lines.Add(new JournalLineDraft(
+                    deductionsAccount.AccountID, 0, deductions, 0, deductions, baseCurrencyId,
+                    $"کسورات حقوق — {employeeName}"));
+            }
+
+            var journal = await _journal.PostAsync(
+                paymentDate,
+                title,
+                JournalSource.SalaryPayment,
+                payment.SalaryPaymentID,
+                baseCurrencyId,
+                lines,
+                userId,
+                cancellationToken);
+
+            payment.JournalEntryId = journal.JournalEntryID;
+            await _db.SaveChangesAsync(cancellationToken);
+            await tx.CommitAsync(cancellationToken);
+
+            return Ok(new
+            {
+                message = "حقوق با موفقیت ثبت شد.",
+                salaryPaymentId = payment.SalaryPaymentID,
+                journalEntryId = journal.JournalEntryID,
+                netAmount = payment.NetAmount,
+            });
         }
-
-        var journal = await _journal.PostAsync(
-            paymentDate,
-            title,
-            JournalSource.SalaryPayment,
-            payment.SalaryPaymentID,
-            baseCurrencyId,
-            lines,
-            userId,
-            cancellationToken);
-
-        payment.JournalEntryId = journal.JournalEntryID;
-        payment.CashBoxId = cashBoxId;
-        await _db.SaveChangesAsync(cancellationToken);
-
-        return Ok(new
+        catch (InvalidOperationException ex)
         {
-            message = "حقوق با موفقیت ثبت شد.",
-            salaryPaymentId = payment.SalaryPaymentID,
-            journalEntryId = journal.JournalEntryID,
-            netAmount = payment.NetAmount,
-        });
+            await tx.RollbackAsync(cancellationToken);
+            return BadRequest(new { message = ex.Message });
+        }
+        catch
+        {
+            await tx.RollbackAsync(cancellationToken);
+            throw;
+        }
     }
 
     [HttpDelete("{id:int}")]
@@ -365,22 +446,6 @@ public class SalaryPaymentController : ControllerBase
         await _db.SaveChangesAsync(cancellationToken);
 
         return Ok(new { message = "پرداخت حقوق با موفقیت حذف شد." });
-    }
-
-    private async Task<int> ResolveCreditAccountIdAsync(int? cashBoxId, CancellationToken cancellationToken)
-    {
-        if (cashBoxId is int id)
-        {
-            var box = await _db.CashBoxes
-                .AsNoTracking()
-                .FirstOrDefaultAsync(c => c.CashBoxID == id && c.IsDeleted != true, cancellationToken);
-            if (box is not null)
-            {
-                return box.AccountId;
-            }
-        }
-
-        throw new InvalidOperationException("صندوق برای پرداخت حقوق الزامی است.");
     }
 
     private async Task<int> ResolveBaseCurrencyIdAsync(CancellationToken cancellationToken)

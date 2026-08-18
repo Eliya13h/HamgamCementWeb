@@ -2,6 +2,10 @@
 .purchase-lines-table {
   table-layout: fixed;
   width: 100%;
+  --bs-table-bg: transparent;
+  --bs-table-color: var(--hc-text);
+  --bs-table-border-color: var(--hc-border-subtle);
+  --bs-table-striped-bg: transparent;
 }
 
 .purchase-lines-table .col-product {
@@ -33,6 +37,32 @@
 .purchase-lines-table td,
 .purchase-lines-table th {
   vertical-align: middle;
+}
+
+.purchase-lines-table thead th {
+  background: var(--hc-bg-surface);
+  color: var(--hc-text-muted);
+  font-weight: 600;
+  border-bottom-color: var(--hc-border);
+}
+
+.purchase-lines-table tfoot th {
+  background: var(--hc-bg-elevated);
+  color: var(--hc-text);
+  border-top-color: var(--hc-border);
+}
+
+.users-page .users-modal .table {
+  --bs-table-bg: transparent;
+  --bs-table-color: var(--hc-text);
+  --bs-table-border-color: var(--hc-border-subtle);
+}
+
+.users-page .users-modal .table thead th,
+.users-page .users-modal .table tfoot th {
+  background: var(--hc-bg-surface);
+  color: var(--hc-text-muted);
+  border-color: var(--hc-border);
 }
 
 .purchase-lines-table .invoice-line-control-height .searchable-select-trigger,
@@ -70,4 +100,53 @@
   border-top: none;
   padding-top: 0.25rem;
   padding-bottom: 0.25rem;
+}
+
+.invoice-totals-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 1.25rem 2rem;
+  padding: 0.85rem 1.1rem;
+  margin-top: 1.15rem;
+  border: 1px solid var(--hc-border, rgba(0, 0, 0, 0.08));
+  border-radius: 0.75rem;
+  background: var(--hc-bg-elevated, #fff);
+}
+
+.invoice-totals-bar-item {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+
+.invoice-totals-bar-label {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--hc-text-muted, #64748b);
+}
+
+.invoice-totals-bar-item.is-total {
+  margin-inline-start: auto;
+}
+
+.invoice-totals-bar-item.is-total .invoice-totals-bar-value {
+  font-weight: 700;
+}
+
+.invoice-totals-bar + .users-form-section {
+  margin-top: 1.15rem;
+  padding-top: 1.15rem;
+  border-top: 1px solid var(--hc-border, rgba(0, 0, 0, 0.08));
+}
+
+.users-page .users-form-section .d-flex > .users-form-section-title {
+  display: inline-block;
+  margin-bottom: 0;
+}
+
+.purchase-lines-table th [data-bs-toggle='tooltip'],
+.purchase-lines-table td [data-bs-toggle='tooltip'] {
+  cursor: help;
+  line-height: 1;
 }

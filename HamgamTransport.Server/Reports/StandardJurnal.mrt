@@ -1,4 +1,4 @@
-﻿<?xml version="1.0" encoding="utf-8" standalone="yes"?>
+<?xml version="1.0" encoding="utf-8" standalone="yes"?>
 <StiSerializer version="1.02" type="Net" application="StiReport">
   <Dictionary Ref="1" type="Dictionary" isKey="true">
     <BusinessObjects isList="true" count="2">
@@ -314,7 +314,7 @@ AAAAEAWJggAAEAQBAAAAAACIggAA4G8O6XEsOh1Q6AsAAAAASUVORK5CYII=</ImageBytes>
               <Name>Text10</Name>
               <Page isRef="4" />
               <Parent isRef="16" />
-              <Text>بستانکار</Text>
+              <Text>کریدیت (Cr)</Text>
               <TextBrush>[0:32:96]</TextBrush>
               <TextOptions>,,RightToLeft=True,,WordWrap=True,A=0</TextOptions>
               <Type>Expression</Type>
@@ -332,7 +332,7 @@ AAAAEAWJggAAEAQBAAAAAACIggAA4G8O6XEsOh1Q6AsAAAAASUVORK5CYII=</ImageBytes>
               <Name>Text11</Name>
               <Page isRef="4" />
               <Parent isRef="16" />
-              <Text>بدهکار</Text>
+              <Text>دیبت (Db)</Text>
               <TextBrush>[0:32:96]</TextBrush>
               <TextOptions>,,RightToLeft=True,,WordWrap=True,A=0</TextOptions>
               <Type>Expression</Type>

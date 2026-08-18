@@ -173,6 +173,7 @@ public sealed class PurchaseInvoiceReadService : IPurchaseInvoiceReadService
                 pi.TaxAmount,
                 pi.PaymentTermDays,
                 pi.DueDate,
+                pi.ExternalInvoiceNumber,
                 pi.PaidAmount,
                 pi.CashBoxId,
                 CASE WHEN pi.IsCash = 1 THEN CAST(1 AS bit) ELSE CAST(0 AS bit) END AS IsCash,
@@ -329,6 +330,7 @@ public sealed class PurchaseInvoiceDetailRow
     public decimal TaxAmount { get; set; }
     public int PaymentTermDays { get; set; }
     public DateTime? DueDate { get; set; }
+    public string? ExternalInvoiceNumber { get; set; }
     public decimal PaidAmount { get; set; }
     public int? CashBoxId { get; set; }
     public bool IsCash { get; set; }

@@ -143,7 +143,7 @@ public class PartyOpeningBalanceService : IPartyOpeningBalanceService
         List<JournalLineDraft> lines;
         if (amountInBase < 0)
         {
-            // بدهکار: بدهکار دریافتنی مشتری — بستانکار افتتاحیه
+            // دیبت: دریافتنی مشتری — کریدیت افتتاحیه
             lines =
             [
                 new(partyAccount.AccountID, abs, 0, abs, 0, currencyId,
@@ -154,7 +154,7 @@ public class PartyOpeningBalanceService : IPartyOpeningBalanceService
         }
         else
         {
-            // طلبکار: بدهکار افتتاحیه — بستانکار دریافتنی مشتری
+            // طلبکار: دیبت افتتاحیه — کریدیت دریافتنی مشتری
             lines =
             [
                 new(openingAccount.AccountID, abs, 0, abs, 0, currencyId,
@@ -204,7 +204,7 @@ public class PartyOpeningBalanceService : IPartyOpeningBalanceService
         List<JournalLineDraft> lines;
         if (amountInBase > 0)
         {
-            // طلبکار: بدهکار افتتاحیه — بستانکار پرداختنی تأمین‌کننده
+            // طلبکار: دیبت افتتاحیه — کریدیت پرداختنی تأمین‌کننده
             lines =
             [
                 new(openingAccount.AccountID, abs, 0, abs, 0, currencyId,
@@ -215,7 +215,7 @@ public class PartyOpeningBalanceService : IPartyOpeningBalanceService
         }
         else
         {
-            // بدهکار: بدهکار پرداختنی تأمین‌کننده — بستانکار افتتاحیه
+            // دیبت: پرداختنی تأمین‌کننده — کریدیت افتتاحیه
             lines =
             [
                 new(partyAccount.AccountID, abs, 0, abs, 0, currencyId,

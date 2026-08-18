@@ -87,6 +87,8 @@ public class RevenueController : FinanceControllerBase
                 amountInBaseCurrency = r.AmountInBaseCurrency,
                 profitInBaseCurrency = r.ProfitInBaseCurrency,
                 description = r.Description,
+                costCenterId = r.CostCenterId,
+                costCenterName = r.CostCenterName,
                 journalEntryId = r.JournalEntryId,
                 isFromInvoice = !string.IsNullOrEmpty(r.InvoiceNumber),
                 invoiceNumber = r.InvoiceNumber,
@@ -134,6 +136,16 @@ public class RevenueController : FinanceControllerBase
             }
         }
 
+        if (request.CostCenterId is int costCenterId)
+        {
+            var ccOk = await Db.CostCenters.AnyAsync(
+                c => c.CostCenterID == costCenterId && c.IsDeleted != true && c.IsActive == true, cancellationToken);
+            if (!ccOk)
+            {
+                return BadRequest(new { message = "مرکز هزینه معتبر نیست." });
+            }
+        }
+
         var revenueDate = request.RevenueDate?.Date ?? DateTime.Now.Date;
         var snapshot = await _currency.GetSnapshotAsync(request.CurrencyId, revenueDate, cancellationToken);
         var amountInBase = _currency.ConvertToBase(request.Amount, snapshot);
@@ -153,6 +165,7 @@ public class RevenueController : FinanceControllerBase
                 Title = request.Title.Trim(),
                 RevenueDate = revenueDate,
                 RevenueCategoryId = request.RevenueCategoryId,
+                CostCenterId = request.CostCenterId,
                 Source = FinancialEntrySource.Miscellaneous,
                 CustomerId = request.CustomerId,
                 CurrencyId = snapshot.CurrencyId,
@@ -244,6 +257,16 @@ public class RevenueController : FinanceControllerBase
             }
         }
 
+        if (request.CostCenterId is int costCenterId)
+        {
+            var ccOk = await Db.CostCenters.AnyAsync(
+                c => c.CostCenterID == costCenterId && c.IsDeleted != true && c.IsActive == true, cancellationToken);
+            if (!ccOk)
+            {
+                return BadRequest(new { message = "مرکز هزینه معتبر نیست." });
+            }
+        }
+
         var userId = ResolveCurrentUserId();
         var cashBoxId = await _cashBoxes.ResolveUserCashBoxIdAsync(userId, cancellationToken);
         if (request.CustomerId is null && cashBoxId is null)
@@ -263,6 +286,7 @@ public class RevenueController : FinanceControllerBase
             revenue.Title = request.Title.Trim();
             revenue.RevenueDate = revenueDate;
             revenue.RevenueCategoryId = request.RevenueCategoryId;
+            revenue.CostCenterId = request.CostCenterId;
             revenue.CustomerId = request.CustomerId;
             revenue.CurrencyId = snapshot.CurrencyId;
             revenue.BaseCurrencyId = snapshot.BaseCurrencyId;
@@ -378,5 +402,7 @@ public class RevenueController : FinanceControllerBase
 
         [MaxLength(2000)]
         public string? Description { get; set; }
+
+        public int? CostCenterId { get; set; }
     }
 }

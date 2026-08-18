@@ -606,6 +606,73 @@ body.sidebar-drawer-open {
   box-shadow: var(--hc-shadow);
 }
 
+/* ── Page tab bars (minimal underline) ── */
+.content-card .nav-tabs.card-header-tabs {
+  --bs-nav-tabs-border-color: transparent;
+  --bs-nav-tabs-border-width: 0;
+  --bs-nav-tabs-border-radius: 0;
+  --bs-nav-tabs-link-hover-border-color: transparent;
+  --bs-nav-tabs-link-active-color: var(--hc-text);
+  --bs-nav-tabs-link-active-bg: transparent;
+  --bs-nav-tabs-link-active-border-color: transparent;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1.5rem;
+  border-bottom: none;
+  margin-bottom: 0;
+}
+
+.content-card .nav-tabs.card-header-tabs .nav-item {
+  margin-bottom: 0;
+}
+
+.content-card .nav-tabs.card-header-tabs .nav-link {
+  position: relative;
+  margin: 0;
+  padding: 0.4rem 0.15rem 0.65rem;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--hc-text-muted);
+  font-weight: 400;
+  line-height: 1.4;
+  transition: color var(--hc-transition);
+}
+
+.content-card .nav-tabs.card-header-tabs .nav-link:hover {
+  border: 0;
+  background: transparent;
+  color: var(--hc-text);
+}
+
+.content-card .nav-tabs.card-header-tabs .nav-link:focus {
+  outline: none;
+  box-shadow: none;
+}
+
+.content-card .nav-tabs.card-header-tabs .nav-link:focus-visible {
+  color: var(--hc-text);
+  box-shadow: 0 0 0 2px var(--hc-accent-soft);
+  border-radius: 4px;
+}
+
+.content-card .nav-tabs.card-header-tabs .nav-link.active {
+  border: 0;
+  background: transparent;
+  color: var(--hc-text);
+  font-weight: 600;
+}
+
+.content-card .nav-tabs.card-header-tabs .nav-link.active::after {
+  content: '';
+  position: absolute;
+  inset-inline: 0;
+  bottom: 0;
+  height: 2px;
+  background: var(--hc-text);
+  border-radius: 1px;
+}
+
 .welcome-title {
   font-size: 1.25rem;
   font-weight: 700;

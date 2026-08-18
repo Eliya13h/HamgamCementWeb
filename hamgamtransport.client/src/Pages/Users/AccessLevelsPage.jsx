@@ -272,34 +272,16 @@ function AccessLevelsPage() {
 
                   <div className="row g-3">
                     <div className="col-12">
-                      <div className="form-check form-switch">
-                        <input
-                          className="form-check-input"
-                          type="checkbox"
-                          id="user-full-access"
-                          checked={form.hasFullAccess}
-                          onChange={(e) =>
-                            setForm((prev) => ({ ...prev, hasFullAccess: e.target.checked }))
-                          }
-                        />
-                        <label className="form-check-label" htmlFor="user-full-access">
-                          دسترسی کامل به کل سیستم
-                        </label>
-                      </div>
+                      <label className="form-label mb-1">دسترسی‌ها</label>
+                      <PermissionTree
+                        tree={permissionTree}
+                        value={form.permissions}
+                        hasFullAccess={form.hasFullAccess}
+                        onChange={({ permissions, hasFullAccess }) =>
+                          setForm((prev) => ({ ...prev, permissions, hasFullAccess }))
+                        }
+                      />
                     </div>
-
-                    {!form.hasFullAccess && (
-                      <div className="col-12">
-                        <label className="form-label mb-1">دسترسی‌ها</label>
-                        <PermissionTree
-                          tree={permissionTree}
-                          value={form.permissions}
-                          onChange={(permissions) =>
-                            setForm((prev) => ({ ...prev, permissions }))
-                          }
-                        />
-                      </div>
-                    )}
                   </div>
                 </div>
                 <div className="modal-footer">

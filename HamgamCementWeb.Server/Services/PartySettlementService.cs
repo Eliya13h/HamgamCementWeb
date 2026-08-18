@@ -277,7 +277,7 @@ public class PartySettlementService : IPartySettlementService
         List<JournalLineDraft> lines;
         if (request.PartyType == PartySettlementPartyType.Customer)
         {
-            // دریافت از مشتری: بدهکار صندوق/بانک — بستانکار دریافتنی مشتری
+            // دریافت از مشتری: دیبت صندوق/بانک — کریدیت دریافتنی مشتری
             lines =
             [
                 new(settlementAccountId, request.Amount, 0, amountBase, 0, request.CurrencyId,
@@ -288,7 +288,7 @@ public class PartySettlementService : IPartySettlementService
         }
         else
         {
-            // پرداخت به تأمین‌کننده: بدهکار پرداختنی — بستانکار صندوق/بانک
+            // پرداخت به تأمین‌کننده: دیبت پرداختنی — کریدیت صندوق/بانک
             lines =
             [
                 new(partyAccount.AccountID, request.Amount, 0, amountBase, 0, request.CurrencyId,

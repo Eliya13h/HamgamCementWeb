@@ -19,14 +19,8 @@ namespace HamgamTransport.Server.Data.Models.People
 
         public string AvatarUrl { get; set; } = string.Empty;
 
-        // شماره کارت کاربر (حضور/شناسایی)
         [MaxLength(50)]
         public string CardNumber { get; set; } = string.Empty;
-
-        public int EmployeeId { get; set; }
-
-        [ForeignKey(nameof(EmployeeId))]
-        public virtual Employee Employee { get; set; } = null!;
 
         // دسترسی کامل به تمام بخش‌های سیستم — مستقل از نقش نمادین
         public bool HasFullAccess { get; set; } = true;

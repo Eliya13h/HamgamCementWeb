@@ -1,5 +1,11 @@
 /* override نهایی react-multi-date-picker — رنگ ثابت برای غلبه بر CSS runtime کتابخانه */
 
+/* فلش ماه قبل سمت چپ، ماه بعد سمت راست — مستقل از RTL بدنهٔ تقویم */
+.rmdp-header,
+.rmdp-header > div {
+  direction: ltr !important;
+}
+
 /* ── Dark ── */
 [data-bs-theme='dark'] .rmdp-wrapper,
 [data-bs-theme='dark'] .rmdp-wrapper.rmdp-shadow,

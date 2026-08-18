@@ -6,10 +6,9 @@ export const navItems = [
     label: 'حمل‌ونقل',
     icon: 'transactions',
     children: [
-      { path: '/transport/vehicle-types', label: 'انواع وسیله' },
-      { path: '/transport/vehicles', label: 'کشنده و بونکر' },
-      { path: '/transport/vehicle-pairs', label: 'جفت وسیله' },
       { path: '/transport/trips', label: 'سرویس‌ها' },
+      { path: '/transport/vehicles', label: 'وسایل نقلیه' },
+      { path: '/transport/vehicle-pairs', label: 'جفت وسیله' },
       { path: '/transport/trip-expense-categories', label: 'دسته هزینه سفر' },
     ],
   },
@@ -80,6 +79,7 @@ export const navItems = [
       { path: '/reporting/revenues', label: 'عواید' },
       { path: '/reporting/expenses', label: 'مصارف' },
       { path: '/reporting/journal', label: 'روزنامچه' },
+      { path: '/reporting/ledger', label: 'دفتر کل' },
     ],
   },
   {

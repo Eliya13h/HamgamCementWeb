@@ -667,7 +667,7 @@ function TrialBalanceCard() {
           <div>
             <h3 className="card-title mb-1">تراز آزمایشی</h3>
             <p className="silo-section-subtitle mb-0">
-              جمع بدهکار و بستانکار حساب‌های قابل‌ثبت به ارز پایه
+              جمع دیبت و کریدیت حساب‌های قابل‌ثبت به ارز پایه
               {data?.asOfLabel ? ` — تا ${data.asOfLabel}` : ''}
             </p>
           </div>
@@ -709,11 +709,11 @@ function TrialBalanceCard() {
             <>
               <div className="statement-kpi-grid mb-4">
                 <article className="statement-kpi">
-                  <span className="statement-kpi-label">جمع بدهکار</span>
+                  <span className="statement-kpi-label">جمع دیبت</span>
                   <AmountDisplay value={totals?.debitTotal} />
                 </article>
                 <article className="statement-kpi">
-                  <span className="statement-kpi-label">جمع بستانکار</span>
+                  <span className="statement-kpi-label">جمع کریدیت</span>
                   <AmountDisplay value={totals?.creditTotal} />
                 </article>
                 <article className={`statement-kpi is-highlight ${totals?.isBalanced ? 'is-profit' : 'is-loss'}`}>
@@ -732,10 +732,10 @@ function TrialBalanceCard() {
                     <tr>
                       <th>کد</th>
                       <th>حساب</th>
-                      <th className="text-end">گردش بدهکار</th>
-                      <th className="text-end">گردش بستانکار</th>
-                      <th className="text-end">مانده بدهکار</th>
-                      <th className="text-end">مانده بستانکار</th>
+                      <th className="text-end">گردش دیبت</th>
+                      <th className="text-end">گردش کریدیت</th>
+                      <th className="text-end">مانده دیبت</th>
+                      <th className="text-end">مانده کریدیت</th>
                     </tr>
                   </thead>
                   <tbody>

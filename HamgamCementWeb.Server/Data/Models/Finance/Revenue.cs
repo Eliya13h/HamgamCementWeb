@@ -42,6 +42,9 @@ public class Revenue : BaseEntity
     // دسته‌بندی حسابداری عاید
     public int RevenueCategoryId { get; set; }
 
+    // مرکز هزینه اختیاری برای گزارش تحلیلی
+    public int? CostCenterId { get; set; }
+
     // منبع ثبت: فاکتور فروش، متفرقه و ...
     public FinancialEntrySource Source { get; set; } = FinancialEntrySource.Miscellaneous;
 
@@ -53,6 +56,9 @@ public class Revenue : BaseEntity
 
     [ForeignKey(nameof(RevenueCategoryId))]
     public virtual RevenueCategory Category { get; set; } = null!;
+
+    [ForeignKey(nameof(CostCenterId))]
+    public virtual CostCenter? CostCenter { get; set; }
 
     [ForeignKey(nameof(JournalEntryId))]
     public virtual JournalEntry? JournalEntry { get; set; }

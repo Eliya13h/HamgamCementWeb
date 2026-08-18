@@ -224,8 +224,17 @@ export function convertUnitPrice(price, fromMeaurmentId, toMeaurmentId, meaurmen
   return Number.isFinite(converted) ? converted : price
 }
 
+export function paymentTermDaysFromDates(invoiceDate, dueDate) {
+  if (!invoiceDate || !dueDate) return 0
+  const start = new Date(`${invoiceDate}T00:00:00`)
+  const end = new Date(`${dueDate}T00:00:00`)
+  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) return 0
+  return Math.max(0, Math.round((end.getTime() - start.getTime()) / 86400000))
+}
+
 export function buildPurchasePayload(header, lines, exchangeRate) {
   const paidAmount = Number(header.paidAmount) || 0
+  const isCash = header.isCash !== false
   const payload = {
     supplierId: Number(header.supplierId),
     warehouseId: Number(header.warehouseId),
@@ -235,10 +244,12 @@ export function buildPurchasePayload(header, lines, exchangeRate) {
     entrySource: PURCHASE_ENTRY_SOURCE.Market,
     productionBatchId: null,
     description: header.description || null,
+    externalInvoiceNumber: header.externalInvoiceNumber?.trim() || null,
     paidAmount,
+    isCash,
     cashBoxId: paidAmount > 0 && header.cashBoxId ? Number(header.cashBoxId) : null,
-    paymentTermDays: Number(header.paymentTermDays) || 0,
-    dueDate: header.dueDate || null,
+    paymentTermDays: isCash ? 0 : paymentTermDaysFromDates(header.invoiceDate, header.dueDate),
+    dueDate: isCash ? null : header.dueDate || null,
     taxPercent: Number(header.taxPercent) || 0,
     taxAmount: Number(header.taxAmount) || 0,
     items: lines.map((line) => ({
@@ -259,6 +270,7 @@ export function buildPurchasePayload(header, lines, exchangeRate) {
 }
 
 export function buildSalePayload(header, lines, exchangeRate) {
+  const isCash = header.isCash !== false
   const payload = {
     customerId: Number(header.customerId),
     warehouseId: Number(header.warehouseId),
@@ -266,9 +278,11 @@ export function buildSalePayload(header, lines, exchangeRate) {
     status: Number(header.status) || 1,
     currencyId: Number(header.currencyId),
     description: header.description || null,
+    externalInvoiceNumber: header.externalInvoiceNumber?.trim() || null,
     paidAmount: Number(header.paidAmount) || 0,
-    paymentTermDays: Number(header.paymentTermDays) || 0,
-    dueDate: header.dueDate || null,
+    isCash,
+    paymentTermDays: isCash ? 0 : paymentTermDaysFromDates(header.invoiceDate, header.dueDate),
+    dueDate: isCash ? null : header.dueDate || null,
     taxPercent: Number(header.taxPercent) || 0,
     taxAmount: Number(header.taxAmount) || 0,
     items: lines.map((line) => ({

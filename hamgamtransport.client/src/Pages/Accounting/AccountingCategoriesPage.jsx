@@ -6,11 +6,6 @@ import {
   revenueCategoriesApi,
   fixedAssetCategoriesApi,
 } from '../../services/financeApi'
-import {
-  PRODUCTION_COST_CATEGORY_TYPE_OPTIONS,
-  productionCostCategoriesApi,
-} from '../../services/productionApi'
-import { fetchDepartments } from '../../services/employeesApi'
 import { usePermission } from '../../permissions/usePermission'
 import { pathPermission } from '../../permissions/utils'
 
@@ -160,90 +155,6 @@ const TABS = [
         required: true,
         col: 4,
         default: 60,
-      },
-      { name: 'description', label: 'توضیحات', type: 'textarea', col: 12 },
-      { name: 'isActive', label: 'فعال', type: 'switch', default: true, col: 4 },
-    ],
-  },
-  {
-    id: 'production-costs',
-    label: 'هزینه‌های تولید',
-    title: 'دسته‌بندی هزینه‌های تولید',
-    createLabel: 'دسته هزینه جدید',
-    api: productionCostCategoriesApi,
-    idField: 'productionCostCategoryId',
-    nameField: 'name',
-    permissionPath: '/accounting/production-cost-categories',
-    canDeleteRow: (row) => !row.isSystem,
-    canEditRow: () => true,
-    columns: [
-      { data: 'name', title: 'نام دسته‌بندی' },
-      { data: 'costTypeLabel', title: 'نوع حسابداری', orderable: false },
-      {
-        data: 'departmentNamesText',
-        title: 'بخش‌ها',
-        orderable: false,
-        render: (data) => data || '—',
-      },
-      {
-        data: 'isSystem',
-        title: 'نوع',
-        orderable: false,
-        className: 'text-center',
-        render: (data) =>
-          data
-            ? '<span class="badge bg-secondary">سیستمی</span>'
-            : '<span class="badge bg-light text-dark">کاربری</span>',
-      },
-      {
-        data: 'isActive',
-        title: 'وضعیت',
-        className: 'text-center',
-        render: (data) =>
-          data
-            ? '<span class="badge badge-active">فعال</span>'
-            : '<span class="badge badge-inactive">غیرفعال</span>',
-      },
-    ],
-    fields: [
-      // فقط برای منطق showWhen در فرم
-      { name: 'isSystem', type: 'switch', default: false, skipOnSubmit: true, showWhen: () => false },
-      { name: 'name', label: 'نام دسته‌بندی', type: 'text', required: true, col: 8 },
-      {
-        name: 'costType',
-        label: 'نوع حسابداری',
-        type: 'select',
-        required: true,
-        col: 4,
-        default: String(PRODUCTION_COST_CATEGORY_TYPE_OPTIONS[0].value),
-        fromRow: (row) => String(row.costType ?? ''),
-        options: PRODUCTION_COST_CATEGORY_TYPE_OPTIONS.map((item) => ({
-          value: String(item.value),
-          label: item.label,
-        })),
-        showWhen: (form) => !form.isSystem,
-      },
-      {
-        name: 'departmentIds',
-        label: 'بخش‌های مشمول حقوق پایه',
-        type: 'multiselect',
-        col: 12,
-        showOnlyOnEdit: true,
-        showWhen: (form) => Boolean(form.isSystem),
-        fromRow: (row) =>
-          Array.isArray(row.departmentIds)
-            ? row.departmentIds.map(String)
-            : String(row.departmentIdsText ?? '')
-                .split(/[,\s]+/)
-                .map((x) => x.trim())
-                .filter(Boolean),
-        loadOptions: async () => {
-          const rows = await fetchDepartments()
-          return (rows ?? []).map((r) => ({
-            value: String(r.departmentId ?? r.value ?? r.departmentID),
-            label: r.name ?? r.label,
-          }))
-        },
       },
       { name: 'description', label: 'توضیحات', type: 'textarea', col: 12 },
       { name: 'isActive', label: 'فعال', type: 'switch', default: true, col: 4 },

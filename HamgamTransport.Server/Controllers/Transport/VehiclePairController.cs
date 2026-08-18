@@ -66,20 +66,27 @@ public class VehiclePairController : TransportControllerBase
         Ok(await Db.VehiclePairs.AsNoTracking()
             .Where(p => p.IsDeleted != true && p.IsActive == true)
             .OrderBy(p => p.Code)
-            .Select(p => new { value = p.VehiclePairId, label = p.Code + " — " + p.Name })
+            .Select(p => new
+            {
+                value = p.VehiclePairId,
+                label = p.Code + " — " + p.Name,
+                primaryVehicleId = p.PrimaryVehicleId,
+                secondaryVehicleId = p.SecondaryVehicleId,
+                primarySharePercent = p.PrimarySharePercent,
+                secondarySharePercent = p.SecondarySharePercent,
+            })
             .ToListAsync(ct));
 
     [HttpPost]
     public async Task<IActionResult> Create([FromBody] VehiclePairRequest request, CancellationToken ct)
     {
         if (!ModelState.IsValid) return ValidationProblem(ModelState);
-        var code = request.Code.Trim();
-        if (await Db.VehiclePairs.AnyAsync(p => p.Code == code && p.IsDeleted != true, ct))
-            return BadRequest(new { message = "کد تکراری است." });
+        if (request.PrimaryVehicleId is int p1 && request.SecondaryVehicleId is int s1 && p1 == s1)
+            return BadRequest(new { message = "کشنده و بونکر نمی‌توانند یک وسیله باشند." });
 
         var entity = new VehiclePair
         {
-            Code = code,
+            Code = "TMP",
             Name = request.Name.Trim(),
             PrimaryVehicleId = request.PrimaryVehicleId,
             SecondaryVehicleId = request.SecondaryVehicleId,
@@ -92,8 +99,10 @@ public class VehiclePairController : TransportControllerBase
         };
         Db.VehiclePairs.Add(entity);
         await Db.SaveChangesAsync(ct);
+        entity.Code = TransportCodeHelper.Pair(entity.VehiclePairId);
+        await Db.SaveChangesAsync(ct);
         await SyncPairVehiclesAsync(entity, ct);
-        return Ok(new { message = "جفت ثبت شد.", vehiclePairId = entity.VehiclePairId });
+        return Ok(new { message = "جفت ثبت شد.", vehiclePairId = entity.VehiclePairId, code = entity.Code });
     }
 
     [HttpPut("{id:int}")]
@@ -170,7 +179,7 @@ public class VehiclePairController : TransportControllerBase
 
 public class VehiclePairRequest
 {
-    [Required, MaxLength(50)] public string Code { get; set; } = string.Empty;
+    [MaxLength(50)] public string? Code { get; set; }
     [Required, MaxLength(200)] public string Name { get; set; } = string.Empty;
     public int? PrimaryVehicleId { get; set; }
     public int? SecondaryVehicleId { get; set; }

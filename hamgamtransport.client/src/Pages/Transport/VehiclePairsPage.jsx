@@ -20,7 +20,16 @@ const columns = [
 ]
 
 const fields = [
-  { name: 'code', label: 'کد', type: 'text', required: true, col: 4 },
+  {
+    name: 'code',
+    label: 'کد',
+    type: 'text',
+    col: 4,
+    autoCode: true,
+    hideOnCreate: true,
+    readOnlyOnEdit: true,
+    placeholder: 'خودکار',
+  },
   { name: 'name', label: 'نام', type: 'text', required: true, col: 8 },
   {
     name: 'primaryVehicleId',
@@ -36,15 +45,15 @@ const fields = [
     col: 6,
     loadOptions: () => vehiclesApi.options(2),
   },
-  { name: 'primarySharePercent', label: 'سهم کشنده (٪)', type: 'number', col: 4, default: 60 },
-  { name: 'secondarySharePercent', label: 'سهم بونکر (٪)', type: 'number', col: 4, default: 40 },
+  { name: 'primarySharePercent', label: 'سهم کشنده (٪)', type: 'number', col: 4, default: 60, step: '0.01' },
+  { name: 'secondarySharePercent', label: 'سهم بونکر (٪)', type: 'number', col: 4, default: 40, step: '0.01' },
   { name: 'isActive', label: 'فعال', type: 'switch', default: true, col: 4 },
 ]
 
 export default function VehiclePairsPage() {
   return (
     <CrudTablePage
-      title="جفت کشنده/بونکر"
+      title="جفت وسیله"
       createLabel="جفت جدید"
       api={vehiclePairsApi}
       idField="vehiclePairId"

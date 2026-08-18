@@ -92,8 +92,6 @@ public class PartySettlementController : FinanceControllerBase
                     cb.Name AS cashBoxName,
                     s.BankAccountId AS bankAccountId,
                     ba.Name AS bankAccountName,
-                    s.SaleInvoiceId AS saleInvoiceId,
-                    s.PurchaseInvoiceId AS purchaseInvoiceId,
                     s.Description AS description,
                     s.JournalEntryId AS journalEntryId
              FROM PartySettlements s
@@ -143,8 +141,6 @@ public class PartySettlementController : FinanceControllerBase
                     cashBoxName = d["cashBoxName"],
                     bankAccountId = d["bankAccountId"],
                     bankAccountName = d["bankAccountName"],
-                    saleInvoiceId = d["saleInvoiceId"],
-                    purchaseInvoiceId = d["purchaseInvoiceId"],
                     description = d["description"],
                     journalEntryId = d["journalEntryId"],
                 };
@@ -173,9 +169,6 @@ public class PartySettlementController : FinanceControllerBase
                     request.AmountInBaseCurrency,
                     request.CashBoxId,
                     request.BankAccountId,
-                    request.SaleInvoiceId,
-                    request.PurchaseInvoiceId,
-                    request.InstallmentId,
                     request.Description),
                 ResolveCurrentUserId(),
                 cancellationToken);
@@ -230,12 +223,6 @@ public class CreatePartySettlementRequest
     public int? CashBoxId { get; set; }
 
     public int? BankAccountId { get; set; }
-
-    public int? SaleInvoiceId { get; set; }
-
-    public int? PurchaseInvoiceId { get; set; }
-
-    public int? InstallmentId { get; set; }
 
     [MaxLength(1000)]
     public string? Description { get; set; }

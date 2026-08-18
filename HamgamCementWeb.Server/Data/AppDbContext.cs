@@ -134,9 +134,9 @@ namespace HamgamCementWeb.Server.Data
                 .WithMany(d => d.Employees)
                 .HasForeignKey(e => e.DepartmentId);
 
-            // هر کارمند در هر روز فقط یک ردیف حضور
+            // هر کارمند در هر ماه شمسی فقط یک خلاصه حضور
             modelBuilder.Entity<Attendance>()
-                .HasIndex(a => new { a.EmployeeId, a.Date })
+                .HasIndex(a => new { a.EmployeeId, a.Year, a.Month })
                 .IsUnique()
                 .HasFilter("[IsDeleted] = 0");
 
@@ -440,6 +440,12 @@ namespace HamgamCementWeb.Server.Data
                 .HasForeignKey(e => e.ExpenseCategoryId)
                 .OnDelete(DeleteBehavior.Restrict);
 
+            modelBuilder.Entity<Expense>()
+                .HasOne(e => e.CostCenter)
+                .WithMany()
+                .HasForeignKey(e => e.CostCenterId)
+                .OnDelete(DeleteBehavior.SetNull);
+
             modelBuilder.Entity<ExpenseCategory>()
                 .HasIndex(c => c.Code)
                 .IsUnique()
@@ -474,6 +480,12 @@ namespace HamgamCementWeb.Server.Data
                 .WithMany(c => c.Revenues)
                 .HasForeignKey(r => r.RevenueCategoryId)
                 .OnDelete(DeleteBehavior.Restrict);
+
+            modelBuilder.Entity<Revenue>()
+                .HasOne(r => r.CostCenter)
+                .WithMany()
+                .HasForeignKey(r => r.CostCenterId)
+                .OnDelete(DeleteBehavior.SetNull);
 
             modelBuilder.Entity<RevenueCategory>()
                 .HasIndex(c => c.Code)

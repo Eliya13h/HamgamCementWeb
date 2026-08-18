@@ -63,6 +63,70 @@ export function isoToJalaliString(iso) {
   return jalali ? jalali.format('YYYY/MM/DD') : ''
 }
 
+export const MIN_JALALI_YEAR = 1200
+export const MAX_JALALI_YEAR = 1600
+
+/** سال، ماه و روز شمسی از تاریخ میلادی ISO */
+export function isoToJalaliParts(iso) {
+  const jalali = isoToJalaliObject(iso)
+  if (!jalali) return null
+  return {
+    year: jalali.year,
+    month: Number(jalali.month?.number ?? jalali.month),
+    day: jalali.day,
+  }
+}
+
+export function currentJalaliParts() {
+  const now = new DateObject({ calendar: persian, locale: afghanSolarLocale })
+  return {
+    year: now.year,
+    month: Number(now.month?.number ?? now.month),
+    day: now.day,
+  }
+}
+
+export function jalaliDaysInMonth(year, month) {
+  const start = new DateObject({
+    year: Number(year),
+    month: Number(month),
+    day: 1,
+    calendar: persian,
+    locale: afghanSolarLocale,
+  })
+  return start.isValid ? start.month.length : 30
+}
+
+export function jalaliPartsToIso(year, month, day) {
+  const y = Number(year)
+  const m = Number(month)
+  const d = Number(day)
+  if (!Number.isFinite(y) || !Number.isFinite(m) || !Number.isFinite(d)) return ''
+
+  const jalali = new DateObject({
+    year: Math.min(MAX_JALALI_YEAR, Math.max(MIN_JALALI_YEAR, y)),
+    month: Math.min(12, Math.max(1, m)),
+    day: 1,
+    calendar: persian,
+    locale: afghanSolarLocale,
+  })
+  if (!jalali.isValid) return ''
+
+  jalali.setDay(Math.min(Math.max(1, d), jalali.month.length))
+  return jalaliObjectToIso(jalali)
+}
+
+/** افزایش/کاهش سال، ماه یا روز روی تاریخ شمسی (با عبور از مرز ماه/سال) */
+export function addJalaliUnit(iso, unit, delta) {
+  const base = isoToJalaliObject(iso) ?? new DateObject({ calendar: persian, locale: afghanSolarLocale })
+  const next = new DateObject(base)
+  const key = unit === 'year' ? 'years' : unit === 'month' ? 'months' : 'days'
+  next.add(Number(delta) || 0, key)
+  if (next.year > MAX_JALALI_YEAR) next.setYear(MAX_JALALI_YEAR)
+  if (next.year < MIN_JALALI_YEAR) next.setYear(MIN_JALALI_YEAR)
+  return jalaliObjectToIso(next)
+}
+
 export function toLatinDigits(value) {
   if (value == null || value === '') return ''
 

@@ -3,7 +3,6 @@ using System.Security.Claims;
 using HamgamTransport.Server.Authorization;
 using HamgamTransport.Server.Controllers.Common;
 using HamgamTransport.Server.Data;
-using HamgamTransport.Server.Data.Models.Invoice;
 using HamgamTransport.Server.Data.Models.People;
 using HamgamTransport.Server.Services;
 using Microsoft.AspNetCore.Authorization;
@@ -130,60 +129,6 @@ public class SupplierController : ControllerBase
             recordsFiltered = result.RecordsFiltered,
             currencySymbol,
             data,
-        });
-    }
-
-    [HttpPost("{id:int}/purchase-invoices/datatable")]
-    [HasPermission("people.suppliers.view")]
-    public async Task<IActionResult> PurchaseInvoicesDataTable(
-        int id,
-        [FromBody] DataTableRequest request,
-        CancellationToken cancellationToken)
-    {
-        var canViewDeleted = await CanViewDeletedAsync(cancellationToken);
-
-        if (!await _reads.SupplierExistsAsync(id, canViewDeleted, cancellationToken))
-        {
-            return NotFound(new { message = "تأمین‌کننده یافت نشد." });
-        }
-
-        var start = Math.Max(request.Start, 0);
-        var length = request.Length <= 0 ? 10 : Math.Min(request.Length, 100);
-
-        var result = await _reads.QueryPurchaseInvoicesDataTableAsync(
-            id,
-            new SupplierInvoiceDataTableQuery
-            {
-                Start = start,
-                Length = length,
-                Search = request.Search?.Value,
-                Order = request.Order,
-            },
-            cancellationToken);
-
-        var currencySymbol = await _reads.GetBaseCurrencySymbolAsync(cancellationToken);
-
-        return Ok(new
-        {
-            draw = request.Draw,
-            recordsTotal = result.RecordsTotal,
-            recordsFiltered = result.RecordsFiltered,
-            totalPurchase = result.Totals.TotalPurchase,
-            totalPayment = result.Totals.TotalPayment,
-            currencySymbol,
-            data = result.Rows.Select((row, index) => new
-            {
-                rowNumber = start + index + 1,
-                purchaseInvoiceId = row.PurchaseInvoiceId,
-                invoiceNumber = row.InvoiceNumber,
-                invoiceDate = row.InvoiceDate,
-                itemsCount = row.ItemsCount,
-                totalAmount = row.TotalAmount,
-                paidAmount = row.PaidAmount,
-                status = (int)row.Status,
-                statusName = GetInvoiceStatusName(row.Status),
-                isPosted = row.IsPosted,
-            }),
         });
     }
 
@@ -429,14 +374,6 @@ public class SupplierController : ControllerBase
         var userIdClaim = User.FindFirstValue(ClaimTypes.NameIdentifier);
         return int.TryParse(userIdClaim, out var userId) ? userId : null;
     }
-
-    private static string GetInvoiceStatusName(InvoiceStatus status) => status switch
-    {
-        InvoiceStatus.Proforma => "پیش فاکتور",
-        InvoiceStatus.Order => "آردر",
-        InvoiceStatus.Invoice => "فاکتور",
-        _ => "استعلام قیمت",
-    };
 
     private sealed class UserAccessContext(bool hasFullAccess, IReadOnlyCollection<string> permissionKeys)
     {

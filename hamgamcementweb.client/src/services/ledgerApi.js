@@ -1,3 +1,5 @@
+import { toLatinIsoDate } from '../lib/afghanSolarCalendar'
+
 async function parseResponse(response) {
   const contentType = response.headers.get('content-type') ?? ''
   const hasJson = contentType.includes('application/json')
@@ -100,6 +102,10 @@ export const journalEntriesApi = {
       method: 'POST',
       body: JSON.stringify(payload),
     }),
+  partyAccount: (partyType, partyId) =>
+    request(
+      `${JOURNAL_BASE}/party-account?partyType=${encodeURIComponent(partyType)}&partyId=${encodeURIComponent(partyId)}`,
+    ),
 }
 
 export const cashBoxesApi = {
@@ -279,13 +285,40 @@ export function postInventoryOpening(payload) {
   })
 }
 
-export function fetchAccountLedger(accountId, { dateFrom, dateTo, partyId } = {}) {
+export function fetchAccountLedger(accountId, { dateFrom, dateTo, partyId, costCenterId } = {}) {
   const params = new URLSearchParams()
   if (dateFrom) params.set('dateFrom', dateFrom)
   if (dateTo) params.set('dateTo', dateTo)
   if (partyId) params.set('partyId', String(partyId))
+  if (costCenterId) params.set('costCenterId', String(costCenterId))
   const query = params.toString()
   return request(`${ACCOUNTS_BASE}/${accountId}/ledger${query ? `?${query}` : ''}`)
+}
+
+export function getAccountLedgerPrintUrl(
+  accountId,
+  { dateFrom, dateTo, partyId, costCenterId } = {},
+) {
+  const params = new URLSearchParams({ accountId: String(accountId) })
+  const from = toLatinIsoDate(dateFrom)
+  const to = toLatinIsoDate(dateTo)
+  if (from) params.set('dateFrom', from)
+  if (to) params.set('dateTo', to)
+  if (partyId) params.set('partyId', String(partyId))
+  if (costCenterId) params.set('costCenterId', String(costCenterId))
+  return `/report-viewer/account-ledger?${params.toString()}`
+}
+
+export function getCostCenterReportUrl({ dateFrom, dateTo, costCenterId, accountId } = {}) {
+  const params = new URLSearchParams()
+  const from = toLatinIsoDate(dateFrom)
+  const to = toLatinIsoDate(dateTo)
+  if (from) params.set('dateFrom', from)
+  if (to) params.set('dateTo', to)
+  if (costCenterId) params.set('costCenterId', String(costCenterId))
+  if (accountId) params.set('accountId', String(accountId))
+  const query = params.toString()
+  return `/report-viewer/cost-center${query ? `?${query}` : ''}`
 }
 
 export const accountsApi = {

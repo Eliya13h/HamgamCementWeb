@@ -89,7 +89,7 @@ public class RecurringJournalController : FinanceControllerBase
         var credit = request.Lines.Sum(l => l.CreditInBaseCurrency);
         if (Math.Abs(debit - credit) > 0.01m)
         {
-            return BadRequest(new { message = "مجموع بدهکار و بستانکار قالب باید برابر باشد." });
+            return BadRequest(new { message = "مجموع دیبت و کریدیت قالب باید برابر باشد." });
         }
 
         var code = request.Code.Trim();

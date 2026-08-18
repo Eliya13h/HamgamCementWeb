@@ -114,11 +114,3 @@ function createDataTableAjax(url, onError, onLoaded) {
 export function createCustomersDataTableAjax(onError, onLoaded) {
   return createDataTableAjax(`${BASE}/datatable`, onError, onLoaded)
 }
-
-export function createCustomerInvoicesDataTableAjax(customerId, onError, onLoaded) {
-  return createDataTableAjax(
-    `${BASE}/${customerId}/sale-invoices/datatable`,
-    onError,
-    onLoaded,
-  )
-}

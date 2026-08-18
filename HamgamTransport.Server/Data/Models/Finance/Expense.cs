@@ -1,8 +1,6 @@
 ﻿using System.ComponentModel.DataAnnotations;
 using System.ComponentModel.DataAnnotations.Schema;
 using HamgamTransport.Server.Data;
-using HamgamTransport.Server.Data.Models.Finance;
-using HamgamTransport.Server.Data.Models.Invoice;
 using HamgamTransport.Server.Data.Models.People;
 
 namespace HamgamTransport.Server.Data.Models.Finance;
@@ -36,13 +34,10 @@ public class Expense : BaseEntity
     [MaxLength(2000)]
     public string? Description { get; set; }
 
-    // دسته‌بندی حسابداری مصرف
     public int ExpenseCategoryId { get; set; }
 
-    // منبع ثبت: فاکتور خرید، متفرقه و ...
     public FinancialEntrySource Source { get; set; } = FinancialEntrySource.Miscellaneous;
 
-    // سند دفترروزنامه متناظر با این مصرف
     public int? JournalEntryId { get; set; }
 
     [ForeignKey(nameof(SupplierId))]
@@ -53,9 +48,6 @@ public class Expense : BaseEntity
 
     [ForeignKey(nameof(JournalEntryId))]
     public virtual JournalEntry? JournalEntry { get; set; }
-
-    // ناوبری معکوس — FK فقط روی PurchaseInvoice.ExpenseId است
-    public virtual PurchaseInvoice? PurchaseInvoice { get; set; }
 
     [ForeignKey(nameof(CurrencyId))]
     public virtual Currency Currency { get; set; } = null!;

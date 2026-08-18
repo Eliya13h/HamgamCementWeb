@@ -69,6 +69,8 @@ public class FinanceReadService : IFinanceReadService
                     e.Amount,
                     e.AmountInBaseCurrency,
                     e.Description,
+                    e.CostCenterId,
+                    cc.Name AS CostCenterName,
                     e.JournalEntryId,
                     (SELECT TOP 1 i.InvoiceNumber FROM PurchaseInvoices i
                      WHERE i.ExpenseId = e.ExpenseID AND i.IsDeleted = 0) AS InvoiceNumber
@@ -76,6 +78,7 @@ public class FinanceReadService : IFinanceReadService
              LEFT JOIN Suppliers s ON s.SupplierID = e.SupplierId
              INNER JOIN ExpenseCategories c ON c.ExpenseCategoryID = e.ExpenseCategoryId
              INNER JOIN Currencies cur ON cur.CurrencyID = e.CurrencyId
+             LEFT JOIN CostCenters cc ON cc.CostCenterID = e.CostCenterId AND ISNULL(cc.IsDeleted, 0) = 0
              {where}
              ORDER BY e.ExpenseDate DESC, e.ExpenseID DESC
              OFFSET @Offset ROWS FETCH NEXT @Fetch ROWS ONLY
@@ -130,6 +133,8 @@ public class FinanceReadService : IFinanceReadService
                     r.AmountInBaseCurrency,
                     r.ProfitInBaseCurrency,
                     r.Description,
+                    r.CostCenterId,
+                    cc.Name AS CostCenterName,
                     r.JournalEntryId,
                     (SELECT TOP 1 i.InvoiceNumber FROM SaleInvoices i
                      WHERE i.RevenueId = r.RevenueID AND i.IsDeleted = 0) AS InvoiceNumber
@@ -137,6 +142,7 @@ public class FinanceReadService : IFinanceReadService
              LEFT JOIN Customers cu ON cu.CustomerID = r.CustomerId
              INNER JOIN RevenueCategories c ON c.RevenueCategoryID = r.RevenueCategoryId
              INNER JOIN Currencies cur ON cur.CurrencyID = r.CurrencyId
+             LEFT JOIN CostCenters cc ON cc.CostCenterID = r.CostCenterId AND ISNULL(cc.IsDeleted, 0) = 0
              {where}
              ORDER BY r.RevenueDate DESC, r.RevenueID DESC
              OFFSET @Offset ROWS FETCH NEXT @Fetch ROWS ONLY
@@ -177,6 +183,8 @@ public sealed class ExpenseListRow
     public decimal Amount { get; set; }
     public decimal AmountInBaseCurrency { get; set; }
     public string? Description { get; set; }
+    public int? CostCenterId { get; set; }
+    public string? CostCenterName { get; set; }
     public int? JournalEntryId { get; set; }
     public string? InvoiceNumber { get; set; }
 }
@@ -198,6 +206,8 @@ public sealed class RevenueListRow
     public decimal AmountInBaseCurrency { get; set; }
     public decimal ProfitInBaseCurrency { get; set; }
     public string? Description { get; set; }
+    public int? CostCenterId { get; set; }
+    public string? CostCenterName { get; set; }
     public int? JournalEntryId { get; set; }
     public string? InvoiceNumber { get; set; }
 }

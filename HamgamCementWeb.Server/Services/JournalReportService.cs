@@ -1,6 +1,7 @@
 using System.Drawing;
 using System.Globalization;
 using System.Runtime.Versioning;
+using Dapper;
 using HamgamCementWeb.Server.Data;
 using HamgamCementWeb.Server.Data.Models;
 using HamgamCementWeb.Server.Data.Models.Finance;
@@ -44,6 +45,15 @@ public interface IJournalReportService
         DateTime? dateFrom,
         DateTime? dateTo,
         CancellationToken cancellationToken = default);
+
+    // نسخه چاپ HTML (A4) برای گردش حساب / دفتر کل
+    Task<AccountLedgerPrintModel> BuildAccountLedgerPrintModelAsync(
+        int accountId,
+        DateTime? dateFrom,
+        DateTime? dateTo,
+        int? partyId = null,
+        int? costCenterId = null,
+        CancellationToken cancellationToken = default);
 }
 
 public class JournalReportService : IJournalReportService
@@ -53,11 +63,13 @@ public class JournalReportService : IJournalReportService
 
     private readonly AppDbContext _db;
     private readonly IWebHostEnvironment _env;
+    private readonly ISqlConnectionFactory _sql;
 
-    public JournalReportService(AppDbContext db, IWebHostEnvironment env)
+    public JournalReportService(AppDbContext db, IWebHostEnvironment env, ISqlConnectionFactory sql)
     {
         _db = db;
         _env = env;
+        _sql = sql;
     }
 
     public Task<StiReport> BuildPurchaseJournalReportAsync(
@@ -137,6 +149,157 @@ public class JournalReportService : IJournalReportService
             OpeningDebit = opening.Debit,
             OpeningCredit = opening.Credit,
             Pages = BuildPrintPages(rows, opening.Debit, opening.Credit),
+        };
+    }
+
+    public async Task<AccountLedgerPrintModel> BuildAccountLedgerPrintModelAsync(
+        int accountId,
+        DateTime? dateFrom,
+        DateTime? dateTo,
+        int? partyId = null,
+        int? costCenterId = null,
+        CancellationToken cancellationToken = default)
+    {
+        var account = await _db.Accounts
+            .AsNoTracking()
+            .FirstOrDefaultAsync(a => a.AccountID == accountId && a.IsDeleted != true, cancellationToken)
+            ?? throw new InvalidOperationException("حساب یافت نشد.");
+
+        var today = DateTime.Today;
+        var solarYear = JalaliDateHelper.GetSolarYear(today);
+        var (yearStart, _) = JalaliDateHelper.GetSolarYearRange(solarYear);
+        var start = (dateFrom ?? yearStart).Date;
+        var end = (dateTo ?? today).Date;
+        if (start > end)
+        {
+            throw new InvalidOperationException("تاریخ شروع نباید بعد از تاریخ پایان باشد.");
+        }
+
+        var endInclusive = end.AddDays(1).AddTicks(-1);
+        string? costCenterLabel = null;
+        if (costCenterId is > 0)
+        {
+            costCenterLabel = await _db.CostCenters.AsNoTracking()
+                .Where(c => c.CostCenterID == costCenterId && c.IsDeleted != true)
+                .Select(c => c.Code + " — " + c.Name)
+                .FirstOrDefaultAsync(cancellationToken)
+                ?? throw new InvalidOperationException("مرکز هزینه یافت نشد.");
+        }
+
+        await using var connection = (System.Data.Common.DbConnection)await _sql.OpenAsync(cancellationToken);
+
+        var opening = await connection.QueryFirstAsync<(decimal Debit, decimal Credit)>(
+            """
+            SELECT ISNULL(SUM(jl.DebitInBaseCurrency), 0) AS Debit,
+                   ISNULL(SUM(jl.CreditInBaseCurrency), 0) AS Credit
+            FROM JournalLines jl
+            INNER JOIN JournalEntries je ON je.JournalEntryID = jl.JournalEntryId
+            WHERE jl.AccountId = @AccountId
+              AND ISNULL(jl.IsDeleted, 0) = 0
+              AND ISNULL(je.IsDeleted, 0) = 0
+              AND je.IsPosted = 1
+              AND je.EntryDate < @Start
+              AND (@PartyId IS NULL OR jl.PartyId = @PartyId)
+              AND (@CostCenterId IS NULL OR jl.CostCenterId = @CostCenterId)
+            """,
+            new { AccountId = accountId, Start = start, PartyId = partyId, CostCenterId = costCenterId });
+
+        var lines = (await connection.QueryAsync<(
+            string EntryNumber,
+            DateTime EntryDate,
+            string? EntryDescription,
+            string? LineDescription,
+            decimal Debit,
+            decimal Credit,
+            int? CostCenterId,
+            string? CostCenterCode,
+            string? CostCenterName)>(
+            """
+            SELECT je.EntryNumber AS EntryNumber,
+                   je.EntryDate AS EntryDate,
+                   je.Description AS EntryDescription,
+                   l.Description AS LineDescription,
+                   l.DebitInBaseCurrency AS Debit,
+                   l.CreditInBaseCurrency AS Credit,
+                   l.CostCenterId AS CostCenterId,
+                   cc.Code AS CostCenterCode,
+                   cc.Name AS CostCenterName
+            FROM JournalLines l
+            INNER JOIN JournalEntries je ON je.JournalEntryID = l.JournalEntryId
+            LEFT JOIN CostCenters cc ON cc.CostCenterID = l.CostCenterId AND ISNULL(cc.IsDeleted, 0) = 0
+            WHERE l.AccountId = @AccountId
+              AND ISNULL(l.IsDeleted, 0) = 0
+              AND ISNULL(je.IsDeleted, 0) = 0
+              AND je.IsPosted = 1
+              AND je.EntryDate >= @Start
+              AND je.EntryDate <= @EndInclusive
+              AND (@PartyId IS NULL OR l.PartyId = @PartyId)
+              AND (@CostCenterId IS NULL OR l.CostCenterId = @CostCenterId)
+            ORDER BY je.EntryDate, je.JournalEntryID, l.[LineNo]
+            """,
+            new
+            {
+                AccountId = accountId,
+                Start = start,
+                EndInclusive = endInclusive,
+                PartyId = partyId,
+                CostCenterId = costCenterId,
+            })).AsList();
+
+        var settings = await _db.GeneralSettings
+            .AsNoTracking()
+            .FirstOrDefaultAsync(s => s.Id == GeneralSettingsId, cancellationToken)
+            ?? new GeneralSettings();
+
+        var title = $"دفتر کل — {account.Code} {account.Name}";
+        if (!string.IsNullOrWhiteSpace(costCenterLabel))
+        {
+            title += $" | مرکز هزینه: {costCenterLabel}";
+        }
+
+        var info = BuildInfo(settings, title, start, end);
+        var openingBalance = opening.Debit - opening.Credit;
+        var running = openingBalance;
+        var rows = new List<AccountLedgerPrintRow>();
+        foreach (var line in lines)
+        {
+            running += line.Debit - line.Credit;
+            var desc = !string.IsNullOrWhiteSpace(line.LineDescription)
+                ? line.LineDescription!
+                : (line.EntryDescription ?? string.Empty);
+            rows.Add(new AccountLedgerPrintRow
+            {
+                ShamsiDate = JalaliDateHelper.FormatDate(line.EntryDate),
+                EntryNumber = line.EntryNumber,
+                Description = desc,
+                Debit = line.Debit,
+                Credit = line.Credit,
+                RunningBalance = running,
+                CostCenterLabel = line.CostCenterId is > 0 && !string.IsNullOrWhiteSpace(line.CostCenterCode)
+                    ? $"{line.CostCenterCode} — {line.CostCenterName}"
+                    : null,
+            });
+        }
+
+        return new AccountLedgerPrintModel
+        {
+            PersianCompanyName = info.PersianCompanyName,
+            EnglishCompanyName = info.EnglishCompanyName,
+            ReportTitle = info.ReportTitle,
+            ReportRangeDate = info.ReportRangeDate,
+            PrintDate = info.PrintDate,
+            CompanyLogoDataUri = ToImageDataUri(info.CompanyLogo),
+            ZmLogoDataUri = ToImageDataUri(info.ZmLogo),
+            AccountCode = account.Code,
+            AccountName = account.Name,
+            CostCenterFilterLabel = costCenterLabel,
+            OpeningBalance = openingBalance,
+            ClosingBalance = running,
+            PeriodDebit = rows.Sum(r => r.Debit),
+            PeriodCredit = rows.Sum(r => r.Credit),
+            OpeningDebit = opening.Debit,
+            OpeningCredit = opening.Credit,
+            Rows = rows,
         };
     }
 
@@ -516,7 +679,7 @@ public class JournalReportService : IJournalReportService
         foreach (var entry in entries)
         {
             var orderedLines = entry.Lines
-                .OrderBy(l => l.CreditInBase > 0 && l.DebitInBase <= 0 ? 1 : 0) // بدهکارها اول
+                .OrderBy(l => l.CreditInBase > 0 && l.DebitInBase <= 0 ? 1 : 0) // دیبت‌ها اول
                 .ThenBy(l => l.LineNo)
                 .ToList();
 
@@ -977,4 +1140,36 @@ public class StandardJournalPrintPage
     public decimal TotalDebit { get; set; }
     public decimal TotalCredit { get; set; }
     public List<StandardJurnalRow> Rows { get; set; } = [];
+}
+
+public class AccountLedgerPrintModel
+{
+    public string PersianCompanyName { get; set; } = string.Empty;
+    public string EnglishCompanyName { get; set; } = string.Empty;
+    public string ReportTitle { get; set; } = string.Empty;
+    public string ReportRangeDate { get; set; } = string.Empty;
+    public string PrintDate { get; set; } = string.Empty;
+    public string? CompanyLogoDataUri { get; set; }
+    public string? ZmLogoDataUri { get; set; }
+    public string AccountCode { get; set; } = string.Empty;
+    public string AccountName { get; set; } = string.Empty;
+    public string? CostCenterFilterLabel { get; set; }
+    public decimal OpeningBalance { get; set; }
+    public decimal ClosingBalance { get; set; }
+    public decimal PeriodDebit { get; set; }
+    public decimal PeriodCredit { get; set; }
+    public decimal OpeningDebit { get; set; }
+    public decimal OpeningCredit { get; set; }
+    public List<AccountLedgerPrintRow> Rows { get; set; } = [];
+}
+
+public class AccountLedgerPrintRow
+{
+    public string ShamsiDate { get; set; } = string.Empty;
+    public string EntryNumber { get; set; } = string.Empty;
+    public string Description { get; set; } = string.Empty;
+    public decimal Debit { get; set; }
+    public decimal Credit { get; set; }
+    public decimal RunningBalance { get; set; }
+    public string? CostCenterLabel { get; set; }
 }

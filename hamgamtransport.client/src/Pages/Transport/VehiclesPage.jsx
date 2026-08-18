@@ -1,21 +1,25 @@
+import { useCallback } from 'react'
 import CrudTablePage from '../../components/common/CrudTablePage'
-import { vehicleOwnersApi, vehicleTypesApi, vehiclesApi } from '../../services/transportApi'
+import { driversApi, vehicleOwnersApi, vehicleTypesApi, vehiclesApi } from '../../services/transportApi'
 
-const roleOptions = [
-  { value: 1, label: 'کشنده' },
-  { value: 2, label: 'بونکر' },
-  { value: 3, label: 'تک‌وسیله' },
-]
+let vehicleTypeOptions = []
+vehicleTypesApi.options().then((opts) => {
+  vehicleTypeOptions = opts ?? []
+})
+
+function resolveTypeCode(vehicleTypeId, fallbackCode = '') {
+  if (fallbackCode) return fallbackCode
+  const match = vehicleTypeOptions.find((t) => String(t.value) === String(vehicleTypeId))
+  return match?.code ?? ''
+}
 
 const columns = [
+  { data: 'code', title: 'کد' },
   { data: 'plateNumber', title: 'پلاک' },
   { data: 'typeName', title: 'نوع' },
   { data: 'ownerName', title: 'مالک' },
-  {
-    data: 'roleInPair',
-    title: 'نقش',
-    render: (v) => roleOptions.find((r) => r.value === Number(v))?.label ?? '—',
-  },
+  { data: 'model', title: 'مدل', defaultContent: '—' },
+  { data: 'manufactureYear', title: 'سال', defaultContent: '—' },
   {
     data: 'isActive',
     title: 'وضعیت',
@@ -28,6 +32,16 @@ const columns = [
 ]
 
 const fields = [
+  {
+    name: 'code',
+    label: 'کد',
+    type: 'text',
+    col: 4,
+    autoCode: true,
+    showOnlyOnEdit: true,
+    readOnlyOnEdit: true,
+    placeholder: 'خودکار',
+  },
   { name: 'plateNumber', label: 'پلاک', type: 'text', required: true, col: 4 },
   {
     name: 'vehicleTypeId',
@@ -35,7 +49,10 @@ const fields = [
     type: 'select',
     required: true,
     col: 4,
-    loadOptions: () => vehicleTypesApi.options(),
+    loadOptions: async () => {
+      vehicleTypeOptions = (await vehicleTypesApi.options()) ?? []
+      return vehicleTypeOptions
+    },
   },
   {
     name: 'vehicleOwnerId',
@@ -45,21 +62,64 @@ const fields = [
     col: 4,
     loadOptions: () => vehicleOwnersApi.options(),
   },
+  { name: 'chassisNumber', label: 'شماره بدنه', type: 'text', col: 4 },
+  { name: 'model', label: 'مدل', type: 'text', col: 4 },
+  { name: 'manufactureYear', label: 'سال ساخت', type: 'number', col: 4, step: 1 },
   {
-    name: 'roleInPair',
-    label: 'نقش',
+    name: 'weightTon',
+    label: 'وزن (تن)',
+    type: 'number',
+    col: 4,
+    step: '0.001',
+    showWhen: (form) => form._typeCode === 'BUNKER',
+  },
+  {
+    name: 'volume',
+    label: 'حجم',
+    type: 'number',
+    col: 4,
+    step: '0.001',
+    showWhen: (form) => form._typeCode === 'BUNKER',
+  },
+  {
+    name: 'defaultIncomeSharePercent',
+    label: 'سهم پیش‌فرض درآمد (٪)',
+    type: 'number',
+    col: 4,
+    step: '0.01',
+  },
+  {
+    name: 'defaultDriverId',
+    label: 'راننده پیش‌فرض',
     type: 'select',
     col: 4,
-    default: 1,
-    options: roleOptions,
+    loadOptions: () => driversApi.options(),
+    showWhen: (form) => form._typeCode !== 'BUNKER',
   },
   { name: 'isActive', label: 'فعال', type: 'switch', default: true, col: 4 },
+  {
+    name: '_typeCode',
+    skipOnSubmit: true,
+    default: '',
+    showWhen: () => false,
+    fromRow: (row) => resolveTypeCode(row.vehicleTypeId, row.typeCode),
+  },
 ]
 
 export default function VehiclesPage() {
+  const handleFormChange = useCallback((name, value) => {
+    if (name !== 'vehicleTypeId') return null
+    const typeCode = resolveTypeCode(value)
+    const patch = { _typeCode: typeCode }
+    if (typeCode === 'BUNKER') {
+      patch.defaultDriverId = ''
+    }
+    return patch
+  }, [])
+
   return (
     <CrudTablePage
-      title="کشنده و بونکر"
+      title="وسایل نقلیه"
       createLabel="وسیله جدید"
       api={vehiclesApi}
       idField="vehicleId"
@@ -67,6 +127,7 @@ export default function VehiclesPage() {
       columns={columns}
       fields={fields}
       permissionPath="/transport/vehicles"
+      onFormChange={handleFormChange}
     />
   )
 }

@@ -1,5 +1,34 @@
 dotnet ef migrations add NameOfChange --project HamgamCementWeb.Server --context AppDbContext
-dotnet ef database update --project HamgamCementWeb.Server
+dotnet ef database update --project HamgamCementWeb.Server --context AppDbContext
 
 dotnet ef migrations add NameOfChange --project HamgamTransport.Server --context AppDbContext
-dotnet ef database update --project HamgamTransport.Server
+dotnet ef database update --project HamgamTransport.Server --context AppDbContext
+
+# نکته: هر Server علاوه بر AppDbContext خودش، ReferenceDbContext را از Hamgam.Shared
+# می‌بیند؛ بدون --context دستور database update خطا می‌دهد.
+
+# --- دیتابیس سوم: HamgamReference (ReferenceDbContext در Hamgam.Shared) ---
+# migration ندارد. با EnsureCreated هنگام استارت Cement یا Transport ساخته می‌شود:
+#   ConnectionStrings:Reference → Database=HamgamReference
+#   Program.cs → currencySync.EnsureReferenceDatabaseAsync()
+# کافی است یکی از سرورها را یک‌بار اجرا کنی؛ جداول ارز مرجع ساخته می‌شوند.
+# اگر DB خالی باشد، SeedReferenceFromLocalIfEmptyAsync از ارزهای لوکال پرش می‌کند.
+
+# Transport schema cleanup (2026-08-13):
+# RemoveProductionModule, RemoveManufacturingSchema
+
+# JournalLine.PartyType (2026-08-13):
+# JournalLinePartyType — طرف‌حساب اختیاری در سند دستی
+# (Cement: EnsureColumn در AccountingCompletenessSchemaSeeder)
+# dotnet ef database update --project HamgamCementWeb.Server --context AppDbContext
+# dotnet ef database update --project HamgamTransport.Server --context AppDbContext
+
+# Invoice IsCash explicit (2026-08-14):
+# InvoiceIsCashExplicit — IsCash روی SaleInvoices/PurchaseInvoices (+ PartyType روی JournalLines)
+# Up با SQL شرطی (IF COL_LENGTH) است تا DB موجود خراب نشود.
+# dotnet ef database update --project HamgamCementWeb.Server --context AppDbContext
+
+# Monthly attendance summary (2026-08-18):
+# AttendanceMonthlySummary — حضور روزانه → خلاصه ماهانه شمسی
+# (Present/Absent/Leave/Holiday + Late/EarlyLeave/Overtime hours + coefficient)
+# dotnet ef database update --project HamgamCementWeb.Server --context AppDbContext

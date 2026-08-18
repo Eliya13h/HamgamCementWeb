@@ -97,22 +97,6 @@ public class AuthController : ControllerBase
             return Conflict(new { message = "این ایمیل قبلاً ثبت شده است." });
         }
 
-        var employee = await _db.Employees
-            .Include(e => e.User)
-            .FirstOrDefaultAsync(
-                e => e.EmployeeID == request.EmployeeId && e.IsDeleted != true && e.IsActive == true,
-                cancellationToken);
-
-        if (employee is null)
-        {
-            return BadRequest(new { message = "کارمند مورد نظر یافت نشد یا غیرفعال است." });
-        }
-
-        if (employee.User is not null && employee.User.IsDeleted != true)
-        {
-            return Conflict(new { message = "برای این کارمند قبلاً حساب کاربری ایجاد شده است." });
-        }
-
         var role = await _db.Roles.FirstOrDefaultAsync(
             r => r.RoleID == request.RoleId && r.IsDeleted != true && r.IsActive == true,
             cancellationToken);
@@ -122,8 +106,7 @@ public class AuthController : ControllerBase
             return BadRequest(new { message = "نقش انتخاب‌شده معتبر نیست." });
         }
 
-        // ثبت‌نام فقط توسط کاربر احراز هویت‌شده انجام می‌شود؛ سازنده از شناسه کاربر جاری گرفته می‌شود
-        var createdBy = ResolveCreatedBy(employee);
+        var createdBy = ResolveCurrentUserId();
 
         var user = new AppUser
         {
@@ -132,8 +115,6 @@ public class AuthController : ControllerBase
             Email = normalizedEmail,
             Title = request.Title,
             RoleId = role.RoleID,
-            EmployeeId = employee.EmployeeID,
-            AvatarUrl = employee.AvatarUrl,
             PasswordHash = _passwordHasher.HashPassword(null!, request.Password),
             CreatedBy = createdBy,
             CreatedAt = DateTime.Now,
@@ -216,15 +197,10 @@ public class AuthController : ControllerBase
             });
     }
 
-    private int? ResolveCreatedBy(Employee employee)
+    private int? ResolveCurrentUserId()
     {
         var currentUserIdClaim = User.FindFirstValue(ClaimTypes.NameIdentifier);
-        if (int.TryParse(currentUserIdClaim, out var currentUserId))
-        {
-            return currentUserId;
-        }
-
-        return employee.CreatedBy;
+        return int.TryParse(currentUserIdClaim, out var currentUserId) ? currentUserId : null;
     }
 
     private static object MapToResponse(AppUser user) => new
@@ -276,9 +252,6 @@ public class AuthController : ControllerBase
         [EmailAddress(ErrorMessage = "فرمت ایمیل معتبر نیست.")]
         [MaxLength(200)]
         public string Email { get; set; } = string.Empty;
-
-        [Range(1, int.MaxValue, ErrorMessage = "شناسه کارمند معتبر نیست.")]
-        public int EmployeeId { get; set; }
 
         [Range(1, int.MaxValue, ErrorMessage = "شناسه نقش معتبر نیست.")]
         public int RoleId { get; set; }

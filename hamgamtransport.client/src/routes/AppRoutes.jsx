@@ -26,6 +26,7 @@ import {
   RecurringJournalsPage,
   PettyCashPage,
   JournalPage,
+  LedgerPage,
   Login,
   RevenuesPage,
   RevenuesReportPage,
@@ -34,7 +35,6 @@ import {
   SettingsPage,
   VehiclesPage,
   VehiclePairsPage,
-  VehicleTypesPage,
   TripExpenseCategoriesPage,
   VehicleOwnersPage,
   DriversPage,
@@ -61,7 +61,7 @@ function AppRoutes() {
             <Route index element={<DashboardPage />} />
             <Route path="reports" element={<ReportsPage />} />
 
-            <Route path="transport/vehicle-types" element={<VehicleTypesPage />} />
+            <Route path="transport/vehicle-types" element={<Navigate to="/transport/vehicles" replace />} />
             <Route path="transport/vehicles" element={<VehiclesPage />} />
             <Route path="transport/vehicle-pairs" element={<VehiclePairsPage />} />
             <Route path="transport/trips" element={<TripsPage />} />
@@ -109,18 +109,13 @@ function AppRoutes() {
             <Route path="reporting/revenues" element={<RevenuesReportPage />} />
             <Route path="reporting/expenses" element={<ExpensesReportPage />} />
             <Route path="reporting/journal" element={<JournalPage />} />
+            <Route path="reporting/ledger" element={<LedgerPage />} />
 
             <Route path="users/list" element={<UsersPage />} />
             <Route path="users/roles" element={<AccessLevelsPage />} />
 
             <Route path="settings" element={<SettingsPage />} />
 
-            {/* مسیرهای قدیمی سیمان — هدایت به داشبورد */}
-            <Route path="people/suppliers/*" element={<Navigate to="/" replace />} />
-            <Route path="production/*" element={<Navigate to="/" replace />} />
-            <Route path="transactions/*" element={<Navigate to="/" replace />} />
-            <Route path="products/*" element={<Navigate to="/" replace />} />
-            <Route path="inventory/*" element={<Navigate to="/" replace />} />
             <Route path="transport/routes" element={<Navigate to="/transport/trips" replace />} />
             <Route path="transport/invoices" element={<Navigate to="/transport/trips" replace />} />
 

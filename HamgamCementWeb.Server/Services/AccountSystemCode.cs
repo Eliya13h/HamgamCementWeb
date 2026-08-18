@@ -59,7 +59,7 @@ public static class AccountSystemCode
     public const string MiscExpense = "SYS_MISC_EXP";
     // هزینه حقوق و دستمزد کارکنان اداری/عملیاتی
     public const string SalaryExpense = "SYS_SALARY_EXP";
-    // کسورات حقوق (طرف بستانکار در سند پرداخت)
+    // کسورات حقوق (طرف کریدیت در سند پرداخت)
     public const string SalaryDeductions = "SYS_SALARY_DEDUCTIONS";
 
     // مالیات پیش‌نویس
@@ -70,7 +70,7 @@ public static class AccountSystemCode
     public const string DoubtfulDebtExpense = "SYS_DOUBTFUL_EXP";
     public const string DoubtfulDebtAllowance = "SYS_DOUBTFUL_ALLOW";
 
-    // هزینه‌های ساخت در تولید — بستانکار در سند تولید (سرمایه‌گذاری در موجودی FG)
+    // هزینه‌های ساخت در تولید — کریدیت در سند تولید (سرمایه‌گذاری در موجودی FG)
     public const string ProductionWage = "SYS_PROD_WAGE";
     public const string ProductionOverhead = "SYS_PROD_OVERHEAD";
     public const string ProductionAncillary = "SYS_PROD_ANCILLARY";

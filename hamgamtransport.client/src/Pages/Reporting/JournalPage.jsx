@@ -4,57 +4,38 @@ import { getJournalReportUrl } from '../../services/journalApi'
 
 const journalSections = [
   {
-    id: 'purchase',
-    title: 'روزنامچه خرید',
-    type: 'purchase',
-    enabled: true,
-  },
-  {
-    id: 'sale',
-    title: 'روزنامچه فروش',
-    type: 'sale',
-    enabled: true,
+    id: 'general',
+    title: 'روزنامچه عمومی',
+    type: 'general',
+    optionalDates: true,
   },
   {
     id: 'revenue',
     title: 'روزنامچه عواید',
     type: 'revenue',
-    enabled: true,
+    optionalDates: true,
   },
   {
     id: 'expense',
     title: 'روزنامچه مصارف',
     type: 'expense',
-    enabled: true,
+    optionalDates: true,
   },
   {
-    id: 'production',
-    title: 'روزنامچه تولید',
-    type: 'production',
-    enabled: true,
-  },
-  {
-    id: 'general',
-    title: 'روزنامچه عمومی',
-    type: 'general',
-    enabled: true,
+    id: 'transport',
+    title: 'روزنامچه حمل و سرویس',
+    type: 'transport',
+    optionalDates: true,
   },
 ]
 
 function JournalSection({ section, dateFrom, dateTo, onDateFromChange, onDateToChange, onError }) {
-  const allowsOptionalDates =
-    section.type === 'purchase' || section.type === 'sale' || section.type === 'general'
-
   const handleGenerate = () => {
-    if (!section.enabled) {
-      return
-    }
-
     const hasFrom = Boolean(dateFrom)
     const hasTo = Boolean(dateTo)
     const hasBothDates = hasFrom && hasTo
 
-    if (!allowsOptionalDates && !hasBothDates) {
+    if (!section.optionalDates && !hasBothDates) {
       onError('لطفاً بازه تاریخ را انتخاب کنید.')
       return
     }
@@ -72,7 +53,6 @@ function JournalSection({ section, dateFrom, dateTo, onDateFromChange, onDateToC
     <div className="border rounded-3 p-3 mb-3">
       <div className="d-flex flex-wrap align-items-center justify-content-between gap-2 mb-3">
         <h3 className="h5 mb-0">{section.title}</h3>
-        {!section.enabled && <span className="badge bg-secondary">به‌زودی</span>}
       </div>
 
       <div className="row g-3 align-items-end">
@@ -89,12 +69,7 @@ function JournalSection({ section, dateFrom, dateTo, onDateFromChange, onDateToC
           <JalaliDateField value={dateTo} onChange={onDateToChange} />
         </div>
         <div className="col-md-3">
-          <button
-            type="button"
-            className="btn btn-primary w-100"
-            onClick={handleGenerate}
-            disabled={!section.enabled}
-          >
+          <button type="button" className="btn btn-primary w-100" onClick={handleGenerate}>
             ساخت گزارش
           </button>
         </div>
@@ -124,9 +99,8 @@ function JournalPage() {
       <div className="card-body p-4">
         <h2 className="card-title mb-2">روزنامچه</h2>
         <p className="text-muted mb-4">
-          برای روزنامچه خرید، فروش و عمومی می‌توانید بازه تاریخ را خالی بگذارید (کل دوره)، فقط «از
-          تاریخ» (تا انتها)، فقط «تا تاریخ» (از ابتدا)، یا هر دو را انتخاب کنید. برای سایر بخش‌ها بازه
-          تاریخ الزامی است. روزنامچه عمومی دفتر روزنامه استاندارد دوطرفه است.
+          گزارش‌های دفتر روزنامه دوطرفه (دیبت/کریدیت) برای اسناد عمومی، عواید، مصارف و حمل.
+          بازه تاریخ اختیاری است؛ خالی یعنی کل دوره، فقط «از تاریخ» تا انتها، فقط «تا تاریخ» از ابتدا.
         </p>
 
         {error && <div className="alert alert-danger py-2 mb-3">{error}</div>}

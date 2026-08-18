@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import AmountField from '../../components/common/AmountField'
 import JalaliDateField from '../../components/common/JalaliDateField'
+import Icon from '../../components/common/Icon'
 import {
   afghanSolarLocale,
   currentJalaliYearMonth,
@@ -7,21 +9,17 @@ import {
   getJalaliMonthRange,
   todayGregorianIso,
 } from '../../lib/afghanSolarCalendar'
-import { fetchCashBoxOptions } from '../../services/ledgerApi'
-import Icon from '../../components/common/Icon'
+import { formatAmount } from '../../lib/dataTableOptions'
+import { showAppToast } from '../../lib/appToast'
+import { fetchBaseCurrency } from '../../services/currenciesApi'
 import {
   createSalaryPayment,
   deleteSalaryPayment,
-  fetchAttendanceRange,
+  fetchAttendanceMonth,
+  fetchSalaryCashBoxOptions,
   fetchSalaryPayments,
   fetchSalaryPreview,
 } from '../../services/hrApi'
-
-function formatMoney(value) {
-  const n = Number(value)
-  if (!Number.isFinite(n)) return '—'
-  return n.toLocaleString('en-US', { maximumFractionDigits: 2 })
-}
 
 function SalaryPaymentsPage() {
   const now = useMemo(() => currentJalaliYearMonth(), [])
@@ -30,11 +28,10 @@ function SalaryPaymentsPage() {
   const [list, setList] = useState([])
   const [employees, setEmployees] = useState([])
   const [cashBoxes, setCashBoxes] = useState([])
-  const [loading, setLoading] = useState(false)
+  const [baseCurrencySymbol, setBaseCurrencySymbol] = useState('')
+  const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [deletingId, setDeletingId] = useState(null)
-  const [error, setError] = useState('')
-  const [message, setMessage] = useState('')
 
   const [employeeId, setEmployeeId] = useState('')
   const [paymentDate, setPaymentDate] = useState(todayGregorianIso())
@@ -42,12 +39,12 @@ function SalaryPaymentsPage() {
   const [description, setDescription] = useState('')
 
   const [preview, setPreview] = useState(null)
-  const [baseSalary, setBaseSalary] = useState(0)
-  const [overtimeAmount, setOvertimeAmount] = useState(0)
-  const [lateDeduction, setLateDeduction] = useState(0)
-  const [absenceDeduction, setAbsenceDeduction] = useState(0)
-  const [benefitAmount, setBenefitAmount] = useState(0)
-  const [otherDeduction, setOtherDeduction] = useState(0)
+  const [baseSalary, setBaseSalary] = useState('0')
+  const [overtimeAmount, setOvertimeAmount] = useState('0')
+  const [lateDeduction, setLateDeduction] = useState('0')
+  const [absenceDeduction, setAbsenceDeduction] = useState('0')
+  const [benefitAmount, setBenefitAmount] = useState('0')
+  const [otherDeduction, setOtherDeduction] = useState('0')
 
   const range = useMemo(
     () => getJalaliMonthRange(year, month),
@@ -74,12 +71,11 @@ function SalaryPaymentsPage() {
 
   const loadList = useCallback(async () => {
     setLoading(true)
-    setError('')
     try {
       const rows = await fetchSalaryPayments({ year, month })
       setList(rows ?? [])
     } catch (err) {
-      setError(err.message)
+      showAppToast(err.message || 'بارگذاری فیش‌های حقوق با خطا مواجه شد.')
       setList([])
     } finally {
       setLoading(false)
@@ -87,38 +83,92 @@ function SalaryPaymentsPage() {
   }, [year, month])
 
   useEffect(() => {
-    loadList()
-  }, [loadList])
+    let cancelled = false
+
+    void fetchSalaryPayments({ year, month })
+      .then((rows) => {
+        if (cancelled) return
+        setList(rows ?? [])
+      })
+      .catch((err) => {
+        if (cancelled) return
+        showAppToast(err.message || 'بارگذاری فیش‌های حقوق با خطا مواجه شد.')
+        setList([])
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false)
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [year, month])
 
   useEffect(() => {
-    fetchAttendanceRange(range.from, range.to)
-      .then((data) => {
-        setEmployees(data.employees ?? [])
-      })
-      .catch(() => setEmployees([]))
+    let cancelled = false
 
-    fetchCashBoxOptions()
-      .then((rows) =>
-        setCashBoxes(
-          (rows ?? []).map((r) => ({
-            value: String(r.value),
-            label: r.label,
+    void fetchAttendanceMonth(year, month)
+      .then((data) => {
+        if (cancelled) return
+        setEmployees(
+          (data.rows ?? []).map((r) => ({
+            employeeId: r.employeeId,
+            fullName: r.fullName,
           })),
-        ),
-      )
-      .catch(() => setCashBoxes([]))
-  }, [range.from, range.to])
+        )
+      })
+      .catch((err) => {
+        if (cancelled) return
+        setEmployees([])
+        showAppToast(err.message || 'بارگذاری لیست کارمندان با خطا مواجه شد.')
+      })
+
+    void fetchSalaryCashBoxOptions()
+      .then((rows) => {
+        if (cancelled) return
+        const mapped = (rows ?? []).map((r) => ({
+          value: String(r.value),
+          label: r.label,
+        }))
+        setCashBoxes(mapped)
+        setCashBoxId((prev) => {
+          if (prev && mapped.some((b) => b.value === prev)) return prev
+          return mapped.length === 1 ? mapped[0].value : prev
+        })
+      })
+      .catch((err) => {
+        if (cancelled) return
+        setCashBoxes([])
+        showAppToast(err.message || 'بارگذاری صندوق‌ها با خطا مواجه شد.')
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [year, month])
+
+  useEffect(() => {
+    let cancelled = false
+    void fetchBaseCurrency()
+      .then((currency) => {
+        if (!cancelled) setBaseCurrencySymbol(currency?.symbol ?? '')
+      })
+      .catch(() => {
+        if (!cancelled) setBaseCurrencySymbol('')
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
   const loadPreview = async () => {
-    setError('')
-    setMessage('')
     setPreview(null)
     if (!employeeId) {
-      setError('کارمند را انتخاب کنید.')
+      showAppToast('کارمند را انتخاب کنید.', 'warning')
       return
     }
     if (!range.from || !range.to) {
-      setError('بازه ماه معتبر نیست.')
+      showAppToast('بازه ماه معتبر نیست.', 'warning')
       return
     }
 
@@ -131,14 +181,22 @@ function SalaryPaymentsPage() {
         to: range.to,
       })
       setPreview(data)
-      setBaseSalary(data.baseSalary ?? 0)
-      setOvertimeAmount(data.suggestedOvertimeAmount ?? 0)
-      setLateDeduction(data.suggestedLateDeduction ?? 0)
-      setAbsenceDeduction(data.suggestedAbsenceDeduction ?? 0)
-      setBenefitAmount(data.suggestedBenefitAmount ?? 0)
-      setOtherDeduction(data.suggestedOtherDeduction ?? 0)
+      setBaseSalary(String(data.baseSalary ?? 0))
+      setOvertimeAmount(String(data.suggestedOvertimeAmount ?? 0))
+      setLateDeduction(String(data.suggestedLateDeduction ?? 0))
+      setAbsenceDeduction(String(data.suggestedAbsenceDeduction ?? 0))
+      setBenefitAmount(String(data.suggestedBenefitAmount ?? 0))
+      setOtherDeduction(String(data.suggestedOtherDeduction ?? 0))
+      if (data.hasAttendanceSummary === false) {
+        showAppToast(
+          'خلاصه حضور این ماه ثبت نشده است؛ مبالغ پیشنهادی صفر هستند.',
+          'warning',
+        )
+      } else {
+        showAppToast('پیش‌نویس حقوق آماده شد.', 'success')
+      }
     } catch (err) {
-      setError(err.message)
+      showAppToast(err.message || 'دریافت پیش‌نویس حقوق با خطا مواجه شد.')
     }
   }
 
@@ -147,14 +205,12 @@ function SalaryPaymentsPage() {
       return
     }
     setDeletingId(row.salaryPaymentId)
-    setError('')
-    setMessage('')
     try {
       const result = await deleteSalaryPayment(row.salaryPaymentId)
-      setMessage(result.message || 'پرداخت حقوق حذف شد.')
+      showAppToast(result.message || 'پرداخت حقوق حذف شد.', 'success')
       await loadList()
     } catch (err) {
-      setError(err.message)
+      showAppToast(err.message || 'حذف فیش حقوق با خطا مواجه شد.')
     } finally {
       setDeletingId(null)
     }
@@ -163,13 +219,19 @@ function SalaryPaymentsPage() {
   const onCreate = async (event) => {
     event.preventDefault()
     if (!preview) {
-      setError('ابتدا پیش‌نویس را بارگذاری کنید.')
+      showAppToast('ابتدا پیش‌نویس را بارگذاری کنید.', 'warning')
+      return
+    }
+    if (netAmount <= 0) {
+      showAppToast('مبلغ خالص پرداختی باید بیشتر از صفر باشد.', 'warning')
+      return
+    }
+    if (!cashBoxId) {
+      showAppToast('صندوق پرداخت را انتخاب کنید.', 'warning')
       return
     }
 
     setSaving(true)
-    setError('')
-    setMessage('')
     try {
       const result = await createSalaryPayment({
         employeeId: Number(employeeId),
@@ -186,15 +248,16 @@ function SalaryPaymentsPage() {
         absentDays: preview.absentDays,
         totalLateMinutes: preview.totalLateMinutes,
         totalOvertimeMinutes: preview.totalOvertimeMinutes,
-        cashBoxId: cashBoxId ? Number(cashBoxId) : null,
+        cashBoxId: Number(cashBoxId),
         description: description || null,
       })
-      setMessage(result.message)
+      showAppToast(result.message || 'حقوق با موفقیت ثبت شد.', 'success')
       setPreview(null)
       setEmployeeId('')
+      setDescription('')
       await loadList()
     } catch (err) {
-      setError(err.message)
+      showAppToast(err.message || 'ثبت حقوق با خطا مواجه شد.')
     } finally {
       setSaving(false)
     }
@@ -211,11 +274,9 @@ function SalaryPaymentsPage() {
         <div className="card-body p-4">
           <h2 className="card-title mb-1">حقوق و مزایا</h2>
           <p className="text-muted small mb-3">
-            از روی حضور ماه، مبلغ پیشنهادی ساخته می‌شود؛ کسورات و اضافه‌کاری را دستی اصلاح کنید.
+            از روی خلاصه حضور ماهانه، مبلغ پیشنهادی ساخته می‌شود؛ کسورات و اضافه‌کاری را
+            دستی اصلاح کنید.
           </p>
-
-          {message && <div className="alert alert-success py-2">{message}</div>}
-          {error && <div className="alert alert-danger py-2">{error}</div>}
 
           <div className="row g-2 mb-4 align-items-end">
             <div className="col-auto">
@@ -225,7 +286,10 @@ function SalaryPaymentsPage() {
                 className="form-control"
                 style={{ width: 110 }}
                 value={year}
-                onChange={(e) => setYear(Number(e.target.value) || now.year)}
+                onChange={(e) => {
+                  setLoading(true)
+                  setYear(Number(e.target.value) || now.year)
+                }}
               />
             </div>
             <div className="col-auto">
@@ -233,7 +297,10 @@ function SalaryPaymentsPage() {
               <select
                 className="form-select"
                 value={month}
-                onChange={(e) => setMonth(Number(e.target.value))}
+                onChange={(e) => {
+                  setLoading(true)
+                  setMonth(Number(e.target.value))
+                }}
               >
                 {monthOptions.map((m) => (
                   <option key={m.value} value={m.value}>
@@ -269,6 +336,29 @@ function SalaryPaymentsPage() {
                   ))}
                 </select>
               </div>
+              <div className="col-md-4">
+                <label className="form-label">
+                  صندوق پرداخت <span className="text-danger">*</span>
+                </label>
+                <select
+                  className="form-select"
+                  value={cashBoxId}
+                  onChange={(e) => setCashBoxId(e.target.value)}
+                  required
+                >
+                  <option value="">انتخاب صندوق پرداخت</option>
+                  {cashBoxes.map((b) => (
+                    <option key={b.value} value={b.value}>
+                      {b.label}
+                    </option>
+                  ))}
+                </select>
+                {cashBoxes.length === 0 && (
+                  <div className="form-text text-danger">
+                    صندوق فعالی یافت نشد. ابتدا از بخش صندوق‌ها یک صندوق بسازید.
+                  </div>
+                )}
+              </div>
               <div className="col-md-3">
                 <label className="form-label">تاریخ پرداخت</label>
                 <JalaliDateField
@@ -277,22 +367,7 @@ function SalaryPaymentsPage() {
                   required
                 />
               </div>
-              <div className="col-md-3">
-                <label className="form-label">صندوق (اختیاری)</label>
-                <select
-                  className="form-select"
-                  value={cashBoxId}
-                  onChange={(e) => setCashBoxId(e.target.value)}
-                >
-                  <option value="">پیش‌فرض کاربر / بانک</option>
-                  {cashBoxes.map((b) => (
-                    <option key={b.value} value={b.value}>
-                      {b.label}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <div className="col-md-2 d-flex align-items-end">
+              <div className="col-md-3 d-flex align-items-end">
                 <button
                   type="button"
                   className="btn btn-outline-primary w-100"
@@ -306,64 +381,77 @@ function SalaryPaymentsPage() {
                 <>
                   <div className="col-12">
                     <div className="alert alert-light border py-2 mb-0 small">
-                      حاضر: {preview.presentDays} روز — غایب (پیشنهادی):{' '}
-                      {preview.absentDays} روز — دیرکرد: {preview.totalLateMinutes}{' '}
-                      دقیقه — اضافه‌کار: {preview.totalOvertimeMinutes} دقیقه
+                      حاضر: {preview.presentDays} روز — غایب برای کسر:{' '}
+                      {preview.absentForDeduction ?? preview.absentDays} روز —
+                      تأخیر: {preview.lateHours ?? 0} ساعت — اضافه‌کار:{' '}
+                      {preview.overtimeHours ?? 0} ساعت (ضریب{' '}
+                      {preview.overtimeCoefficient ?? 1.5})
+                      {preview.hasAttendanceSummary === false && (
+                        <span className="text-warning d-block mt-1">
+                          خلاصه حضور این ماه ثبت نشده است.
+                        </span>
+                      )}
                     </div>
                   </div>
 
                   <div className="col-md-4">
                     <label className="form-label">حقوق پایه</label>
-                    <input
-                      type="number"
-                      className="form-control"
+                    <AmountField
+                      symbol={baseCurrencySymbol}
+                      step={100}
+                      min={0}
                       value={baseSalary}
-                      onChange={(e) => setBaseSalary(e.target.value)}
+                      onChange={setBaseSalary}
                     />
                   </div>
                   <div className="col-md-4">
                     <label className="form-label">مبلغ اضافه‌کاری</label>
-                    <input
-                      type="number"
-                      className="form-control"
+                    <AmountField
+                      symbol={baseCurrencySymbol}
+                      step={100}
+                      min={0}
                       value={overtimeAmount}
-                      onChange={(e) => setOvertimeAmount(e.target.value)}
+                      onChange={setOvertimeAmount}
                     />
                   </div>
                   <div className="col-md-4">
                     <label className="form-label">مزایا</label>
-                    <input
-                      type="number"
-                      className="form-control"
+                    <AmountField
+                      symbol={baseCurrencySymbol}
+                      step={100}
+                      min={0}
                       value={benefitAmount}
-                      onChange={(e) => setBenefitAmount(e.target.value)}
+                      onChange={setBenefitAmount}
                     />
                   </div>
                   <div className="col-md-4">
                     <label className="form-label">کسر دیرکرد</label>
-                    <input
-                      type="number"
-                      className="form-control"
+                    <AmountField
+                      symbol={baseCurrencySymbol}
+                      step={100}
+                      min={0}
                       value={lateDeduction}
-                      onChange={(e) => setLateDeduction(e.target.value)}
+                      onChange={setLateDeduction}
                     />
                   </div>
                   <div className="col-md-4">
                     <label className="form-label">کسر غیبت</label>
-                    <input
-                      type="number"
-                      className="form-control"
+                    <AmountField
+                      symbol={baseCurrencySymbol}
+                      step={100}
+                      min={0}
                       value={absenceDeduction}
-                      onChange={(e) => setAbsenceDeduction(e.target.value)}
+                      onChange={setAbsenceDeduction}
                     />
                   </div>
                   <div className="col-md-4">
                     <label className="form-label">سایر کسورات</label>
-                    <input
-                      type="number"
-                      className="form-control"
+                    <AmountField
+                      symbol={baseCurrencySymbol}
+                      step={100}
+                      min={0}
                       value={otherDeduction}
-                      onChange={(e) => setOtherDeduction(e.target.value)}
+                      onChange={setOtherDeduction}
                     />
                   </div>
                   <div className="col-md-8">
@@ -377,9 +465,12 @@ function SalaryPaymentsPage() {
                   </div>
                   <div className="col-md-4">
                     <label className="form-label">خالص پرداختی</label>
-                    <div className="form-control bg-light fw-semibold">
-                      {formatMoney(netAmount)}
-                    </div>
+                    <AmountField
+                      symbol={baseCurrencySymbol}
+                      value={netAmount}
+                      onChange={() => {}}
+                      readOnly
+                    />
                   </div>
                   <div className="col-12">
                     <button
@@ -402,6 +493,7 @@ function SalaryPaymentsPage() {
                 <tr>
                   <th>کارمند</th>
                   <th>تاریخ پرداخت</th>
+                  <th>صندوق</th>
                   <th className="text-end">پایه</th>
                   <th className="text-end">اضافه‌کار</th>
                   <th className="text-end">کسورات</th>
@@ -414,14 +506,14 @@ function SalaryPaymentsPage() {
               <tbody>
                 {loading && (
                   <tr>
-                    <td colSpan={9} className="text-center text-muted py-3">
+                    <td colSpan={10} className="text-center text-muted py-3">
                       در حال بارگذاری...
                     </td>
                   </tr>
                 )}
                 {!loading && list.length === 0 && (
                   <tr>
-                    <td colSpan={9} className="text-center text-muted py-3">
+                    <td colSpan={10} className="text-center text-muted py-3">
                       فیشی برای این ماه ثبت نشده است.
                     </td>
                   </tr>
@@ -436,16 +528,61 @@ function SalaryPaymentsPage() {
                       <tr key={row.salaryPaymentId}>
                         <td>{row.employeeName}</td>
                         <td>{formatJalaliDate(row.paymentDate)}</td>
-                        <td className="text-end">{formatMoney(row.baseSalary)}</td>
+                        <td>{row.cashBoxName || '—'}</td>
                         <td className="text-end">
-                          {formatMoney(row.overtimeAmount)}
+                          <span
+                            className="amount-cell"
+                            dir="ltr"
+                            {...(baseCurrencySymbol
+                              ? { 'data-currency': baseCurrencySymbol }
+                              : {})}
+                          >
+                            {formatAmount(row.baseSalary)}
+                          </span>
                         </td>
-                        <td className="text-end">{formatMoney(deductions)}</td>
                         <td className="text-end">
-                          {formatMoney(row.benefitAmount)}
+                          <span
+                            className="amount-cell"
+                            dir="ltr"
+                            {...(baseCurrencySymbol
+                              ? { 'data-currency': baseCurrencySymbol }
+                              : {})}
+                          >
+                            {formatAmount(row.overtimeAmount)}
+                          </span>
+                        </td>
+                        <td className="text-end">
+                          <span
+                            className="amount-cell"
+                            dir="ltr"
+                            {...(baseCurrencySymbol
+                              ? { 'data-currency': baseCurrencySymbol }
+                              : {})}
+                          >
+                            {formatAmount(deductions)}
+                          </span>
+                        </td>
+                        <td className="text-end">
+                          <span
+                            className="amount-cell"
+                            dir="ltr"
+                            {...(baseCurrencySymbol
+                              ? { 'data-currency': baseCurrencySymbol }
+                              : {})}
+                          >
+                            {formatAmount(row.benefitAmount)}
+                          </span>
                         </td>
                         <td className="text-end fw-semibold">
-                          {formatMoney(row.netAmount)}
+                          <span
+                            className="amount-cell"
+                            dir="ltr"
+                            {...(baseCurrencySymbol
+                              ? { 'data-currency': baseCurrencySymbol }
+                              : {})}
+                          >
+                            {formatAmount(row.netAmount)}
+                          </span>
                         </td>
                         <td>
                           {row.journalEntryId ? (

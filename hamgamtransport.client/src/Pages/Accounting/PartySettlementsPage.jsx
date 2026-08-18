@@ -14,7 +14,6 @@ import { usePageCrud } from '../../permissions/usePageCrud'
 import {
   bankAccountsApi,
   fetchCashBoxOptions,
-  invoiceInstallmentsApi,
   settlementsApi,
 } from '../../services/ledgerApi'
 import {
@@ -38,9 +37,6 @@ const emptyForm = () => ({
   paymentVia: 'cash',
   cashBoxId: '',
   bankAccountId: '',
-  saleInvoiceId: '',
-  purchaseInvoiceId: '',
-  installmentId: '',
   description: '',
 })
 
@@ -63,7 +59,6 @@ function PartySettlementsPage() {
   const [currencies, setCurrencies] = useState([])
   const [cashBoxes, setCashBoxes] = useState([])
   const [banks, setBanks] = useState([])
-  const [installments, setInstallments] = useState([])
 
   useEffect(() => {
     let cancelled = false
@@ -117,21 +112,6 @@ function PartySettlementsPage() {
     return customers
   }, [form.partyType, customers, suppliers, owners, drivers])
 
-  const isInvoiceParty =
-    Number(form.partyType) === PARTY_CUSTOMER || Number(form.partyType) === PARTY_SUPPLIER
-
-  useEffect(() => {
-    const invoiceId = Number(form.partyType) === PARTY_CUSTOMER ? form.saleInvoiceId : form.purchaseInvoiceId
-    if (!isInvoiceParty || !invoiceId) {
-      setInstallments([])
-      return
-    }
-    invoiceInstallmentsApi
-      .list(Number(form.partyType) === PARTY_CUSTOMER ? 1 : 2, invoiceId)
-      .then((items) => setInstallments(items.filter((item) => Number(item.remaining) > 0)))
-      .catch(() => setInstallments([]))
-  }, [form.partyType, form.saleInvoiceId, form.purchaseInvoiceId, isInvoiceParty])
-
   const reloadTable = useCallback(() => {
     tableRef.current?.dt()?.ajax.reload(null, false)
   }, [])
@@ -183,15 +163,6 @@ function PartySettlementsPage() {
         form.paymentVia === 'bank' && form.bankAccountId
           ? Number(form.bankAccountId)
           : null,
-      saleInvoiceId:
-        partyType === PARTY_CUSTOMER && form.saleInvoiceId
-          ? Number(form.saleInvoiceId)
-          : null,
-      purchaseInvoiceId:
-        partyType === PARTY_SUPPLIER && form.purchaseInvoiceId
-          ? Number(form.purchaseInvoiceId)
-          : null,
-      installmentId: form.installmentId ? Number(form.installmentId) : null,
       description: form.description?.trim() || null,
     }
 
@@ -430,9 +401,6 @@ function PartySettlementsPage() {
                             ...prev,
                             partyType: e.target.value,
                             partyId: '',
-                            saleInvoiceId: '',
-                            purchaseInvoiceId: '',
-                            installmentId: '',
                           }))
                         }
                         {...persianValidity('لطفاً نوع طرف حساب را انتخاب کنید.')}
@@ -581,55 +549,6 @@ function PartySettlementsPage() {
                               {b.label}
                             </option>
                           ))}
-                        </select>
-                      </div>
-                    )}
-                    {isInvoiceParty && Number(form.partyType) === PARTY_CUSTOMER ? (
-                      <div className="col-md-6">
-                        <label className="form-label">
-                          شناسه فاکتور فروش (اختیاری)
-                        </label>
-                        <input
-                          type="number"
-                          className="form-control"
-                          min="1"
-                          step="1"
-                          value={form.saleInvoiceId}
-                          onChange={(e) =>
-                            setForm((prev) => ({
-                              ...prev,
-                              saleInvoiceId: e.target.value,
-                            }))
-                          }
-                        />
-                      </div>
-                    ) : null}
-                    {isInvoiceParty && Number(form.partyType) === PARTY_SUPPLIER ? (
-                      <div className="col-md-6">
-                        <label className="form-label">
-                          شناسه فاکتور خرید (اختیاری)
-                        </label>
-                        <input
-                          type="number"
-                          className="form-control"
-                          min="1"
-                          step="1"
-                          value={form.purchaseInvoiceId}
-                          onChange={(e) =>
-                            setForm((prev) => ({
-                              ...prev,
-                              purchaseInvoiceId: e.target.value,
-                            }))
-                          }
-                        />
-                      </div>
-                    ) : null}
-                    {installments.length > 0 && (
-                      <div className="col-md-6">
-                        <label className="form-label">قسط (اختیاری)</label>
-                        <select className="form-select" value={form.installmentId} onChange={(e) => setForm((prev) => ({ ...prev, installmentId: e.target.value }))}>
-                          <option value="">انتخاب همه/بدون قسط</option>
-                          {installments.map((item) => <option key={item.invoiceInstallmentId} value={item.invoiceInstallmentId}>قسط {item.installmentNo} — مانده {formatAmount(item.remaining)}</option>)}
                         </select>
                       </div>
                     )}

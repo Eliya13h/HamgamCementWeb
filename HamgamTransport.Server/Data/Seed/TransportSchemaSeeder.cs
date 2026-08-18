@@ -16,6 +16,8 @@ public static class TransportSchemaSeeder
         await EnsureTransportAccountsAsync(db, cancellationToken);
         await EnsureVehicleTypesAsync(db, cancellationToken);
         await EnsureTripExpenseCategoriesAsync(db, cancellationToken);
+        await BackfillVehicleAndPairCodesAsync(db, cancellationToken);
+        await FixLegacyFreightModeAsync(db, cancellationToken);
     }
 
     private static async Task EnsureTransportAccountsAsync(AppDbContext db, CancellationToken cancellationToken)
@@ -83,15 +85,20 @@ public static class TransportSchemaSeeder
         {
             ("TRACTOR", "کشنده", VehicleRole.Primary),
             ("BUNKER", "بونکر", VehicleRole.Secondary),
-            ("SINGLE", "تک‌وسیله", VehicleRole.Standalone),
+            ("SINGLE", "تک وسیله", VehicleRole.Standalone),
+            ("MISC", "متفرقه", VehicleRole.Miscellaneous),
         };
 
         foreach (var (code, name, role) in defaults)
         {
-            var exists = await db.VehicleTypes.AnyAsync(
+            var existing = await db.VehicleTypes.FirstOrDefaultAsync(
                 v => v.Code == code && v.IsDeleted != true, cancellationToken);
-            if (exists)
+            if (existing is not null)
             {
+                existing.IsSystem = true;
+                existing.Name = name;
+                existing.DefaultRole = role;
+                existing.IsActive = true;
                 continue;
             }
 
@@ -100,6 +107,7 @@ public static class TransportSchemaSeeder
                 Code = code,
                 Name = name,
                 DefaultRole = role,
+                IsSystem = true,
                 IsActive = true,
                 IsDeleted = false,
                 CreatedAt = DateTime.Now,
@@ -107,6 +115,30 @@ public static class TransportSchemaSeeder
         }
 
         await db.SaveChangesAsync(cancellationToken);
+    }
+
+    private static async Task BackfillVehicleAndPairCodesAsync(AppDbContext db, CancellationToken cancellationToken)
+    {
+        var vehicles = await db.Vehicles
+            .Where(v => v.IsDeleted != true && (v.Code == null || v.Code == ""))
+            .ToListAsync(cancellationToken);
+        foreach (var vehicle in vehicles)
+        {
+            vehicle.Code = TransportCodeHelper.Vehicle(vehicle.VehicleId);
+        }
+
+        var pairs = await db.VehiclePairs
+            .Where(p => p.IsDeleted != true && (p.Code == null || p.Code == ""))
+            .ToListAsync(cancellationToken);
+        foreach (var pair in pairs)
+        {
+            pair.Code = TransportCodeHelper.Pair(pair.VehiclePairId);
+        }
+
+        if (vehicles.Count > 0 || pairs.Count > 0)
+        {
+            await db.SaveChangesAsync(cancellationToken);
+        }
     }
 
     private static async Task EnsureTripExpenseCategoriesAsync(AppDbContext db, CancellationToken cancellationToken)
@@ -139,5 +171,22 @@ public static class TransportSchemaSeeder
         }
 
         await db.SaveChangesAsync(cancellationToken);
+    }
+
+    // مقدار پیش‌فرض migration برای FreightMode صفر بود؛ سفرهای قدیمی را وزنی می‌گذاریم
+    private static async Task FixLegacyFreightModeAsync(AppDbContext db, CancellationToken cancellationToken)
+    {
+        var trips = await db.TransportTrips
+            .Where(t => t.IsDeleted != true && (int)t.FreightMode == 0)
+            .ToListAsync(cancellationToken);
+        foreach (var trip in trips)
+        {
+            trip.FreightMode = FreightMode.WeightBased;
+        }
+
+        if (trips.Count > 0)
+        {
+            await db.SaveChangesAsync(cancellationToken);
+        }
     }
 }

@@ -33,26 +33,16 @@ function toQuery(params) {
   return text ? `?${text}` : ''
 }
 
-export async function fetchAttendanceRange(from, to) {
+export async function fetchAttendanceMonth(year, month) {
   const response = await fetch(
-    `${ATTENDANCE_BASE}${toQuery({ from, to })}`,
+    `${ATTENDANCE_BASE}${toQuery({ year, month })}`,
     { credentials: 'include' },
   )
   return parseResponse(response)
 }
 
-export async function upsertAttendance(payload) {
-  const response = await fetch(ATTENDANCE_BASE, {
-    method: 'PUT',
-    headers: { 'Content-Type': 'application/json' },
-    credentials: 'include',
-    body: JSON.stringify(payload),
-  })
-  return parseResponse(response)
-}
-
-export async function upsertAttendanceDay(payload) {
-  const response = await fetch(`${ATTENDANCE_BASE}/day`, {
+export async function upsertAttendanceMonth(payload) {
+  const response = await fetch(`${ATTENDANCE_BASE}/month`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     credentials: 'include',
@@ -66,6 +56,13 @@ export async function fetchSalaryPayments({ year, month } = {}) {
     `${SALARY_BASE}${toQuery({ year, month })}`,
     { credentials: 'include' },
   )
+  return parseResponse(response)
+}
+
+export async function fetchSalaryCashBoxOptions() {
+  const response = await fetch(`${SALARY_BASE}/cash-box-options`, {
+    credentials: 'include',
+  })
   return parseResponse(response)
 }
 

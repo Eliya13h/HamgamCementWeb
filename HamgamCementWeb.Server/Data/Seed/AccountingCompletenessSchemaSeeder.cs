@@ -8,6 +8,8 @@ public static class AccountingCompletenessSchemaSeeder
     public static async Task EnsureAsync(AppDbContext db, CancellationToken cancellationToken = default)
     {
         await EnsureColumnAsync(db, "JournalLines", "CostCenterId", "INT NULL", cancellationToken);
+        await EnsureColumnAsync(db, "Expenses", "CostCenterId", "INT NULL", cancellationToken);
+        await EnsureColumnAsync(db, "Revenues", "CostCenterId", "INT NULL", cancellationToken);
         await EnsureColumnAsync(db, "CashBoxes", "IsPettyCash", "BIT NOT NULL CONSTRAINT DF_CashBoxes_IsPettyCash DEFAULT(0)", cancellationToken);
         await EnsureColumnAsync(db, "CashBoxes", "CeilingAmountInBase", "DECIMAL(18,4) NOT NULL CONSTRAINT DF_CashBoxes_Ceiling DEFAULT(0)", cancellationToken);
         await EnsureColumnAsync(db, "PartySettlements", "InstallmentId", "INT NULL", cancellationToken);
@@ -22,7 +24,14 @@ public static class AccountingCompletenessSchemaSeeder
             await EnsureColumnAsync(db, table, "TaxAmountInBaseCurrency", "DECIMAL(18,4) NOT NULL CONSTRAINT DF_" + table + "_TaxAmountBase DEFAULT(0)", cancellationToken);
             await EnsureColumnAsync(db, table, "PaymentTermDays", "INT NOT NULL CONSTRAINT DF_" + table + "_PaymentTermDays DEFAULT(0)", cancellationToken);
             await EnsureColumnAsync(db, table, "DueDate", "DATETIME2 NULL", cancellationToken);
+            // فلگ صریح نقد/نسیه فاکتور
+            await EnsureColumnAsync(db, table, "IsCash", "BIT NOT NULL CONSTRAINT DF_" + table + "_IsCash DEFAULT(1)", cancellationToken);
+            // شماره فاکتور چاپ‌شده طرف مقابل
+            await EnsureColumnAsync(db, table, "ExternalInvoiceNumber", "NVARCHAR(100) NULL", cancellationToken);
         }
+
+        // نوع طرف‌حساب در خط سند (جایگزین migration موقت JournalLinePartyType)
+        await EnsureColumnAsync(db, "JournalLines", "PartyType", "INT NULL", cancellationToken);
 
         await db.Database.ExecuteSqlRawAsync("""
             IF OBJECT_ID(N'dbo.CostCenters', N'U') IS NULL
@@ -191,6 +200,8 @@ public static class AccountingCompletenessSchemaSeeder
             """, cancellationToken);
 
         await EnsureFkAsync(db, "FK_JournalLines_CostCenter", "JournalLines", "CostCenterId", "CostCenters", "CostCenterID", cancellationToken);
+        await EnsureFkAsync(db, "FK_Expenses_CostCenter", "Expenses", "CostCenterId", "CostCenters", "CostCenterID", cancellationToken);
+        await EnsureFkAsync(db, "FK_Revenues_CostCenter", "Revenues", "CostCenterId", "CostCenters", "CostCenterID", cancellationToken);
         await EnsureFkAsync(db, "FK_PartySettlements_Installment", "PartySettlements", "InstallmentId", "InvoiceInstallments", "InvoiceInstallmentID", cancellationToken);
         await EnsureFkAsync(db, "FK_DoubtfulDebtProvisions_Journal", "DoubtfulDebtProvisions", "JournalEntryId", "JournalEntries", "JournalEntryID", cancellationToken);
         await EnsureFkAsync(db, "FK_RJTL_Template", "RecurringJournalTemplateLines", "RecurringJournalTemplateId", "RecurringJournalTemplates", "RecurringJournalTemplateID", cancellationToken);

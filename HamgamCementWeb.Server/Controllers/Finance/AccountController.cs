@@ -77,6 +77,7 @@ public class AccountController : FinanceControllerBase
         [FromQuery] string? dateFrom,
         [FromQuery] string? dateTo,
         [FromQuery] int? partyId,
+        [FromQuery] int? costCenterId,
         CancellationToken cancellationToken)
     {
         var account = await Db.Accounts
@@ -110,6 +111,18 @@ public class AccountController : FinanceControllerBase
         }
 
         var endInclusive = end.AddDays(1).AddTicks(-1);
+        string? costCenterLabel = null;
+        if (costCenterId is > 0)
+        {
+            costCenterLabel = await Db.CostCenters.AsNoTracking()
+                .Where(c => c.CostCenterID == costCenterId && c.IsDeleted != true)
+                .Select(c => c.Code + " — " + c.Name)
+                .FirstOrDefaultAsync(cancellationToken);
+            if (costCenterLabel is null)
+            {
+                return BadRequest(new { message = "مرکز هزینه یافت نشد." });
+            }
+        }
 
         await using var connection = (System.Data.Common.DbConnection)await _sql.OpenAsync(cancellationToken);
 
@@ -125,8 +138,9 @@ public class AccountController : FinanceControllerBase
               AND je.IsPosted = 1
               AND je.EntryDate < @Start
               AND (@PartyId IS NULL OR jl.PartyId = @PartyId)
+              AND (@CostCenterId IS NULL OR jl.CostCenterId = @CostCenterId)
             """,
-            new { AccountId = id, Start = start, PartyId = partyId });
+            new { AccountId = id, Start = start, PartyId = partyId, CostCenterId = costCenterId });
 
         // نکته: LineNo / LINENO کلمهٔ رزرو SQL Server است؛ alias و ارجاع باید داخل [] باشد
         var lines = (await connection.QueryAsync<LedgerLineRow>(
@@ -142,9 +156,13 @@ public class AccountController : FinanceControllerBase
                    l.DebitInBaseCurrency AS DebitInBase,
                    l.CreditInBaseCurrency AS CreditInBase,
                    l.PartyId AS PartyId,
-                   l.CashBoxId AS CashBoxId
+                   l.CashBoxId AS CashBoxId,
+                   l.CostCenterId AS CostCenterId,
+                   cc.Code AS CostCenterCode,
+                   cc.Name AS CostCenterName
             FROM JournalLines l
             INNER JOIN JournalEntries je ON je.JournalEntryID = l.JournalEntryId
+            LEFT JOIN CostCenters cc ON cc.CostCenterID = l.CostCenterId AND ISNULL(cc.IsDeleted, 0) = 0
             WHERE l.AccountId = @AccountId
               AND ISNULL(l.IsDeleted, 0) = 0
               AND ISNULL(je.IsDeleted, 0) = 0
@@ -152,9 +170,17 @@ public class AccountController : FinanceControllerBase
               AND je.EntryDate >= @Start
               AND je.EntryDate <= @EndInclusive
               AND (@PartyId IS NULL OR l.PartyId = @PartyId)
+              AND (@CostCenterId IS NULL OR l.CostCenterId = @CostCenterId)
             ORDER BY je.EntryDate, je.JournalEntryID, l.[LineNo]
             """,
-            new { AccountId = id, Start = start, EndInclusive = endInclusive, PartyId = partyId })).AsList();
+            new
+            {
+                AccountId = id,
+                Start = start,
+                EndInclusive = endInclusive,
+                PartyId = partyId,
+                CostCenterId = costCenterId,
+            })).AsList();
 
         var openingBalance = opening.Debit - opening.Credit;
         var running = openingBalance;
@@ -176,6 +202,10 @@ public class AccountController : FinanceControllerBase
                 creditInBase = line.CreditInBase,
                 partyId = line.PartyId,
                 cashBoxId = line.CashBoxId,
+                costCenterId = line.CostCenterId,
+                costCenterLabel = line.CostCenterId is > 0 && !string.IsNullOrWhiteSpace(line.CostCenterCode)
+                    ? $"{line.CostCenterCode} — {line.CostCenterName}"
+                    : null,
                 runningBalance = running,
             });
         }
@@ -189,6 +219,8 @@ public class AccountController : FinanceControllerBase
             to = JalaliDateHelper.FormatDate(end),
             fromLabel = JalaliDateHelper.FormatDateWithMonthName(start),
             toLabel = JalaliDateHelper.FormatDateWithMonthName(end),
+            costCenterId,
+            costCenterLabel,
             openingDebit = opening.Debit,
             openingCredit = opening.Credit,
             openingBalance,
@@ -470,5 +502,8 @@ public class AccountController : FinanceControllerBase
         public decimal CreditInBase { get; set; }
         public int? PartyId { get; set; }
         public int? CashBoxId { get; set; }
+        public int? CostCenterId { get; set; }
+        public string? CostCenterCode { get; set; }
+        public string? CostCenterName { get; set; }
     }
 }

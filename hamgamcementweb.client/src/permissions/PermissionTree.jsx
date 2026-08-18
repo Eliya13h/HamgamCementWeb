@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import Icon from '../components/common/Icon'
-import { collectLeafKeys } from './registry'
+import { collectLeafKeys, getAllLeafPermissionKeys } from './registry'
+
+const ROOT_KEY = '__full_access__'
 
 function useIndeterminateCheckbox(ref, indeterminate) {
   useEffect(() => {
@@ -10,134 +12,153 @@ function useIndeterminateCheckbox(ref, indeterminate) {
   }, [ref, indeterminate])
 }
 
-function PermissionTreePage({ page, selected, onChange, disabled }) {
-  const headRef = useRef(null)
-  const actionKeys = useMemo(() => page.actions.map((a) => a.key), [page.actions])
-  const checkedCount = actionKeys.filter((key) => selected.has(key)).length
-  const allChecked = checkedCount === actionKeys.length && actionKeys.length > 0
-  const indeterminate = checkedCount > 0 && !allChecked
-
-  useIndeterminateCheckbox(headRef, indeterminate)
-
-  const toggleAll = () => {
-    const next = new Set(selected)
-    if (allChecked) {
-      actionKeys.forEach((key) => next.delete(key))
-    } else {
-      actionKeys.forEach((key) => next.add(key))
-    }
-    onChange(next)
+function getChildren(node) {
+  if (node.type === 'page') {
+    return (node.actions ?? []).map((action) => ({
+      key: action.key,
+      label: action.label,
+      type: 'action',
+    }))
   }
-
-  const toggleOne = (key) => {
-    const next = new Set(selected)
-    if (next.has(key)) next.delete(key)
-    else next.add(key)
-    onChange(next)
-  }
-
-  return (
-    <div className="permission-tree-page">
-      <div className="permission-tree-page-head">
-        <label className="permission-tree-page-title">
-          <input
-            ref={headRef}
-            type="checkbox"
-            className="form-check-input"
-            checked={allChecked}
-            disabled={disabled}
-            onChange={toggleAll}
-          />
-          <span>{page.label}</span>
-        </label>
-      </div>
-      <div className="permission-tree-action-grid">
-        {page.actions.map((action) => (
-          <label key={action.key} className="permission-tree-action">
-            <input
-              type="checkbox"
-              className="form-check-input"
-              checked={selected.has(action.key)}
-              disabled={disabled}
-              onChange={() => toggleOne(action.key)}
-            />
-            <span>{action.label}</span>
-          </label>
-        ))}
-      </div>
-    </div>
-  )
+  return node.children ?? []
 }
 
-function PermissionTreeModule({ module, selected, onChange, disabled, expanded, onToggle }) {
-  const headRef = useRef(null)
-  const leafKeys = useMemo(() => collectLeafKeys(module), [module])
-  const checkedCount = leafKeys.filter((key) => selected.has(key)).length
-  const allChecked = checkedCount === leafKeys.length && leafKeys.length > 0
+function isExpandable(node) {
+  return node.type === 'root' || node.type === 'module' || node.type === 'page'
+}
+
+function collectExpandableKeys(nodes, acc = new Set()) {
+  for (const node of nodes) {
+    if (isExpandable(node)) acc.add(node.key)
+    const children = getChildren(node)
+    if (children.length) collectExpandableKeys(children, acc)
+  }
+  return acc
+}
+
+function nodeLeafKeys(node) {
+  if (node.type === 'action') return [node.key]
+  if (node.type === 'page') return collectLeafKeys(node)
+  if (node.type === 'root') return node.children.flatMap(collectLeafKeys)
+  return collectLeafKeys(node)
+}
+
+function TreeNode({
+  node,
+  depth,
+  selected,
+  hasFullAccess,
+  expandedKeys,
+  onToggleExpand,
+  onToggleNode,
+  disabled,
+}) {
+  const checkboxRef = useRef(null)
+  const children = getChildren(node)
+  const expandable = isExpandable(node) && children.length > 0
+  const expanded = expandable && expandedKeys.has(node.key)
+  const leaves = useMemo(() => nodeLeafKeys(node), [node])
+
+  const checkedCount = hasFullAccess
+    ? leaves.length
+    : leaves.filter((key) => selected.has(key)).length
+  const allChecked = leaves.length > 0 && checkedCount === leaves.length
   const indeterminate = checkedCount > 0 && !allChecked
 
-  useIndeterminateCheckbox(headRef, indeterminate)
-
-  const toggleModule = () => {
-    const next = new Set(selected)
-    if (allChecked) {
-      leafKeys.forEach((key) => next.delete(key))
-    } else {
-      leafKeys.forEach((key) => next.add(key))
-    }
-    onChange(next)
-  }
+  useIndeterminateCheckbox(checkboxRef, indeterminate)
 
   return (
-    <section className="permission-tree-module">
-      <div className="permission-tree-module-head">
-        <button
-          type="button"
-          className="permission-tree-expand"
-          onClick={onToggle}
-          aria-expanded={expanded}
-          aria-label={expanded ? 'بستن' : 'باز کردن'}
-        >
-          <Icon name={expanded ? 'chevron-down' : 'chevron-left'} />
-        </button>
-        <label className="permission-tree-module-title">
+    <div className="permission-tree-node">
+      <div
+        className="permission-tree-row"
+        style={{ paddingInlineStart: `calc(${depth} * 1.25rem)` }}
+      >
+        {expandable ? (
+          <button
+            type="button"
+            className="permission-tree-expand"
+            onClick={() => onToggleExpand(node.key)}
+            aria-expanded={expanded}
+            aria-label={expanded ? 'بستن' : 'باز کردن'}
+          >
+            <Icon
+              name="chevron-down"
+              className={`permission-tree-expand-icon${expanded ? '' : ' is-collapsed'}`}
+            />
+          </button>
+        ) : (
+          <span className="permission-tree-expand-spacer" aria-hidden="true" />
+        )}
+
+        <label className="permission-tree-label">
           <input
-            ref={headRef}
+            ref={checkboxRef}
             type="checkbox"
             className="form-check-input"
             checked={allChecked}
             disabled={disabled}
-            onChange={toggleModule}
+            onChange={() => onToggleNode(node)}
           />
-          <span>{module.label}</span>
+          <span
+            className={
+              node.type === 'root'
+                ? 'permission-tree-label-text is-root'
+                : 'permission-tree-label-text'
+            }
+          >
+            {node.label}
+          </span>
         </label>
       </div>
 
-      {expanded && (
-        <div className="permission-tree-module-body">
-          {module.children.map((page) => (
-            <PermissionTreePage
-              key={page.key}
-              page={page}
+      {expandable && expanded && (
+        <div className="permission-tree-children">
+          {children.map((child) => (
+            <TreeNode
+              key={child.key}
+              node={child}
+              depth={depth + 1}
               selected={selected}
-              onChange={onChange}
+              hasFullAccess={hasFullAccess}
+              expandedKeys={expandedKeys}
+              onToggleExpand={onToggleExpand}
+              onToggleNode={onToggleNode}
               disabled={disabled}
             />
           ))}
         </div>
       )}
-    </section>
+    </div>
   )
 }
 
-function PermissionTree({ tree, value, onChange, disabled = false }) {
+function PermissionTree({
+  tree,
+  value,
+  hasFullAccess = false,
+  onChange,
+  disabled = false,
+}) {
   const selected = value instanceof Set ? value : new Set(value ?? [])
-  const [expandedKeys, setExpandedKeys] = useState(
-    () => new Set(tree.filter((n) => n.type === 'module').map((n) => n.key)),
+  const allLeafKeys = useMemo(() => getAllLeafPermissionKeys(tree), [tree])
+
+  const rootNode = useMemo(
+    () => ({
+      key: ROOT_KEY,
+      label: 'دسترسی کامل',
+      type: 'root',
+      children: tree,
+    }),
+    [tree],
   )
 
-  const handleChange = (next) => {
-    if (!disabled) onChange?.(next)
+  const [expandedKeys, setExpandedKeys] = useState(() =>
+    collectExpandableKeys([rootNode]),
+  )
+
+  const emit = (permissions, nextHasFullAccess) => {
+    if (disabled) return
+    onChange?.({ permissions, hasFullAccess: nextHasFullAccess })
   }
 
   const toggleExpand = (key) => {
@@ -149,57 +170,51 @@ function PermissionTree({ tree, value, onChange, disabled = false }) {
     })
   }
 
-  const selectAll = () => {
-    handleChange(new Set(tree.flatMap(collectLeafKeys)))
-  }
+  const toggleNode = (node) => {
+    const leaves = nodeLeafKeys(node)
+    const effective = hasFullAccess ? new Set(allLeafKeys) : selected
+    const allChecked = leaves.length > 0 && leaves.every((key) => effective.has(key))
 
-  const clearAll = () => {
-    handleChange(new Set())
+    if (node.type === 'root') {
+      if (allChecked || hasFullAccess) emit(new Set(), false)
+      else emit(new Set(), true)
+      return
+    }
+
+    if (hasFullAccess) {
+      const next = new Set(allLeafKeys)
+      leaves.forEach((key) => next.delete(key))
+      emit(next, false)
+      return
+    }
+
+    const next = new Set(selected)
+    if (allChecked) {
+      leaves.forEach((key) => next.delete(key))
+    } else {
+      leaves.forEach((key) => next.add(key))
+    }
+
+    if (allLeafKeys.length > 0 && allLeafKeys.every((key) => next.has(key))) {
+      emit(new Set(), true)
+    } else {
+      emit(next, false)
+    }
   }
 
   return (
     <div className={`permission-tree ${disabled ? 'is-disabled' : ''}`}>
-      <div className="permission-tree-toolbar">
-        <button
-          type="button"
-          className="btn btn-sm btn-outline-secondary"
-          onClick={selectAll}
-          disabled={disabled}
-        >
-          انتخاب همه
-        </button>
-        <button
-          type="button"
-          className="btn btn-sm btn-outline-secondary"
-          onClick={clearAll}
-          disabled={disabled}
-        >
-          حذف همه
-        </button>
-      </div>
-
       <div className="permission-tree-body hc-scroll">
-        {tree.map((node) =>
-          node.type === 'module' ? (
-            <PermissionTreeModule
-              key={node.key}
-              module={node}
-              selected={selected}
-              onChange={handleChange}
-              disabled={disabled}
-              expanded={expandedKeys.has(node.key)}
-              onToggle={() => toggleExpand(node.key)}
-            />
-          ) : (
-            <PermissionTreePage
-              key={node.key}
-              page={node}
-              selected={selected}
-              onChange={handleChange}
-              disabled={disabled}
-            />
-          ),
-        )}
+        <TreeNode
+          node={rootNode}
+          depth={0}
+          selected={selected}
+          hasFullAccess={hasFullAccess}
+          expandedKeys={expandedKeys}
+          onToggleExpand={toggleExpand}
+          onToggleNode={toggleNode}
+          disabled={disabled}
+        />
       </div>
     </div>
   )

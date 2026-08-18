@@ -78,6 +78,10 @@ public class PurchaseInvoice : BaseEntity
     // تاریخ سررسید فاکتور نسیه
     public DateTime? DueDate { get; set; }
 
+    // شماره فاکتور تأمین‌کننده / طرف مقابل (شماره چاپ‌شده روی فاکتور بیرونی)
+    [MaxLength(100)]
+    public string? ExternalInvoiceNumber { get; set; }
+
     // مبلغ پرداخت‌شده — برای ثبت در جدول مصارف هنگام ثبت نهایی
     [Column(TypeName = "decimal(18,4)")]
     public decimal PaidAmount { get; set; }

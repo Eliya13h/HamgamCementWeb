@@ -222,10 +222,10 @@ namespace HamgamTransport.Server.Data
     // ماهیت مانده حساب
     public enum AccountNature
     {
-        [Display(Name = "بدهکار")]
+        [Display(Name = "دیبت")]
         Debit = 1,
 
-        [Display(Name = "بستانکار")]
+        [Display(Name = "کریدیت")]
         Credit = 2,
     }
 
@@ -461,6 +461,19 @@ namespace HamgamTransport.Server.Data
 
         [Display(Name = "تک‌وسیله")]
         Standalone = 3,
+
+        [Display(Name = "متفرقه")]
+        Miscellaneous = 4,
+    }
+
+    // نحوه محاسبه کرایه بار
+    public enum FreightMode
+    {
+        [Display(Name = "کلی")]
+        LumpSum = 1,
+
+        [Display(Name = "وزنی")]
+        WeightBased = 2,
     }
 
     // وضعیت سفر

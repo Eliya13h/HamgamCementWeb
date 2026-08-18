@@ -678,6 +678,104 @@
   box-shadow: 0 1px 0 var(--hc-border, rgba(0, 0, 0, 0.08));
 }
 
+/* مدال خلاصه حضور ماهانه — پر کردن ارتفاع باقی‌مانده + هدر فیکس + سطر ثابت */
+.attendance-page .attendance-modal .modal-dialog {
+  height: calc(100dvh - 2rem);
+  max-height: calc(100dvh - 2rem);
+  margin: 1rem auto;
+  max-width: min(1400px, calc(100vw - 1.5rem));
+}
+
+.attendance-page .attendance-modal .modal-dialog-scrollable .modal-content {
+  height: 100%;
+  max-height: none;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.attendance-page .attendance-modal form {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+}
+
+.attendance-page .attendance-modal .modal-header,
+.attendance-page .attendance-modal .modal-footer {
+  flex: 0 0 auto;
+}
+
+.attendance-page .attendance-modal .modal-dialog-scrollable .modal-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  padding: 0;
+}
+
+.attendance-page .attendance-month-table-wrap {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+  background: var(--hc-bg-elevated, var(--bs-body-bg, #fff));
+}
+
+.attendance-page .attendance-month-table {
+  min-width: 1180px;
+  margin-bottom: 0;
+}
+
+.attendance-page .attendance-month-table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  height: 2.5rem;
+  background: var(--hc-bg-elevated, var(--bs-body-bg, #fff));
+  color: var(--hc-text, inherit);
+  box-shadow: 0 1px 0 var(--hc-border, rgba(0, 0, 0, 0.08));
+  white-space: nowrap;
+  font-size: 0.78rem;
+  vertical-align: middle;
+}
+
+.attendance-page .attendance-month-table tbody tr {
+  height: 3rem;
+}
+
+.attendance-page .attendance-month-table tbody td {
+  height: 3rem;
+  max-height: 3rem;
+  padding-top: 0.35rem;
+  padding-bottom: 0.35rem;
+  vertical-align: middle;
+  white-space: nowrap;
+  background: var(--hc-bg-elevated, var(--bs-body-bg, #fff));
+}
+
+.attendance-page .attendance-month-table .attendance-col-name {
+  min-width: 140px;
+  position: sticky;
+  right: 0;
+  z-index: 1;
+  background: var(--hc-bg-elevated, var(--bs-body-bg, #fff));
+}
+
+.attendance-page .attendance-month-table thead .attendance-col-name {
+  z-index: 3;
+}
+
+.attendance-page .attendance-month-table .attendance-col-note {
+  min-width: 160px;
+}
+
+.attendance-page .attendance-month-table input.form-control-sm {
+  min-width: 72px;
+  height: 2rem;
+}
+
+
 .production-page .production-summary {
   border: 1px solid var(--hc-border, rgba(0, 0, 0, 0.08));
   border-radius: 0.5rem;

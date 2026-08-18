@@ -112,26 +112,6 @@ public class UsersController : ControllerBase
         });
     }
 
-    [HttpGet("available-employees")]
-    [HasPermission("users.list.view")]
-    public async Task<IActionResult> AvailableEmployees(CancellationToken cancellationToken)
-    {
-        var employees = await _db.Employees
-            .AsNoTracking()
-            .Where(e => e.IsDeleted != true && e.IsActive == true)
-            .Where(e => e.User == null || e.User.IsDeleted == true)
-            .OrderBy(e => e.Name)
-            .ThenBy(e => e.Family)
-            .Select(e => new
-            {
-                employeeId = e.EmployeeID,
-                fullName = e.Name + " " + e.Family,
-            })
-            .ToListAsync(cancellationToken);
-
-        return Ok(employees);
-    }
-
     [HttpPost]
     [HasPermission("users.list.create")]
     public async Task<IActionResult> Create(
@@ -164,22 +144,6 @@ public class UsersController : ControllerBase
             return Conflict(new { message = "این ایمیل قبلاً ثبت شده است." });
         }
 
-        var employee = await _db.Employees
-            .Include(e => e.User)
-            .FirstOrDefaultAsync(
-                e => e.EmployeeID == request.EmployeeId && e.IsDeleted != true && e.IsActive == true,
-                cancellationToken);
-
-        if (employee is null)
-        {
-            return BadRequest(new { message = "کارمند مورد نظر یافت نشد یا غیرفعال است." });
-        }
-
-        if (employee.User is not null && employee.User.IsDeleted != true)
-        {
-            return Conflict(new { message = "برای این کارمند قبلاً حساب کاربری ایجاد شده است." });
-        }
-
         var role = await _db.Roles.FirstOrDefaultAsync(
             r => r.RoleID == request.RoleId && r.IsDeleted != true && r.IsActive == true,
             cancellationToken);
@@ -197,8 +161,6 @@ public class UsersController : ControllerBase
             CardNumber = (request.CardNumber ?? string.Empty).Trim(),
             Title = request.Title,
             RoleId = role.RoleID,
-            EmployeeId = employee.EmployeeID,
-            AvatarUrl = employee.AvatarUrl,
             PasswordHash = _passwordHasher.HashPassword(null!, request.Password),
             CreatedBy = ResolveCurrentUserId(),
             CreatedAt = DateTime.Now,
@@ -595,9 +557,6 @@ public class UsersController : ControllerBase
 
         [Range(1, int.MaxValue, ErrorMessage = "شناسه نقش معتبر نیست.")]
         public int RoleId { get; set; }
-
-        [Range(1, int.MaxValue, ErrorMessage = "شناسه کارمند معتبر نیست.")]
-        public int EmployeeId { get; set; }
 
         public bool IsActive { get; set; } = true;
 

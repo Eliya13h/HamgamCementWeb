@@ -55,10 +55,12 @@ builder.Services.AddScoped<ICurrencyExchangeRateService, CurrencyExchangeRateSer
 builder.Services.AddScoped<ICustomerReadService, CustomerReadService>();
 builder.Services.AddScoped<ISupplierReadService, SupplierReadService>();
 builder.Services.AddScoped<IEmployeeReadService, EmployeeReadService>();
+builder.Services.AddScoped<IAttendanceReadService, AttendanceReadService>();
 builder.Services.AddScoped<IDepartmentReadService, DepartmentReadService>();
 builder.Services.AddScoped<IShareholderReadService, ShareholderReadService>();
 builder.Services.AddScoped<IInvoiceReportService, InvoiceReportService>();
 builder.Services.AddScoped<IJournalReportService, JournalReportService>();
+builder.Services.AddScoped<ICostCenterReportService, CostCenterReportService>();
 builder.Services.AddScoped<IProductReportService, ProductReportService>();
 builder.Services.AddScoped<IProductionReportService, ProductionReportService>();
 builder.Services.AddScoped<IWarehouseTurnoverService, WarehouseTurnoverService>();

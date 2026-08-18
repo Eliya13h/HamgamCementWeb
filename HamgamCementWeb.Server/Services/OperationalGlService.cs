@@ -330,7 +330,8 @@ public class OperationalGlService : IOperationalGlService
 
         var lines = new List<JournalLineDraft>
         {
-            new(expenseAccountId, expense.Amount, 0, expense.AmountInBaseCurrency, 0, expense.CurrencyId, expense.Title),
+            new(expenseAccountId, expense.Amount, 0, expense.AmountInBaseCurrency, 0, expense.CurrencyId, expense.Title,
+                CostCenterId: expense.CostCenterId),
             new(creditAccountId, 0, expense.Amount, 0, expense.AmountInBaseCurrency, expense.CurrencyId, expense.Title,
                 CashBoxId: lineCashBoxId,
                 PartyId: expense.SupplierId),
@@ -377,7 +378,8 @@ public class OperationalGlService : IOperationalGlService
             new(debitAccountId, revenue.Amount, 0, revenue.AmountInBaseCurrency, 0, revenue.CurrencyId, revenue.Title,
                 CashBoxId: lineCashBoxId,
                 PartyId: revenue.CustomerId),
-            new(revenueAccountId, 0, revenue.Amount, 0, revenue.AmountInBaseCurrency, revenue.CurrencyId, revenue.Title),
+            new(revenueAccountId, 0, revenue.Amount, 0, revenue.AmountInBaseCurrency, revenue.CurrencyId, revenue.Title,
+                CostCenterId: revenue.CostCenterId),
         };
 
         return await _journal.PostAsync(
@@ -426,14 +428,14 @@ public class OperationalGlService : IOperationalGlService
 
         var lines = new List<JournalLineDraft>();
 
-        // کسری: بدهکار ضایعات/تعدیل — بستانکار موجودی
+        // کسری: دیبت ضایعات/تعدیل — کریدیت موجودی
         if (shortageCost > 0)
         {
             lines.Add(new(adj.AccountID, shortageCost, 0, shortageCost, 0, baseCurrencyId, $"کسری انبارگردانی {stocktaking.Code}"));
             lines.Add(new(inventoryAccountId, 0, shortageCost, 0, shortageCost, baseCurrencyId, $"کاهش موجودی — {stocktaking.Code}"));
         }
 
-        // اضافی: بدهکار موجودی — بستانکار ضایعات/تعدیل
+        // اضافی: دیبت موجودی — کریدیت ضایعات/تعدیل
         if (surplusCost > 0)
         {
             lines.Add(new(inventoryAccountId, surplusCost, 0, surplusCost, 0, baseCurrencyId, $"اضافی انبارگردانی {stocktaking.Code}"));

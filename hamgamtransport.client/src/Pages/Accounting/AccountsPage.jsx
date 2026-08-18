@@ -617,8 +617,8 @@ function AccountsPage() {
                               <th>تاریخ</th>
                               <th>شماره سند</th>
                               <th>شرح</th>
-                              <th className="text-end">بدهکار</th>
-                              <th className="text-end">بستانکار</th>
+                              <th className="text-end">دیبت (Db)</th>
+                              <th className="text-end">کریدیت (Cr)</th>
                               <th className="text-end">مانده</th>
                             </tr>
                           </thead>

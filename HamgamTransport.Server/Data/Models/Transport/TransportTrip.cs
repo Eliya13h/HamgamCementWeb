@@ -20,6 +20,9 @@ public class TransportTrip : BaseEntity
     public string Origin { get; set; } = string.Empty;
     public string Destination { get; set; } = string.Empty;
 
+    // کلی = یک کرایه برای کل مسیر؛ وزنی = وزن × نرخ هر تن
+    public FreightMode FreightMode { get; set; } = FreightMode.WeightBased;
+
     [Column(TypeName = "decimal(18,4)")]
     public decimal WeightTon { get; set; }
 
@@ -69,6 +72,10 @@ public class TransportTrip : BaseEntity
 
     public int? RevenueJournalEntryId { get; set; }
     public bool IsRevenuePosted { get; set; }
+
+    // سند سهم مالک/راننده — هنگام تحویل یا تسویه
+    public int? DistributionJournalEntryId { get; set; }
+    public bool IsDistributionPosted { get; set; }
 
     public virtual ICollection<TripExpense> Expenses { get; set; } = new List<TripExpense>();
 }

@@ -19,18 +19,21 @@ public class JournalController : FinanceControllerBase
     private readonly IJournalPostingService _journal;
     private readonly ICurrencyConversionService _currency;
     private readonly IAccountingIntegrityService _integrity;
+    private readonly IAccountLookupService _accounts;
 
     public JournalController(
         AppDbContext db,
         ISqlConnectionFactory sql,
         IJournalPostingService journal,
         ICurrencyConversionService currency,
-        IAccountingIntegrityService integrity) : base(db)
+        IAccountingIntegrityService integrity,
+        IAccountLookupService accounts) : base(db)
     {
         _sql = sql;
         _journal = journal;
         _currency = currency;
         _integrity = integrity;
+        _accounts = accounts;
     }
 
     // بررسی یکپارچگی دابل‌انتری — فقط‌خواندنی، برای آماده‌سازی پرداکشن
@@ -50,6 +53,42 @@ public class JournalController : FinanceControllerBase
                 relatedId = i.RelatedId,
             }),
         });
+    }
+
+    // پیشنهاد حساب تفصیلی طرف‌حساب برای پر کردن فرم سند دستی
+    [HttpGet("party-account")]
+    [HasPermission("accounting.expenses.create")]
+    public async Task<IActionResult> PartyAccount(
+        [FromQuery] int partyType,
+        [FromQuery] int partyId,
+        CancellationToken cancellationToken)
+    {
+        if (!Enum.IsDefined(typeof(PartySettlementPartyType), partyType))
+        {
+            return BadRequest(new { message = "نوع طرف‌حساب نامعتبر است." });
+        }
+
+        if (partyId <= 0)
+        {
+            return BadRequest(new { message = "شناسه طرف‌حساب نامعتبر است." });
+        }
+
+        try
+        {
+            var type = (PartySettlementPartyType)partyType;
+            var resolved = await ResolvePartyAccountAsync(type, partyId, cancellationToken);
+            return Ok(new
+            {
+                accountId = resolved.Account.AccountID,
+                code = resolved.Account.Code,
+                name = resolved.Account.Name,
+                partyName = resolved.PartyName,
+            });
+        }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(new { message = ex.Message });
+        }
     }
 
     [HttpPost("datatable")]
@@ -151,9 +190,21 @@ public class JournalController : FinanceControllerBase
                    l.CurrencyId AS currencyId,
                    l.CashBoxId AS cashBoxId,
                    l.PartyId AS partyId,
+                   l.PartyType AS partyType,
+                   CASE l.PartyType
+                       WHEN 1 THEN c.Name
+                       WHEN 2 THEN s.Name
+                       WHEN 3 THEN o.Name
+                       WHEN 4 THEN d.Name
+                       ELSE NULL
+                   END AS partyName,
                    l.CostCenterId AS costCenterId
             FROM JournalLines l
             INNER JOIN Accounts a ON a.AccountID = l.AccountId
+            LEFT JOIN Customers c ON c.CustomerID = l.PartyId AND l.PartyType = 1 AND c.IsDeleted = 0
+            LEFT JOIN Suppliers s ON s.SupplierID = l.PartyId AND l.PartyType = 2 AND s.IsDeleted = 0
+            LEFT JOIN VehicleOwners o ON o.VehicleOwnerId = l.PartyId AND l.PartyType = 3 AND o.IsDeleted = 0
+            LEFT JOIN Drivers d ON d.DriverId = l.PartyId AND l.PartyType = 4 AND d.IsDeleted = 0
             WHERE l.JournalEntryId = @Id AND l.IsDeleted = 0
             ORDER BY l.[LineNo]
             """, new { Id = id });
@@ -211,7 +262,28 @@ public class JournalController : FinanceControllerBase
 
                 if ((debit > 0 && credit > 0) || (debit == 0 && credit == 0))
                 {
-                    throw new InvalidOperationException("هر ردیف باید فقط بدهکار یا فقط بستانکار باشد.");
+                    throw new InvalidOperationException("هر ردیف باید فقط دیبت یا فقط کریدیت باشد.");
+                }
+
+                var hasPartyType = line.PartyType is > 0;
+                var hasPartyId = line.PartyId is > 0;
+                if (hasPartyType != hasPartyId)
+                {
+                    throw new InvalidOperationException("برای طرف‌حساب باید هم نوع و هم شخص انتخاب شوند.");
+                }
+
+                PartySettlementPartyType? partyType = null;
+                int? partyId = null;
+                if (hasPartyType && hasPartyId)
+                {
+                    if (!Enum.IsDefined(typeof(PartySettlementPartyType), line.PartyType!.Value))
+                    {
+                        throw new InvalidOperationException("نوع طرف‌حساب نامعتبر است.");
+                    }
+
+                    partyType = (PartySettlementPartyType)line.PartyType.Value;
+                    partyId = line.PartyId;
+                    await EnsurePartyExistsAsync(partyType.Value, partyId.Value, cancellationToken);
                 }
 
                 var currencyId = line.CurrencyId > 0 ? line.CurrencyId : baseCurrency.CurrencyID;
@@ -228,8 +300,9 @@ public class JournalController : FinanceControllerBase
                     currencyId,
                     line.Description?.Trim(),
                     line.CashBoxId,
-                    line.PartyId,
-                    line.CostCenterId));
+                    partyId,
+                    line.CostCenterId,
+                    partyType));
             }
 
             var entry = await _journal.PostAsync(
@@ -287,6 +360,74 @@ public class JournalController : FinanceControllerBase
 
     public static string SourceLabel(int source) => JournalSourceLabels.Label(source);
 
+    private async Task EnsurePartyExistsAsync(
+        PartySettlementPartyType partyType,
+        int partyId,
+        CancellationToken cancellationToken)
+    {
+        var exists = partyType switch
+        {
+            PartySettlementPartyType.Customer => await Db.Customers
+                .AnyAsync(c => c.CustomerID == partyId && c.IsDeleted != true, cancellationToken),
+            PartySettlementPartyType.Supplier => await Db.Suppliers
+                .AnyAsync(s => s.SupplierID == partyId && s.IsDeleted != true, cancellationToken),
+            PartySettlementPartyType.VehicleOwner => await Db.VehicleOwners
+                .AnyAsync(o => o.VehicleOwnerId == partyId && o.IsDeleted != true, cancellationToken),
+            PartySettlementPartyType.Driver => await Db.Drivers
+                .AnyAsync(d => d.DriverId == partyId && d.IsDeleted != true, cancellationToken),
+            _ => false,
+        };
+
+        if (!exists)
+        {
+            throw new InvalidOperationException("طرف‌حساب انتخاب‌شده یافت نشد.");
+        }
+    }
+
+    private async Task<(Data.Models.Finance.Account Account, string PartyName)> ResolvePartyAccountAsync(
+        PartySettlementPartyType partyType,
+        int partyId,
+        CancellationToken cancellationToken)
+    {
+        switch (partyType)
+        {
+            case PartySettlementPartyType.Customer:
+            {
+                var customer = await Db.Customers.AsNoTracking()
+                    .FirstOrDefaultAsync(c => c.CustomerID == partyId && c.IsDeleted != true, cancellationToken)
+                    ?? throw new InvalidOperationException("مشتری یافت نشد.");
+                var account = await _accounts.EnsureCustomerAccountAsync(customer.CustomerID, customer.Name, cancellationToken);
+                return (account, customer.Name);
+            }
+            case PartySettlementPartyType.Supplier:
+            {
+                var supplier = await Db.Suppliers.AsNoTracking()
+                    .FirstOrDefaultAsync(s => s.SupplierID == partyId && s.IsDeleted != true, cancellationToken)
+                    ?? throw new InvalidOperationException("تأمین‌کننده یافت نشد.");
+                var account = await _accounts.EnsureSupplierAccountAsync(supplier.SupplierID, supplier.Name, cancellationToken);
+                return (account, supplier.Name);
+            }
+            case PartySettlementPartyType.VehicleOwner:
+            {
+                var owner = await Db.VehicleOwners.AsNoTracking()
+                    .FirstOrDefaultAsync(o => o.VehicleOwnerId == partyId && o.IsDeleted != true, cancellationToken)
+                    ?? throw new InvalidOperationException("مالک وسیله یافت نشد.");
+                var account = await _accounts.EnsureVehicleOwnerAccountAsync(owner.VehicleOwnerId, owner.Name, cancellationToken);
+                return (account, owner.Name);
+            }
+            case PartySettlementPartyType.Driver:
+            {
+                var driver = await Db.Drivers.AsNoTracking()
+                    .FirstOrDefaultAsync(d => d.DriverId == partyId && d.IsDeleted != true, cancellationToken)
+                    ?? throw new InvalidOperationException("راننده یافت نشد.");
+                var account = await _accounts.EnsureDriverAccountAsync(driver.DriverId, driver.Name, cancellationToken);
+                return (account, driver.Name);
+            }
+            default:
+                throw new InvalidOperationException("نوع طرف‌حساب نامعتبر است.");
+        }
+    }
+
     private static DateTime ParseRequiredDate(string? value)
     {
         var parsed = ParseOptionalDate(value);
@@ -334,6 +475,7 @@ public class JournalController : FinanceControllerBase
         public string? Description { get; set; }
         public int? CashBoxId { get; set; }
         public int? PartyId { get; set; }
+        public int? PartyType { get; set; }
         public int? CostCenterId { get; set; }
     }
 

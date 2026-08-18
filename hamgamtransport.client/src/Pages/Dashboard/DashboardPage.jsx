@@ -3,47 +3,49 @@ import Icon from '../../components/common/Icon'
 import DashboardNotificationsPanel from '../../components/dashboard/DashboardNotificationsPanel'
 import DashboardRecentOperations from '../../components/dashboard/DashboardRecentOperations'
 import PerformanceAnalysisChart from '../../components/dashboard/PerformanceAnalysisChart'
-import WarehouseSilosSection from '../../components/dashboard/WarehouseSilosSection'
 import { formatAmount } from '../../lib/dataTableOptions'
 import { fetchDashboardSummary } from '../../services/dashboardApi'
 
 const STAT_CARD_DEFS = [
   {
-    key: 'todayProduction',
-    title: 'تولید امروز',
-    unit: 'تن',
-    icon: 'production',
+    key: 'todayTrips',
+    title: 'سفرهای امروز',
+    unit: 'سفر',
+    icon: 'truck',
   },
   {
-    key: 'todaySale',
-    title: 'فروش امروز',
+    key: 'monthTrips',
+    title: 'سفرهای ماه جاری',
+    unit: 'سفر',
+    icon: 'route',
+  },
+  {
+    key: 'todayTripRevenue',
+    title: 'درآمد حمل امروز',
     unit: '',
     icon: 'sales-check',
   },
   {
-    key: 'todayPurchase',
-    title: 'خرید امروز',
-    unit: '',
-    icon: 'cart-shopping',
-  },
-  {
-    key: 'monthSale',
-    title: 'فروش ماه جاری',
+    key: 'monthTripRevenue',
+    title: 'درآمد حمل ماه جاری',
     unit: '',
     icon: 'chart-up',
   },
   {
-    key: 'monthPurchase',
-    title: 'خرید ماه جاری',
-    unit: '',
-    icon: 'clipboard-check',
+    key: 'activeVehicles',
+    title: 'وسایل فعال',
+    unit: 'دستگاه',
+    icon: 'production',
   },
 ]
 
-function formatStatValue(value) {
+function formatStatValue(value, card) {
   if (value === null || value === undefined || value === '') return '—'
   const num = Number(value)
   if (!Number.isFinite(num)) return '—'
+  if (card.key === 'todayTrips' || card.key === 'monthTrips' || card.key === 'activeVehicles') {
+    return num.toLocaleString('fa-IR')
+  }
   return formatAmount(num)
 }
 
@@ -84,7 +86,7 @@ function DashboardPage() {
           <div className="card-body p-4">
             <h2 className="welcome-title mb-2">خوش آمدید</h2>
             <p className="welcome-text mb-0">
-              نمای کلی عملکرد مالی، وضعیت انبارها، اعلان‌های موجودی و آخرین عملیات تولید و بازرگانی.
+              نمای کلی عملکرد ناوگان، سفرها، درآمد و هزینه‌های حمل و وضعیت مالی شرکت.
             </p>
           </div>
         </div>
@@ -109,7 +111,7 @@ function DashboardPage() {
                   <p className="stat-label mb-1">{card.title}</p>
                   <div className="d-flex align-items-baseline gap-2 flex-wrap">
                     <span className="stat-value">
-                      {loading ? '…' : formatStatValue(summary?.[card.key])}
+                      {loading ? '…' : formatStatValue(summary?.[card.key], card)}
                     </span>
                     {card.unit ? <span className="stat-unit">{card.unit}</span> : null}
                   </div>
@@ -119,8 +121,6 @@ function DashboardPage() {
           ))}
         </div>
       </section>
-
-      <WarehouseSilosSection />
 
       <section className="mb-4">
         <div className="row g-3">

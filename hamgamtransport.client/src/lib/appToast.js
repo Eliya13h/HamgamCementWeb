@@ -54,9 +54,27 @@ export function showAppToast(message, variant = 'danger') {
   host.appendChild(el)
   // ۲/۳ زمان قبلی (۴۵۰۰ms → ۳۰۰۰ms) برای تست سریع‌تر
   const toast = Toast.getOrCreateInstance(el, { delay: 3000, autohide: true })
-  el.addEventListener('hidden.bs.toast', () => {
-    toast.dispose()
-    el.remove()
-  })
+
+  // جلوگیری از دوبار کلیک بستن که با انیمیشن Bootstrap تداخل می‌کند
+  // (https://github.com/twbs/bootstrap/issues/37265)
+  el.addEventListener(
+    'hide.bs.toast',
+    () => {
+      el.style.pointerEvents = 'none'
+    },
+    { once: true },
+  )
+
+  el.addEventListener(
+    'hidden.bs.toast',
+    () => {
+      // dispose را بعد از اتمام صف transition Bootstrap انجام بده
+      setTimeout(() => {
+        toast.dispose()
+        el.remove()
+      }, 0)
+    },
+    { once: true },
+  )
   toast.show()
 }

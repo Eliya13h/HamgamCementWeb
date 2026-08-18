@@ -23,6 +23,7 @@ public class ReportViewerController : Controller
 
     private readonly IInvoiceReportService _invoiceReports;
     private readonly IJournalReportService _journalReports;
+    private readonly ICostCenterReportService _costCenterReports;
     private readonly IProductReportService _productReports;
     private readonly IProductionReportService _productionReports;
     private readonly IWebHostEnvironment _env;
@@ -30,12 +31,14 @@ public class ReportViewerController : Controller
     public ReportViewerController(
         IInvoiceReportService invoiceReports,
         IJournalReportService journalReports,
+        ICostCenterReportService costCenterReports,
         IProductReportService productReports,
         IProductionReportService productionReports,
         IWebHostEnvironment env)
     {
         _invoiceReports = invoiceReports;
         _journalReports = journalReports;
+        _costCenterReports = costCenterReports;
         _productReports = productReports;
         _productionReports = productionReports;
         _env = env;
@@ -71,6 +74,7 @@ public class ReportViewerController : Controller
     }
 
     [HttpGet]
+    [ActionName("sale-invoice")]
     public IActionResult SaleInvoice(int saleInvoiceId)
     {
         if (saleInvoiceId <= 0)
@@ -150,6 +154,91 @@ public class ReportViewerController : Controller
             toDate?.Date.ToString("O") ?? string.Empty);
 
         return View();
+    }
+
+    [HttpGet]
+    [ActionName("account-ledger")]
+    public async Task<IActionResult> AccountLedger(
+        int accountId,
+        string? dateFrom,
+        string? dateTo,
+        int? partyId,
+        int? costCenterId,
+        CancellationToken cancellationToken)
+    {
+        if (accountId <= 0)
+        {
+            return BadRequest("شناسه حساب نامعتبر است.");
+        }
+
+        var hasFrom = ReportInputHelper.TryParseReportDate(dateFrom, out var parsedFrom);
+        var hasTo = ReportInputHelper.TryParseReportDate(dateTo, out var parsedTo);
+        DateTime? fromDate = hasFrom ? parsedFrom : null;
+        DateTime? toDate = hasTo ? parsedTo : null;
+
+        if (fromDate.HasValue && toDate.HasValue && fromDate.Value.Date > toDate.Value.Date)
+        {
+            return BadRequest("تاریخ شروع نباید بعد از تاریخ پایان باشد.");
+        }
+
+        try
+        {
+            var model = await _journalReports.BuildAccountLedgerPrintModelAsync(
+                accountId,
+                fromDate,
+                toDate,
+                partyId,
+                costCenterId,
+                cancellationToken);
+            return View("AccountLedger", model);
+        }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(ex.Message);
+        }
+        catch (FileNotFoundException ex)
+        {
+            return NotFound(ex.Message);
+        }
+    }
+
+    [HttpGet]
+    [ActionName("cost-center")]
+    public async Task<IActionResult> CostCenter(
+        string? dateFrom,
+        string? dateTo,
+        int? costCenterId,
+        int? accountId,
+        CancellationToken cancellationToken)
+    {
+        var hasFrom = ReportInputHelper.TryParseReportDate(dateFrom, out var parsedFrom);
+        var hasTo = ReportInputHelper.TryParseReportDate(dateTo, out var parsedTo);
+        DateTime? fromDate = hasFrom ? parsedFrom : null;
+        DateTime? toDate = hasTo ? parsedTo : null;
+
+        if (fromDate.HasValue && toDate.HasValue && fromDate.Value.Date > toDate.Value.Date)
+        {
+            return BadRequest("تاریخ شروع نباید بعد از تاریخ پایان باشد.");
+        }
+
+        try
+        {
+            var model = await _costCenterReports.BuildPrintModelAsync(
+                fromDate,
+                toDate,
+                costCenterId,
+                accountId,
+                cancellationToken);
+            return View("CostCenterReport", model);
+        }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(ex.Message);
+        }
+        catch (FileNotFoundException ex)
+        {
+            return NotFound(ex.Message);
+        }
     }
 
     public async Task<IActionResult> GetInvoiceReport(CancellationToken cancellationToken)
@@ -384,6 +473,7 @@ public class ReportViewerController : Controller
 
     /// <summary>گزارش تفصیلی یک سند تولید.</summary>
     [HttpGet]
+    [ActionName("production-batch")]
     public IActionResult ProductionBatch(int productionBatchId)
     {
         if (productionBatchId <= 0)

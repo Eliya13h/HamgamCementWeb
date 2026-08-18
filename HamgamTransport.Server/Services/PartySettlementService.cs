@@ -1,6 +1,5 @@
 ﻿using HamgamTransport.Server.Data;
 using HamgamTransport.Server.Data.Models.Finance;
-using HamgamTransport.Server.Data.Models.Invoice;
 using Microsoft.EntityFrameworkCore;
 
 namespace HamgamTransport.Server.Services;
@@ -14,9 +13,6 @@ public record PartySettlementRequest(
     decimal? AmountInBaseCurrency,
     int? CashBoxId,
     int? BankAccountId,
-    int? SaleInvoiceId,
-    int? PurchaseInvoiceId,
-    int? InstallmentId,
     string? Description);
 
 public interface IPartySettlementService
@@ -119,11 +115,6 @@ public class PartySettlementService : IPartySettlementService
             description = string.IsNullOrWhiteSpace(request.Description)
                 ? $"دریافت از مشتری — {partyName}"
                 : request.Description.Trim();
-
-            if (request.PurchaseInvoiceId is not null)
-            {
-                throw new InvalidOperationException("برای مشتری فقط فاکتور فروش قابل تخصیص است.");
-            }
         }
         else if (request.PartyType == PartySettlementPartyType.Supplier)
         {
@@ -136,11 +127,6 @@ public class PartySettlementService : IPartySettlementService
             description = string.IsNullOrWhiteSpace(request.Description)
                 ? $"پرداخت به تأمین‌کننده — {partyName}"
                 : request.Description.Trim();
-
-            if (request.SaleInvoiceId is not null)
-            {
-                throw new InvalidOperationException("برای تأمین‌کننده فقط فاکتور خرید قابل تخصیص است.");
-            }
         }
         else if (request.PartyType == PartySettlementPartyType.VehicleOwner)
         {
@@ -153,11 +139,6 @@ public class PartySettlementService : IPartySettlementService
             description = string.IsNullOrWhiteSpace(request.Description)
                 ? $"پرداخت به مالک وسیله — {partyName}"
                 : request.Description.Trim();
-
-            if (request.SaleInvoiceId is not null || request.PurchaseInvoiceId is not null || request.InstallmentId is not null)
-            {
-                throw new InvalidOperationException("تسویه مالک وسیله به فاکتور متصل نمی‌شود.");
-            }
         }
         else if (request.PartyType == PartySettlementPartyType.Driver)
         {
@@ -170,113 +151,12 @@ public class PartySettlementService : IPartySettlementService
             description = string.IsNullOrWhiteSpace(request.Description)
                 ? $"پرداخت به راننده — {partyName}"
                 : request.Description.Trim();
-
-            if (request.SaleInvoiceId is not null || request.PurchaseInvoiceId is not null || request.InstallmentId is not null)
-            {
-                throw new InvalidOperationException("تسویه راننده به فاکتور متصل نمی‌شود.");
-            }
         }
         else
         {
             throw new InvalidOperationException("نوع طرف تسویه نامعتبر است.");
         }
 
-        SaleInvoice? saleInvoice = null;
-        PurchaseInvoice? purchaseInvoice = null;
-        InvoiceInstallment? installment = null;
-
-        if (request.SaleInvoiceId is int saleId)
-        {
-            if (request.PartyType != PartySettlementPartyType.Customer)
-            {
-                throw new InvalidOperationException("فاکتور فروش فقط برای مشتری مجاز است.");
-            }
-
-            saleInvoice = await _db.SaleInvoices
-                .FirstOrDefaultAsync(i => i.SaleInvoiceID == saleId && i.IsDeleted != true, cancellationToken)
-                ?? throw new InvalidOperationException("فاکتور فروش یافت نشد.");
-
-            if (saleInvoice.CustomerId != request.PartyId)
-            {
-                throw new InvalidOperationException("فاکتور فروش متعلق به این مشتری نیست.");
-            }
-
-            if (saleInvoice.CurrencyId != request.CurrencyId)
-            {
-                throw new InvalidOperationException("ارز تسویه با ارز فاکتور یکسان نیست.");
-            }
-
-            if (!saleInvoice.IsPosted)
-            {
-                throw new InvalidOperationException("فقط فاکتور فروش ثبت‌شده در دفتر قابل تسویه است.");
-            }
-
-            var saleRemaining = saleInvoice.TotalAmount - saleInvoice.PaidAmount;
-            if (request.Amount > saleRemaining + 0.0001m)
-            {
-                throw new InvalidOperationException(
-                    $"مبلغ تسویه از مانده فاکتور بیشتر است. مانده: {Math.Max(0, saleRemaining):N2}");
-            }
-        }
-
-        if (request.PurchaseInvoiceId is int purchaseId)
-        {
-            if (request.PartyType != PartySettlementPartyType.Supplier)
-            {
-                throw new InvalidOperationException("فاکتور خرید فقط برای تأمین‌کننده مجاز است.");
-            }
-
-            purchaseInvoice = await _db.PurchaseInvoices
-                .FirstOrDefaultAsync(i => i.PurchaseInvoiceID == purchaseId && i.IsDeleted != true, cancellationToken)
-                ?? throw new InvalidOperationException("فاکتور خرید یافت نشد.");
-
-            if (purchaseInvoice.SupplierId != request.PartyId)
-            {
-                throw new InvalidOperationException("فاکتور خرید متعلق به این تأمین‌کننده نیست.");
-            }
-
-            if (purchaseInvoice.CurrencyId != request.CurrencyId)
-            {
-                throw new InvalidOperationException("ارز تسویه با ارز فاکتور یکسان نیست.");
-            }
-
-            if (!purchaseInvoice.IsPosted)
-            {
-                throw new InvalidOperationException("فقط فاکتور خرید ثبت‌شده در دفتر قابل تسویه است.");
-            }
-
-            var purchaseRemaining = purchaseInvoice.TotalAmount - purchaseInvoice.PaidAmount;
-            if (request.Amount > purchaseRemaining + 0.0001m)
-            {
-                throw new InvalidOperationException(
-                    $"مبلغ تسویه از مانده فاکتور بیشتر است. مانده: {Math.Max(0, purchaseRemaining):N2}");
-            }
-        }
-
-        if (request.InstallmentId is int installmentId)
-        {
-            installment = await _db.InvoiceInstallments.FirstOrDefaultAsync(
-                i => i.InvoiceInstallmentID == installmentId && i.IsDeleted != true,
-                cancellationToken) ?? throw new InvalidOperationException("قسط یافت نشد.");
-
-            var expectedKind = request.PartyType == PartySettlementPartyType.Customer
-                ? InvoiceInstallmentKind.Sale
-                : InvoiceInstallmentKind.Purchase;
-            var expectedInvoiceId = saleInvoice?.SaleInvoiceID ?? purchaseInvoice?.PurchaseInvoiceID;
-            if (installment.InvoiceKind != expectedKind || expectedInvoiceId is null || installment.InvoiceId != expectedInvoiceId)
-            {
-                throw new InvalidOperationException("قسط متعلق به فاکتور انتخاب‌شده نیست.");
-            }
-
-            var installmentRemaining = installment.Amount - installment.PaidAmount;
-            if (request.Amount > installmentRemaining + 0.0001m)
-            {
-                throw new InvalidOperationException(
-                    $"مبلغ تسویه از مانده قسط بیشتر است. مانده: {Math.Max(0, installmentRemaining):N2}");
-            }
-        }
-
-        // پرداخت خروجی از صندوق نیاز به کنترل مانده دارد
         if ((request.PartyType == PartySettlementPartyType.Supplier
                 || request.PartyType == PartySettlementPartyType.VehicleOwner
                 || request.PartyType == PartySettlementPartyType.Driver)
@@ -298,9 +178,6 @@ public class PartySettlementService : IPartySettlementService
             AmountInBaseCurrency = amountBase,
             CashBoxId = cashBoxId,
             BankAccountId = bankAccountId,
-            SaleInvoiceId = saleInvoice?.SaleInvoiceID,
-            PurchaseInvoiceId = purchaseInvoice?.PurchaseInvoiceID,
-            InstallmentId = installment?.InvoiceInstallmentID,
             Description = description,
             IsActive = true,
             IsDeleted = false,
@@ -314,7 +191,6 @@ public class PartySettlementService : IPartySettlementService
         List<JournalLineDraft> lines;
         if (request.PartyType == PartySettlementPartyType.Customer)
         {
-            // دریافت از مشتری: بدهکار صندوق/بانک — بستانکار دریافتنی مشتری
             lines =
             [
                 new(settlementAccountId, request.Amount, 0, amountBase, 0, request.CurrencyId,
@@ -325,7 +201,6 @@ public class PartySettlementService : IPartySettlementService
         }
         else
         {
-            // پرداخت به تأمین‌کننده / مالک / راننده: بدهکار پرداختنی — بستانکار صندوق/بانک
             lines =
             [
                 new(partyAccount.AccountID, request.Amount, 0, amountBase, 0, request.CurrencyId,
@@ -347,36 +222,6 @@ public class PartySettlementService : IPartySettlementService
             cancellationToken);
 
         settlement.JournalEntryId = journal.JournalEntryID;
-
-        if (saleInvoice is not null)
-        {
-            var remaining = Math.Max(0, saleInvoice.TotalAmount - saleInvoice.PaidAmount);
-            var allocate = Math.Min(request.Amount, remaining);
-            saleInvoice.PaidAmount += allocate;
-            saleInvoice.IsUpdated = true;
-            saleInvoice.UpdatedAt = now;
-            saleInvoice.UpdatedBy = userId;
-        }
-
-        if (purchaseInvoice is not null)
-        {
-            var remaining = Math.Max(0, purchaseInvoice.TotalAmount - purchaseInvoice.PaidAmount);
-            var allocate = Math.Min(request.Amount, remaining);
-            purchaseInvoice.PaidAmount += allocate;
-            purchaseInvoice.IsUpdated = true;
-            purchaseInvoice.UpdatedAt = now;
-            purchaseInvoice.UpdatedBy = userId;
-        }
-
-        if (installment is not null)
-        {
-            var remaining = Math.Max(0, installment.Amount - installment.PaidAmount);
-            installment.PaidAmount += Math.Min(request.Amount, remaining);
-            installment.IsUpdated = true;
-            installment.UpdatedAt = now;
-            installment.UpdatedBy = userId;
-        }
-
         await _db.SaveChangesAsync(cancellationToken);
         await tx.CommitAsync(cancellationToken);
         return settlement;
@@ -389,48 +234,6 @@ public class PartySettlementService : IPartySettlementService
             ?? throw new InvalidOperationException("تسویه یافت نشد.");
 
         await using var tx = await _db.Database.BeginTransactionAsync(cancellationToken);
-
-        if (settlement.SaleInvoiceId is int saleId)
-        {
-            var invoice = await _db.SaleInvoices
-                .FirstOrDefaultAsync(i => i.SaleInvoiceID == saleId && i.IsDeleted != true, cancellationToken);
-            if (invoice is not null)
-            {
-                // بازگرداندن تخصیص — سقف مانده پرداخت‌شده
-                var reverse = Math.Min(settlement.Amount, invoice.PaidAmount);
-                invoice.PaidAmount = Math.Max(0, invoice.PaidAmount - reverse);
-                invoice.IsUpdated = true;
-                invoice.UpdatedAt = DateTime.Now;
-                invoice.UpdatedBy = userId;
-            }
-        }
-
-        if (settlement.PurchaseInvoiceId is int purchaseId)
-        {
-            var invoice = await _db.PurchaseInvoices
-                .FirstOrDefaultAsync(i => i.PurchaseInvoiceID == purchaseId && i.IsDeleted != true, cancellationToken);
-            if (invoice is not null)
-            {
-                var reverse = Math.Min(settlement.Amount, invoice.PaidAmount);
-                invoice.PaidAmount = Math.Max(0, invoice.PaidAmount - reverse);
-                invoice.IsUpdated = true;
-                invoice.UpdatedAt = DateTime.Now;
-                invoice.UpdatedBy = userId;
-            }
-        }
-
-        if (settlement.InstallmentId is int installmentId)
-        {
-            var installment = await _db.InvoiceInstallments.FirstOrDefaultAsync(
-                i => i.InvoiceInstallmentID == installmentId && i.IsDeleted != true, cancellationToken);
-            if (installment is not null)
-            {
-                installment.PaidAmount = Math.Max(0, installment.PaidAmount - Math.Min(settlement.Amount, installment.PaidAmount));
-                installment.IsUpdated = true;
-                installment.UpdatedAt = DateTime.Now;
-                installment.UpdatedBy = userId;
-            }
-        }
 
         await _journal.ReverseBySourceAsync(
             JournalSource.PartySettlement,

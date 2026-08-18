@@ -161,7 +161,6 @@ public class RevenueController : FinanceControllerBase
                 BaseUnitsPerUnitAtTransaction = snapshot.BaseUnitsPerUnit,
                 Amount = request.Amount,
                 AmountInBaseCurrency = amountInBase,
-                ProfitInBaseCurrency = 0,
                 Description = request.Description?.Trim(),
                 IsActive = true,
                 IsDeleted = false,
@@ -355,7 +354,7 @@ public class RevenueController : FinanceControllerBase
     }
 
     private Task<bool> IsLinkedToInvoiceAsync(int revenueId, CancellationToken cancellationToken) =>
-        Db.SaleInvoices.AnyAsync(i => i.RevenueId == revenueId && i.IsDeleted != true, cancellationToken);
+        Task.FromResult(false);
 
     public class SaveRevenueRequest
     {

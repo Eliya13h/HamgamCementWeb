@@ -31,6 +31,7 @@ import {
   InventoryStockPage,
   InventoryOpeningPage,
   JournalPage,
+  CostCentersReportPage,
   Login,
   MeaurmentsPage,
   ProductListPage,
@@ -154,6 +155,7 @@ function AppRoutes() {
             <Route path="reporting/revenues" element={<RevenuesReportPage />} />
             <Route path="reporting/expenses" element={<ExpensesReportPage />} />
             <Route path="reporting/journal" element={<JournalPage />} />
+            <Route path="reporting/cost-centers" element={<CostCentersReportPage />} />
 
             <Route path="users/list" element={<UsersPage />} />
             <Route path="users/roles" element={<AccessLevelsPage />} />

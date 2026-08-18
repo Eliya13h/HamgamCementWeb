@@ -31,6 +31,7 @@ import {
     calcLineTotals,
     convertAmountFromBase,
     convertAmountToBase,
+    convertUnitPrice,
     fetchCurrencyRateAt,
     getCurrencyRateToBase,
     fetchSupplierOptions,
@@ -39,6 +40,7 @@ import {
     renderInvoiceDocumentTypeBadge,
     sumTotals,
 } from '../../services/transactionsApi'
+import { tipProps, useBootstrapTooltips } from '../../hooks/useBootstrapTooltips'
 import { invoiceInstallmentsApi } from '../../services/ledgerApi'
 import InvoiceReturnModal from '../../components/transactions/InvoiceReturnModal'
 import { amountWithSymbolHtml } from '../../lib/currencyFormat'
@@ -53,10 +55,12 @@ const emptyHeader = {
     status: '4',
     currencyId: '',
     description: '',
+    isCash: true,
     paidAmount: '',
     cashBoxId: '',
     paymentTermDays: '',
     dueDate: '',
+    externalInvoiceNumber: '',
     taxPercent: '',
     taxAmount: '',
 }
@@ -103,7 +107,6 @@ function PurchasePage() {
     const [pastReturns, setPastReturns] = useState([])
     const [returnSource, setReturnSource] = useState(null)
     const [cashBoxes, setCashBoxes] = useState([])
-    const [formTab, setFormTab] = useState('header')
     const [lookupsReady, setLookupsReady] = useState(false)
     const lookupsPromiseRef = useRef(null)
     const [installments, setInstallments] = useState([])
@@ -151,7 +154,6 @@ function PurchasePage() {
         [meaurments],
     )
 
-    // فقط سمبل ارز پایه برای جدول لیست — بقیهٔ لوکاپ‌ها هنگام باز شدن فرم لود می‌شوند
     useEffect(() => {
         let cancelled = false
         fetchBaseCurrency()
@@ -221,6 +223,10 @@ function PurchasePage() {
 
         return lookupsPromiseRef.current
     }, [lookupsReady])
+
+    useEffect(() => {
+        void ensureLookups()
+    }, [ensureLookups])
 
     useEffect(() => {
         baseCurrencySymbolRef.current = baseCurrencySymbol
@@ -303,18 +309,37 @@ function PurchasePage() {
         setHeader((prev) => ({ ...prev, [name]: value }))
     }, [])
 
+    const isCashInvoice = header.isCash !== false
+
     const effectivePaidAmount = useMemo(() => {
         if (paidAmountTouched || viewPosted) {
             return header.paidAmount
         }
-        return totals.total > 0 ? String(totals.total) : ''
-    }, [paidAmountTouched, viewPosted, header.paidAmount, totals.total])
+        if (isCashInvoice) {
+            return totals.total > 0 ? String(totals.total) : ''
+        }
+        return '0'
+    }, [paidAmountTouched, viewPosted, header.paidAmount, totals.total, isCashInvoice])
 
     const paidAmountNumeric = Number(effectivePaidAmount) || 0
     const remainingAmount = Math.max(0, totals.total - paidAmountNumeric)
-    const isCashInvoice = totals.total > 0 && paidAmountNumeric >= totals.total
     const isInvoiceStatus = String(header.status) === '4'
     const showReturnedQty = viewPosted && documentType === INVOICE_DOCUMENT_TYPE.Invoice
+
+    const handleIsCashChange = useCallback((nextIsCash) => {
+        setPaidAmountTouched(false)
+        setHeader((prev) => ({
+            ...prev,
+            isCash: nextIsCash,
+            paidAmount: nextIsCash
+                ? (totals.total > 0 ? String(totals.total) : '')
+                : '0',
+            cashBoxId: nextIsCash
+                ? (prev.cashBoxId || cashBoxes[0]?.value || '')
+                : '',
+            ...(nextIsCash ? { paymentTermDays: '', dueDate: '' } : {}),
+        }))
+    }, [totals.total, cashBoxes])
 
     // وقتی مبلغ پرداخت خودکار پر می‌شود، صندوق پیش‌فرض را هم ست کن
     useEffect(() => {
@@ -351,7 +376,6 @@ function PurchasePage() {
         setExchangeRateTouched(false)
         setPaidAmountTouched(false)
         setInvoiceCodePreview('')
-        setFormTab('header')
         setDocumentType(INVOICE_DOCUMENT_TYPE.Invoice)
         setReferenceInvoiceNumber('')
         setPastReturns([])
@@ -360,36 +384,22 @@ function PurchasePage() {
         setInstallmentCount('1')
     }, [])
 
-    const openCreate = useCallback(async () => {
+    const openCreate = useCallback(() => {
         setFormError('')
-        setFormTab('header')
         setPaidAmountTouched(false)
         setExchangeRateTouched(false)
         setExchangeRate('')
-
-        let defaultCurrencyId = baseCurrencyId
-        try {
-            const [, codePreview, base] = await Promise.all([
-                ensureLookups(),
-                purchaseInvoicesApi.fetchNextCodePreview().catch(() => ({ code: '' })),
-                baseCurrencyId
-                    ? Promise.resolve(null)
-                    : fetchBaseCurrency().catch(() => null),
-            ])
-            if (base?.currencyID) {
-                defaultCurrencyId = String(base.currencyID)
-                setBaseCurrencyId(defaultCurrencyId)
-                setBaseCurrencySymbol(base.symbol ?? '')
-            }
-            setInvoiceCodePreview(codePreview?.code ?? '')
-        } catch {
-            defaultCurrencyId = baseCurrencyId
-        }
+        setDocumentType(INVOICE_DOCUMENT_TYPE.Invoice)
+        setReferenceInvoiceNumber('')
+        setPastReturns([])
+        setInstallments([])
+        setInstallmentCount('1')
 
         setHeader({
             ...emptyHeader,
+            isCash: true,
             invoiceDate: todayGregorianIso(),
-            currencyId: defaultCurrencyId,
+            currencyId: baseCurrencyId,
             taxPercent: defaultTaxPercent,
             cashBoxId: cashBoxes[0]?.value ?? '',
         })
@@ -397,26 +407,29 @@ function PurchasePage() {
         setEditId(null)
         setViewPosted(false)
         setShowForm(true)
+
+        void ensureLookups()
+        void purchaseInvoicesApi
+            .fetchNextCodePreview()
+            .then((codePreview) => setInvoiceCodePreview(codePreview?.code ?? ''))
+            .catch(() => setInvoiceCodePreview(''))
     }, [baseCurrencyId, ensureLookups, defaultTaxPercent, cashBoxes])
 
     const openEdit = useCallback(async (row, readOnly = false) => {
         setFormError('')
         setPaidAmountTouched(true)
+        const needsReturns =
+            (readOnly || row.isPosted) &&
+            (row.documentType ?? INVOICE_DOCUMENT_TYPE.Invoice) === INVOICE_DOCUMENT_TYPE.Invoice
+        void ensureLookups()
         try {
-            const needsReturns =
-                (readOnly || row.isPosted) &&
-                (row.documentType ?? INVOICE_DOCUMENT_TYPE.Invoice) === INVOICE_DOCUMENT_TYPE.Invoice
-
-            const [invoice, , history] = await Promise.all([
-                purchaseInvoicesApi.getById(row.purchaseInvoiceId),
-                ensureLookups(),
-                needsReturns
-                    ? purchaseInvoicesApi.fetchReturns(row.purchaseInvoiceId).catch(() => [])
-                    : Promise.resolve([]),
-            ])
+            const invoice = await purchaseInvoicesApi.getById(row.purchaseInvoiceId)
 
             setInvoiceCodePreview(invoice.invoiceNumber ?? '')
             const invoiceRate = invoice.baseUnitsPerUnitAtTransaction || 1
+            const isCash = invoice.isCash !== false
+            const dueDate = invoice.dueDate ? String(invoice.dueDate).slice(0, 10) : ''
+            const paymentTermDays = invoice.paymentTermDays ?? ''
             setHeader({
                 supplierId: invoice.supplierId,
                 warehouseId: invoice.warehouseId,
@@ -424,10 +437,12 @@ function PurchasePage() {
                 status: String(invoice.status),
                 currencyId: invoice.currencyId,
                 description: invoice.description ?? '',
+                isCash,
                 paidAmount: invoice.paidAmount ?? invoice.totalAmount ?? '',
                 cashBoxId: invoice.cashBoxId ? String(invoice.cashBoxId) : '',
-                paymentTermDays: invoice.paymentTermDays ?? '',
-                dueDate: invoice.dueDate ? String(invoice.dueDate).slice(0, 10) : '',
+                paymentTermDays,
+                dueDate,
+                externalInvoiceNumber: invoice.externalInvoiceNumber ?? '',
                 taxPercent: invoice.taxPercent ?? '',
                 taxAmount: invoice.taxAmount ?? '',
             })
@@ -467,9 +482,15 @@ function PurchasePage() {
             setDocumentType(invoice.documentType ?? INVOICE_DOCUMENT_TYPE.Invoice)
             setReferenceInvoiceNumber(invoice.referenceInvoiceNumber ?? '')
             setViewPosted(readOnly || invoice.isPosted)
-            setPastReturns(history ?? [])
-            setFormTab('header')
             setShowForm(true)
+            if (needsReturns) {
+                purchaseInvoicesApi
+                    .fetchReturns(row.purchaseInvoiceId)
+                    .then((history) => setPastReturns(history ?? []))
+                    .catch(() => setPastReturns([]))
+            } else {
+                setPastReturns([])
+            }
         } catch (error) {
             setLoadError(error.message)
         }
@@ -523,12 +544,16 @@ function PurchasePage() {
         handleHeaderChange('currencyId', newCurrencyId)
     }
 
-    const setDueDateFromTerm = () => {
-        if (header.dueDate || !header.invoiceDate || Number(header.paymentTermDays) <= 0) return
-        const date = new Date(`${header.invoiceDate}T00:00:00`)
-        if (Number.isNaN(date.getTime())) return
-        date.setDate(date.getDate() + Number(header.paymentTermDays))
-        handleHeaderChange('dueDate', date.toISOString().slice(0, 10))
+    const setTermDaysFromDueDate = (dueDate) => {
+        if (!header.invoiceDate || !dueDate) {
+            handleHeaderChange('paymentTermDays', '')
+            return
+        }
+        const start = new Date(`${header.invoiceDate}T00:00:00`)
+        const end = new Date(`${dueDate}T00:00:00`)
+        if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) return
+        const days = Math.round((end.getTime() - start.getTime()) / 86400000)
+        handleHeaderChange('paymentTermDays', String(Math.max(0, days)))
     }
 
     const generateInstallments = async () => {
@@ -569,6 +594,38 @@ function PurchasePage() {
         )
     }
 
+    const productBaseMeaurmentId = useCallback(
+        (productId) => {
+            const product = products.find((p) => String(p.value) === String(productId))
+            return product?.baseMeaurmentId ?? ''
+        },
+        [products],
+    )
+
+    const toSelectedUnitPrice = useCallback(
+        (baseUnitPrice, productId, meaurmentId) => {
+            const baseId = productBaseMeaurmentId(productId)
+            if (baseUnitPrice === '' || baseUnitPrice == null || !baseId || !meaurmentId) {
+                return baseUnitPrice
+            }
+            const converted = convertUnitPrice(baseUnitPrice, baseId, meaurmentId, meaurments)
+            return converted === '' || converted == null ? '' : String(converted)
+        },
+        [productBaseMeaurmentId, meaurments],
+    )
+
+    const toBaseUnitPrice = useCallback(
+        (selectedUnitPrice, productId, meaurmentId) => {
+            const baseId = productBaseMeaurmentId(productId)
+            if (selectedUnitPrice === '' || selectedUnitPrice == null || !baseId || !meaurmentId) {
+                return selectedUnitPrice
+            }
+            const converted = convertUnitPrice(selectedUnitPrice, meaurmentId, baseId, meaurments)
+            return converted === '' || converted == null ? '' : String(converted)
+        },
+        [productBaseMeaurmentId, meaurments],
+    )
+
     const handleLineChange = (index, name, value) => {
         if (name === 'unitPrice') {
             const rate = getCurrencyRateToBase(
@@ -580,13 +637,14 @@ function PurchasePage() {
             setLines((prev) =>
                 prev.map((line, i) => {
                     if (i !== index) return line
+                    const basePrice = toBaseUnitPrice(value, line.productId, line.meaurmentId)
                     return {
                         ...line,
-                        unitPrice: value,
+                        unitPrice: basePrice,
                         unitPriceInBase:
-                            value === ''
+                            basePrice === ''
                                 ? ''
-                                : convertAmountToBase(value, header.currencyId, baseCurrencyId, rate),
+                                : convertAmountToBase(basePrice, header.currencyId, baseCurrencyId, rate),
                         purchasePriceSourceLabel: '',
                     }
                 }),
@@ -706,6 +764,10 @@ function PurchasePage() {
             setFormError('مبلغ پرداخت‌شده نمی‌تواند بیشتر از جمع فاکتور باشد.')
             return
         }
+        if (header.isCash === false && !header.dueDate) {
+            setFormError('برای فاکتور نسیه، تاریخ سررسید را انتخاب کنید.')
+            return
+        }
         if (paid > 0 && !header.cashBoxId) {
             setFormError('برای پرداخت نقدی، صندوق را انتخاب کنید.')
             return
@@ -772,6 +834,9 @@ function PurchasePage() {
     })
 
     useModalAutoFocus({ open: showForm, formRef })
+    useBootstrapTooltips(formRef, showForm, [
+        lines.map((line) => line.purchasePriceSourceLabel).join('\0'),
+    ])
 
     const openReturn = useCallback((row) => {
         setReturnSource({
@@ -949,7 +1014,7 @@ function PurchasePage() {
                     <div className="modal show d-block users-modal" tabIndex="-1" data-bs-focus="false">
                         <div className="modal-dialog modal-dialog-centered modal-dialog-scrollable modal-xl">
                             <form ref={formRef} className="modal-content" noValidate onSubmit={handleSubmit}>
-                                <div className="modal-header">
+                                <div className="modal-header border-0 pb-0">
                                     <h5 className="modal-title">
                                         {viewPosted
                                             ? documentType === INVOICE_DOCUMENT_TYPE.PurchaseReturn
@@ -961,7 +1026,7 @@ function PurchasePage() {
                                     </h5>
                                     <button type="button" className="btn-close" aria-label="بستن" onClick={closeModals} />
                                 </div>
-                                <div className="modal-body">
+                                <div className="modal-body pt-3">
                                     {formError && <div className="alert alert-danger py-2">{formError}</div>}
                                     {documentType === INVOICE_DOCUMENT_TYPE.PurchaseReturn &&
                                         referenceInvoiceNumber && (
@@ -969,291 +1034,181 @@ function PurchasePage() {
                                                 برگشت از فاکتور مبدأ: <strong>{referenceInvoiceNumber}</strong>
                                             </div>
                                         )}
-                                    {viewPosted &&
-                                        documentType === INVOICE_DOCUMENT_TYPE.Invoice &&
-                                        pastReturns.length > 0 && (
-                                            <div className="mb-3">
-                                                <h6 className="mb-2">سوابق برگشت این فاکتور</h6>
-                                                <div className="table-responsive">
-                                                    <table className="table table-sm table-bordered mb-0">
-                                                        <thead>
-                                                            <tr>
-                                                                <th>شماره برگشت</th>
-                                                                <th>تاریخ</th>
-                                                                <th>مبلغ</th>
-                                                            </tr>
-                                                        </thead>
-                                                        <tbody>
-                                                            {pastReturns.map((row) => (
-                                                                <tr key={row.invoiceId}>
-                                                                    <td>{row.invoiceNumber}</td>
-                                                                    <td>{formatJalaliDate(row.invoiceDate)}</td>
-                                                                    <td>{formatAmount(row.totalAmount)}</td>
-                                                                </tr>
-                                                            ))}
-                                                        </tbody>
-                                                    </table>
-                                                </div>
+
+                                    <div className="users-form-section">
+                                        <span className="users-form-section-title">اطلاعات فاکتور</span>
+                                        <div className="row g-3">
+                                            <div className="col-md-3">
+                                                <label className="form-label">تأمین‌کننده</label>
+                                                <SearchableSelect
+                                                    options={suppliers}
+                                                    value={header.supplierId}
+                                                    onChange={(next) => handleHeaderChange('supplierId', next)}
+                                                    placeholder="انتخاب کنید..."
+                                                    searchPlaceholder="جستجوی تأمین‌کننده..."
+                                                    required
+                                                    requiredMessage="لطفاً تأمین‌کننده را انتخاب کنید."
+                                                    disabled={viewPosted}
+                                                />
                                             </div>
-                                        )}
-                                    {editId && documentType === INVOICE_DOCUMENT_TYPE.Invoice && (
-                                        <div className="mb-3">
-                                            <h6 className="mb-2">اقساط</h6>
-                                            {!viewPosted && (
-                                                <div className="d-flex align-items-end gap-2 mb-2">
-                                                    <div>
-                                                        <label className="form-label small mb-1">تعداد</label>
-                                                        <input
-                                                            type="number"
-                                                            min="1"
-                                                            className="form-control form-control-sm"
-                                                            value={installmentCount}
-                                                            onChange={(e) => setInstallmentCount(e.target.value)}
-                                                        />
-                                                    </div>
-                                                    <button
-                                                        type="button"
-                                                        className="btn btn-sm btn-outline-primary"
-                                                        disabled={installmentsLoading}
-                                                        onClick={generateInstallments}
-                                                    >
-                                                        {installmentsLoading ? 'در حال ایجاد...' : 'ایجاد اقساط'}
-                                                    </button>
-                                                </div>
-                                            )}
-                                            {installments.length > 0 ? (
-                                                <div className="table-responsive">
-                                                    <table className="table table-sm table-bordered mb-0">
-                                                        <thead><tr><th>شماره</th><th>سررسید</th><th>مبلغ</th><th>مانده</th></tr></thead>
-                                                        <tbody>
-                                                            {installments.map((item, index) => (
-                                                                <tr key={item.invoiceInstallmentId ?? index}>
-                                                                    <td>{item.installmentNo ?? index + 1}</td>
-                                                                    <td>{formatJalaliDate(item.dueDate)}</td>
-                                                                    <td><AmountDisplay value={item.amount} symbol={invoiceCurrencySymbol} /></td>
-                                                                    <td><AmountDisplay value={item.remaining} symbol={invoiceCurrencySymbol} /></td>
-                                                                </tr>
-                                                            ))}
-                                                        </tbody>
-                                                    </table>
-                                                </div>
-                                            ) : <small className="text-muted">قسطی ایجاد نشده است.</small>}
-                                        </div>
-                                    )}
-
-                                    <ul className="nav nav-tabs mb-3">
-                                        <li className="nav-item">
-                                            <button
-                                                type="button"
-                                                className={`nav-link${formTab === 'header' ? ' active' : ''}`}
-                                                onClick={() => setFormTab('header')}
-                                            >
-                                                مشخصات
-                                            </button>
-                                        </li>
-                                        <li className="nav-item">
-                                            <button
-                                                type="button"
-                                                className={`nav-link${formTab === 'lines' ? ' active' : ''}`}
-                                                onClick={() => setFormTab('lines')}
-                                            >
-                                                اقلام
-                                            </button>
-                                        </li>
-                                    </ul>
-
-                                    {formTab === 'header' && (
-                                    <div className="row g-3 mb-3">
-                                        <div className="col-md-3">
-                                            <label className="form-label">تأمین‌کننده</label>
-                                            <SearchableSelect
-                                                options={suppliers}
-                                                value={header.supplierId}
-                                                onChange={(next) => handleHeaderChange('supplierId', next)}
-                                                placeholder="انتخاب کنید..."
-                                                searchPlaceholder="جستجوی تأمین‌کننده..."
-                                                required
-                                                requiredMessage="لطفاً تأمین‌کننده را انتخاب کنید."
-                                                disabled={viewPosted}
-                                            />
-                                        </div>
-                                        <div className="col-md-3">
-                                            <label className="form-label">انبار</label>
-                                            <select
-                                                className="form-select"
-                                                value={header.warehouseId}
-                                                required
-                                                disabled={viewPosted}
-                                                onChange={(e) => handleHeaderChange('warehouseId', e.target.value)}
-                                                {...persianValidity('لطفاً انبار را انتخاب کنید.')}
-                                            >
-                                                <option value="">انتخاب کنید...</option>
-                                                {warehouses.map((o) => (
-                                                    <option key={o.value} value={o.value}>
-                                                        {o.label}
-                                                    </option>
-                                                ))}
-                                            </select>
-                                        </div>
-                                        <div className="col-md-3">
-                                            <label className="form-label">تاریخ (شمسی)</label>
-                                            <JalaliDateField
-                                                value={header.invoiceDate}
-                                                onChange={(next) => handleHeaderChange('invoiceDate', next)}
-                                                required
-                                                requiredMessage="لطفاً تاریخ فاکتور را انتخاب کنید."
-                                                disabled={viewPosted}
-                                            />
-                                        </div>
-                                        <div className="col-md-3">
-                                            <label className="form-label">ارز فاکتور</label>
-                                            <select
-                                                className="form-select"
-                                                value={header.currencyId}
-                                                required
-                                                disabled={viewPosted}
-                                                onChange={(e) => handleCurrencyChange(e.target.value)}
-                                                {...persianValidity('لطفاً ارز فاکتور را انتخاب کنید.')}
-                                            >
-                                                <option value="">انتخاب کنید...</option>
-                                                {currencies.map((o) => (
-                                                    <option key={o.value} value={o.value}>
-                                                        {o.label}
-                                                    </option>
-                                                ))}
-                                            </select>
-                                        </div>
-                                        <div className="col-md-3">
-                                            <label className="form-label">مهلت پرداخت (روز)</label>
-                                            <input
-                                                type="number"
-                                                min="0"
-                                                className="form-control"
-                                                value={header.paymentTermDays}
-                                                disabled={viewPosted}
-                                                onChange={(e) => handleHeaderChange('paymentTermDays', e.target.value)}
-                                                onBlur={setDueDateFromTerm}
-                                            />
-                                        </div>
-                                        <div className="col-md-3">
-                                            <label className="form-label">تاریخ سررسید (شمسی)</label>
-                                            <JalaliDateField
-                                                value={header.dueDate}
-                                                onChange={(next) => handleHeaderChange('dueDate', next)}
-                                                disabled={viewPosted}
-                                            />
-                                        </div>
-                                        <div className="col-md-3">
-                                            <label className="form-label">وضعیت</label>
-                                            <select
-                                                className="form-select"
-                                                value={header.status}
-                                                disabled={viewPosted}
-                                                onChange={(e) => handleHeaderChange('status', e.target.value)}
-                                            >
-                                                {INVOICE_STATUSES.map((s) => (
-                                                    <option key={s.value} value={s.value}>
-                                                        {s.label}
-                                                    </option>
-                                                ))}
-                                            </select>
-                                        </div>
-                                        <div className="col-md-3">
-                                            <label className="form-label">نرخ به ارز پایه</label>
-                                            {isNonBaseCurrency ? (
-                                                <input
-                                                    type="number"
-                                                    min="0"
-                                                    step="any"
-                                                    className="form-control"
-                                                    value={exchangeRate}
+                                            <div className="col-md-3">
+                                                <label className="form-label">انبار</label>
+                                                <select
+                                                    className="form-select"
+                                                    value={header.warehouseId}
                                                     required
                                                     disabled={viewPosted}
-                                                    onChange={(e) => handleExchangeRateChange(e.target.value)}
-                                                    {...persianValidity('لطفاً نرخ ارز را وارد کنید.')}
+                                                    onChange={(e) => handleHeaderChange('warehouseId', e.target.value)}
+                                                    {...persianValidity('لطفاً انبار را انتخاب کنید.')}
+                                                >
+                                                    <option value="">انتخاب کنید...</option>
+                                                    {warehouses.map((o) => (
+                                                        <option key={o.value} value={o.value}>
+                                                            {o.label}
+                                                        </option>
+                                                    ))}
+                                                </select>
+                                            </div>
+                                            <div className="col-md-3">
+                                                <label className="form-label">تاریخ (شمسی)</label>
+                                                <JalaliDateField
+                                                    value={header.invoiceDate}
+                                                    onChange={(next) => handleHeaderChange('invoiceDate', next)}
+                                                    required
+                                                    requiredMessage="لطفاً تاریخ فاکتور را انتخاب کنید."
+                                                    disabled={viewPosted}
                                                 />
-                                            ) : (
+                                            </div>
+                                            <div className="col-md-3">
+                                                <label className="form-label">شماره فاکتور بیرونی</label>
                                                 <input
                                                     type="text"
                                                     className="form-control"
-                                                    readOnly
-                                                    value={
-                                                        rateSnapshot
-                                                            ? rateSnapshot.isBaseCurrency
-                                                                ? 'ارز پایه (۱:۱)'
-                                                                : formatAmount(rateSnapshot.baseUnitsPerUnit)
-                                                            : header.currencyId
-                                                                ? 'در حال بارگذاری...'
-                                                                : '—'
-                                                    }
+                                                    value={header.externalInvoiceNumber}
+                                                    disabled={viewPosted}
+                                                    maxLength={100}
+                                                    onChange={(e) => handleHeaderChange('externalInvoiceNumber', e.target.value)}
                                                 />
-                                            )}
+                                            </div>
+                                            <div className="col-md-3">
+                                                <label className="form-label">ارز فاکتور</label>
+                                                <select
+                                                    className="form-select"
+                                                    value={header.currencyId}
+                                                    required
+                                                    disabled={viewPosted}
+                                                    onChange={(e) => handleCurrencyChange(e.target.value)}
+                                                    {...persianValidity('لطفاً ارز فاکتور را انتخاب کنید.')}
+                                                >
+                                                    <option value="">انتخاب کنید...</option>
+                                                    {currencies.map((o) => (
+                                                        <option key={o.value} value={o.value}>
+                                                            {o.label}
+                                                        </option>
+                                                    ))}
+                                                </select>
+                                            </div>
+                                            <div className="col-md-3">
+                                                <label className="form-label">وضعیت</label>
+                                                <select
+                                                    className="form-select"
+                                                    value={header.status}
+                                                    disabled={viewPosted}
+                                                    onChange={(e) => handleHeaderChange('status', e.target.value)}
+                                                >
+                                                    {INVOICE_STATUSES.map((s) => (
+                                                        <option key={s.value} value={s.value}>
+                                                            {s.label}
+                                                        </option>
+                                                    ))}
+                                                </select>
+                                            </div>
+                                            <div className="col-md-3">
+                                                <label className="form-label">نرخ به ارز پایه</label>
+                                                {isNonBaseCurrency ? (
+                                                    <input
+                                                        type="number"
+                                                        min="0"
+                                                        step="any"
+                                                        className="form-control"
+                                                        value={exchangeRate}
+                                                        required
+                                                        disabled={viewPosted}
+                                                        onChange={(e) => handleExchangeRateChange(e.target.value)}
+                                                        {...persianValidity('لطفاً نرخ ارز را وارد کنید.')}
+                                                    />
+                                                ) : (
+                                                    <input
+                                                        type="text"
+                                                        className="form-control"
+                                                        readOnly
+                                                        value={
+                                                            rateSnapshot
+                                                                ? rateSnapshot.isBaseCurrency
+                                                                    ? 'ارز پایه (۱:۱)'
+                                                                    : formatAmount(rateSnapshot.baseUnitsPerUnit)
+                                                                : header.currencyId
+                                                                    ? 'در حال بارگذاری...'
+                                                                    : '—'
+                                                        }
+                                                    />
+                                                )}
+                                            </div>
+                                            <div className="col-md-3">
+                                                <label className="form-label">مالیات (%)</label>
+                                                <input
+                                                    type="number"
+                                                    min="0"
+                                                    max="100"
+                                                    step="any"
+                                                    className="form-control"
+                                                    value={header.taxPercent}
+                                                    disabled={viewPosted}
+                                                    onChange={(e) => handleHeaderChange('taxPercent', e.target.value)}
+                                                />
+                                            </div>
                                         </div>
-                                        <div className="col-md-3">
-                                            <label className="form-label">جمع اقلام</label>
-                                            <AmountField
-                                                value={lineTotals.total}
-                                                onChange={() => { }}
-                                                symbol={invoiceCurrencySymbol}
-                                                readOnly
-                                            />
-                                        </div>
-                                        <div className="col-md-3">
-                                            <label className="form-label">مالیات (%)</label>
-                                            <input
-                                                type="number"
-                                                min="0"
-                                                max="100"
-                                                step="any"
-                                                className="form-control"
-                                                value={header.taxPercent}
-                                                disabled={viewPosted}
-                                                onChange={(e) => handleHeaderChange('taxPercent', e.target.value)}
-                                            />
-                                        </div>
-                                        <div className="col-md-3">
-                                            <label className="form-label">مبلغ مالیات</label>
-                                            <AmountField
-                                                value={taxAmount}
-                                                onChange={() => { }}
-                                                symbol={invoiceCurrencySymbol}
-                                                readOnly
-                                            />
-                                        </div>
-                                        <div className="col-md-3">
-                                            <label className="form-label">کل فاکتور</label>
-                                            <AmountField
-                                                value={totals.total}
-                                                onChange={() => { }}
-                                                symbol={invoiceCurrencySymbol}
-                                                readOnly
-                                            />
-                                        </div>
-                                        <div className="col-md-3">
-                                            <label className="form-label">مقدار پرداخت‌شده</label>
-                                            <AmountField
-                                                value={effectivePaidAmount}
-                                                onChange={(next) => {
-                                                    setPaidAmountTouched(true)
-                                                    setHeader((prev) => ({
-                                                        ...prev,
-                                                        paidAmount: next,
-                                                        cashBoxId:
-                                                            Number(next) > 0
-                                                                ? prev.cashBoxId || cashBoxes[0]?.value || ''
-                                                                : '',
-                                                    }))
-                                                }}
-                                                symbol={invoiceCurrencySymbol}
-                                                required
-                                                disabled={viewPosted}
-                                                min="0"
-                                                max={totals.total > 0 ? String(totals.total) : undefined}
-                                            />
-                                            {totals.total > 0 && (
+                                    </div>
+
+                                    <div className="users-form-section">
+                                        <span className="users-form-section-title">پرداخت</span>
+                                        <div className="row g-3">
+                                            <div className="col-md-3">
+                                                <label className="form-label">نوع فاکتور</label>
+                                                <select
+                                                    className="form-select"
+                                                    value={isCashInvoice ? 'cash' : 'credit'}
+                                                    disabled={viewPosted}
+                                                    onChange={(e) => handleIsCashChange(e.target.value === 'cash')}
+                                                >
+                                                    <option value="cash">نقد</option>
+                                                    <option value="credit">نسیه</option>
+                                                </select>
+                                            </div>
+                                            <div className="col-md-3">
+                                                <label className="form-label">مقدار پرداخت‌شده</label>
+                                                <AmountField
+                                                    value={effectivePaidAmount}
+                                                    onChange={(next) => {
+                                                        setPaidAmountTouched(true)
+                                                        setHeader((prev) => ({
+                                                            ...prev,
+                                                            paidAmount: next,
+                                                            cashBoxId:
+                                                                Number(next) > 0
+                                                                    ? prev.cashBoxId || cashBoxes[0]?.value || ''
+                                                                    : '',
+                                                        }))
+                                                    }}
+                                                    symbol={invoiceCurrencySymbol}
+                                                    required
+                                                    disabled={viewPosted}
+                                                    min="0"
+                                                    max={totals.total > 0 ? String(totals.total) : undefined}
+                                                />
                                                 <small className={`text-muted d-block mt-1${isCashInvoice ? '' : ' text-warning'}`}>
                                                     {isCashInvoice ? (
-                                                        'فاکتور نقدی — کل مبلغ پرداخت می‌شود'
+                                                        'فاکتور نقدی — پیش‌فرض: کل مبلغ'
                                                     ) : (
                                                         <>
                                                             فاکتور نسیه — مانده:{' '}
@@ -1261,64 +1216,96 @@ function PurchasePage() {
                                                         </>
                                                     )}
                                                 </small>
+                                            </div>
+                                            {!isCashInvoice && (
+                                                <div className="col-md-3">
+                                                    <label className="form-label">تاریخ سررسید</label>
+                                                    <JalaliDateField
+                                                        value={header.dueDate}
+                                                        onChange={(next) => {
+                                                            handleHeaderChange('dueDate', next)
+                                                            setTermDaysFromDueDate(next)
+                                                        }}
+                                                        required
+                                                        requiredMessage="لطفاً تاریخ سررسید را انتخاب کنید."
+                                                        disabled={viewPosted}
+                                                    />
+                                                </div>
+                                            )}
+                                            {paidAmountNumeric > 0 && (
+                                                <div className="col-md-3">
+                                                    <label className="form-label">صندوق پرداخت</label>
+                                                    <select
+                                                        className="form-select"
+                                                        value={header.cashBoxId}
+                                                        required
+                                                        disabled={viewPosted}
+                                                        onChange={(e) => handleHeaderChange('cashBoxId', e.target.value)}
+                                                        {...persianValidity('لطفاً صندوق را انتخاب کنید.')}
+                                                    >
+                                                        <option value="">انتخاب کنید</option>
+                                                        {cashBoxes.map((b) => (
+                                                            <option key={b.value} value={b.value}>
+                                                                {b.label}
+                                                            </option>
+                                                        ))}
+                                                    </select>
+                                                </div>
+                                            )}
+                                            <div className="col-12">
+                                                <label className="form-label">توضیحات</label>
+                                                <input
+                                                    type="text"
+                                                    className="form-control"
+                                                    value={header.description}
+                                                    disabled={viewPosted}
+                                                    onChange={(e) => handleHeaderChange('description', e.target.value)}
+                                                />
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <div className="invoice-totals-bar">
+                                        <div className="invoice-totals-bar-item">
+                                            <span className="invoice-totals-bar-label">جمع اقلام</span>
+                                            <AmountDisplay value={lineTotals.total} symbol={invoiceCurrencySymbol} />
+                                        </div>
+                                        <div className="invoice-totals-bar-item">
+                                            <span className="invoice-totals-bar-label">
+                                                مالیات{header.taxPercent ? ` (${header.taxPercent}٪)` : ''}
+                                            </span>
+                                            <AmountDisplay value={taxAmount} symbol={invoiceCurrencySymbol} />
+                                        </div>
+                                        <div className="invoice-totals-bar-item is-total">
+                                            <span className="invoice-totals-bar-label">کل فاکتور</span>
+                                            <span className="invoice-totals-bar-value">
+                                                <AmountDisplay value={totals.total} symbol={invoiceCurrencySymbol} />
+                                            </span>
+                                        </div>
+                                    </div>
+
+                                    <div className="users-form-section">
+                                        <div className="d-flex align-items-center justify-content-between mb-2">
+                                            <span className="users-form-section-title mb-0">ردیف‌های خرید</span>
+                                            {!viewPosted && (
+                                                <button
+                                                    type="button"
+                                                    className="btn btn-sm btn-outline-primary d-inline-flex align-items-center gap-1"
+                                                    onClick={addLine}
+                                                >
+                                                    <Icon name="plus" />
+                                                    <span>ردیف جدید</span>
+                                                </button>
                                             )}
                                         </div>
-                                        {paidAmountNumeric > 0 && (
-                                            <div className="col-md-3">
-                                                <label className="form-label">صندوق پرداخت</label>
-                                                <select
-                                                    className="form-select"
-                                                    value={header.cashBoxId}
-                                                    required
-                                                    disabled={viewPosted}
-                                                    onChange={(e) => handleHeaderChange('cashBoxId', e.target.value)}
-                                                    {...persianValidity('لطفاً صندوق را انتخاب کنید.')}
-                                                >
-                                                    <option value="">انتخاب کنید</option>
-                                                    {cashBoxes.map((b) => (
-                                                        <option key={b.value} value={b.value}>
-                                                            {b.label}
-                                                        </option>
-                                                    ))}
-                                                </select>
-                                            </div>
-                                        )}
-                                        <div className="col-12">
-                                            <label className="form-label">توضیحات</label>
-                                            <input
-                                                type="text"
-                                                className="form-control"
-                                                value={header.description}
-                                                disabled={viewPosted}
-                                                onChange={(e) => handleHeaderChange('description', e.target.value)}
-                                            />
-                                        </div>
-                                    </div>
-                                    )}
 
-                                    {formTab === 'lines' && (
-                                    <>
-                                    <div className="d-flex align-items-center justify-content-between mb-2">
-                                        <h6 className="mb-0">ردیف‌های خرید</h6>
-                                        {!viewPosted && (
-                                            <button
-                                                type="button"
-                                                className="btn btn-sm btn-outline-secondary d-inline-flex align-items-center gap-1"
-                                                onClick={addLine}
-                                            >
-                                                <Icon name="plus" />
-                                                <span>ردیف جدید</span>
-                                            </button>
-                                        )}
-                                    </div>
-
-                                    <div className="table-responsive">
-                                        <table className="table align-middle purchase-lines-table">
+                                        <div className="table-responsive border rounded-3">
+                                        <table className="table table-sm align-middle mb-0 purchase-lines-table">
                                             <colgroup>
                                                 <col className="col-product" />
                                                 <col className="col-unit" />
-                                                <col className="col-qty" />
                                                 <col className="col-price" />
+                                                <col className="col-qty" />
                                                 <col className="col-total" />
                                                 <col className="col-total-base" />
                                                 {!viewPosted && <col className="col-actions" />}
@@ -1327,13 +1314,20 @@ function PurchasePage() {
                                                 <tr>
                                                     <th className="col-product">محصول</th>
                                                     <th className="col-unit">واحد</th>
-                                                    <th className="col-qty">مقدار</th>
                                                     <th className="col-price">
-                                                        قیمت واحد ({invoiceCurrencySymbol || '—'})
-                                                        <div className="small fw-normal text-muted">
-                                                            پیشنهاد از میانگین موجودی / آخرین خرید
-                                                        </div>
+                                                        <span className="d-inline-flex align-items-center gap-1">
+                                                            فی ({invoiceCurrencySymbol || '—'})
+                                                            <span
+                                                                className="text-muted"
+                                                                role="img"
+                                                                aria-label="راهنما"
+                                                                {...tipProps('پیشنهاد از میانگین موجودی / آخرین خرید')}
+                                                            >
+                                                                <Icon name="circle-exclamation" className="small" />
+                                                            </span>
+                                                        </span>
                                                     </th>
+                                                    <th className="col-qty">تعداد</th>
                                                     <th className="col-total">جمع ({invoiceCurrencySymbol || '—'})</th>
                                                     <th className="col-total-base">جمع ({baseCurrencySymbol || '—'})</th>
                                                     {!viewPosted && <th className="col-actions" />}
@@ -1382,6 +1376,37 @@ function PurchasePage() {
                                                                     ))}
                                                                 </select>
                                                             </td>
+                                                            <td className="col-price">
+                                                                <div className="d-flex align-items-center gap-1">
+                                                                    <div className="flex-grow-1 min-w-0">
+                                                                        <AmountField
+                                                                            value={toSelectedUnitPrice(
+                                                                                line.unitPrice,
+                                                                                line.productId,
+                                                                                line.meaurmentId,
+                                                                            )}
+                                                                            onChange={(next) => handleLineChange(index, 'unitPrice', next)}
+                                                                            symbol={invoiceCurrencySymbol}
+                                                                            className="amount-field-sm invoice-line-control-height"
+                                                                            min="0"
+                                                                            step="any"
+                                                                            required
+                                                                            requiredMessage="لطفاً فی را وارد کنید."
+                                                                            disabled={viewPosted}
+                                                                        />
+                                                                    </div>
+                                                                    {!viewPosted && line.purchasePriceSourceLabel ? (
+                                                                        <span
+                                                                            className="text-muted flex-shrink-0"
+                                                                            role="img"
+                                                                            aria-label={line.purchasePriceSourceLabel}
+                                                                            {...tipProps(line.purchasePriceSourceLabel)}
+                                                                        >
+                                                                            <Icon name="circle-exclamation" className="small" />
+                                                                        </span>
+                                                                    ) : null}
+                                                                </div>
+                                                            </td>
                                                             <td className="col-qty">
                                                                 <PrefixNumberField
                                                                     prefix={meaurmentSymbol(line.meaurmentId)}
@@ -1391,27 +1416,9 @@ function PurchasePage() {
                                                                     step="any"
                                                                     className="amount-field-sm invoice-line-control-height"
                                                                     required
-                                                                    requiredMessage="لطفاً مقدار را وارد کنید."
+                                                                    requiredMessage="لطفاً تعداد را وارد کنید."
                                                                     disabled={viewPosted}
                                                                 />
-                                                            </td>
-                                                            <td className="col-price">
-                                                                <AmountField
-                                                                    value={line.unitPrice}
-                                                                    onChange={(next) => handleLineChange(index, 'unitPrice', next)}
-                                                                    symbol={invoiceCurrencySymbol}
-                                                                    className="amount-field-sm invoice-line-control-height"
-                                                                    min="0"
-                                                                    step="any"
-                                                                    required
-                                                                    requiredMessage="لطفاً قیمت واحد را وارد کنید."
-                                                                    disabled={viewPosted}
-                                                                />
-                                                                {!viewPosted && line.purchasePriceSourceLabel ? (
-                                                                    <div className="small text-muted mt-1">
-                                                                        {line.purchasePriceSourceLabel}
-                                                                    </div>
-                                                                ) : null}
                                                             </td>
                                                             <td className="col-total text-center">
                                                                 <AmountDisplay value={line.lineTotal} symbol={invoiceCurrencySymbol} />
@@ -1446,15 +1453,19 @@ function PurchasePage() {
                                                             <td className="col-unit">
                                                                 <span className="small text-muted">{unitLabel || '—'}</span>
                                                             </td>
+                                                            <td className="col-price text-center">
+                                                                <AmountDisplay
+                                                                    value={toSelectedUnitPrice(
+                                                                        line.unitPrice,
+                                                                        line.productId,
+                                                                        line.meaurmentId,
+                                                                    )}
+                                                                    symbol={invoiceCurrencySymbol}
+                                                                />
+                                                            </td>
                                                             <td className="col-qty text-center text-warning">
                                                                 {formatAmount(returnedQty)}
                                                                 {unitLabel ? ` ${unitLabel}` : ''}
-                                                            </td>
-                                                            <td className="col-price text-center">
-                                                                <AmountDisplay
-                                                                    value={line.unitPrice}
-                                                                    symbol={invoiceCurrencySymbol}
-                                                                />
                                                             </td>
                                                             <td className="col-total text-center text-warning">
                                                                 <AmountDisplay
@@ -1489,11 +1500,91 @@ function PurchasePage() {
                                             </tfoot>
                                         </table>
                                     </div>
-                                    </>
+                                    </div>
+
+                                    {viewPosted &&
+                                        documentType === INVOICE_DOCUMENT_TYPE.Invoice &&
+                                        pastReturns.length > 0 && (
+                                            <div className="users-form-section">
+                                                <span className="users-form-section-title">سوابق برگشت این فاکتور</span>
+                                                <div className="table-responsive border rounded-3">
+                                                    <table className="table table-sm mb-0">
+                                                        <thead>
+                                                            <tr>
+                                                                <th>شماره برگشت</th>
+                                                                <th>تاریخ</th>
+                                                                <th>مبلغ</th>
+                                                            </tr>
+                                                        </thead>
+                                                        <tbody>
+                                                            {pastReturns.map((row) => (
+                                                                <tr key={row.invoiceId}>
+                                                                    <td>{row.invoiceNumber}</td>
+                                                                    <td>{formatJalaliDate(row.invoiceDate)}</td>
+                                                                    <td>{formatAmount(row.totalAmount)}</td>
+                                                                </tr>
+                                                            ))}
+                                                        </tbody>
+                                                    </table>
+                                                </div>
+                                            </div>
+                                        )}
+                                    {editId && documentType === INVOICE_DOCUMENT_TYPE.Invoice && (
+                                        <div className="users-form-section">
+                                            <span className="users-form-section-title">اقساط</span>
+                                            {!viewPosted && (
+                                                <div className="d-flex align-items-end gap-2 mb-2">
+                                                    <div>
+                                                        <label className="form-label small mb-1">تعداد</label>
+                                                        <input
+                                                            type="number"
+                                                            min="1"
+                                                            className="form-control form-control-sm"
+                                                            value={installmentCount}
+                                                            onChange={(e) => setInstallmentCount(e.target.value)}
+                                                        />
+                                                    </div>
+                                                    <button
+                                                        type="button"
+                                                        className="btn btn-sm btn-outline-primary"
+                                                        disabled={installmentsLoading}
+                                                        onClick={generateInstallments}
+                                                    >
+                                                        {installmentsLoading ? 'در حال ایجاد...' : 'ایجاد اقساط'}
+                                                    </button>
+                                                </div>
+                                            )}
+                                            {installments.length > 0 ? (
+                                                <div className="table-responsive border rounded-3">
+                                                    <table className="table table-sm mb-0">
+                                                        <thead>
+                                                            <tr>
+                                                                <th>شماره</th>
+                                                                <th>سررسید</th>
+                                                                <th>مبلغ</th>
+                                                                <th>مانده</th>
+                                                            </tr>
+                                                        </thead>
+                                                        <tbody>
+                                                            {installments.map((item, index) => (
+                                                                <tr key={item.invoiceInstallmentId ?? index}>
+                                                                    <td>{item.installmentNo ?? index + 1}</td>
+                                                                    <td>{formatJalaliDate(item.dueDate)}</td>
+                                                                    <td><AmountDisplay value={item.amount} symbol={invoiceCurrencySymbol} /></td>
+                                                                    <td><AmountDisplay value={item.remaining} symbol={invoiceCurrencySymbol} /></td>
+                                                                </tr>
+                                                            ))}
+                                                        </tbody>
+                                                    </table>
+                                                </div>
+                                            ) : (
+                                                <small className="text-muted">قسطی ایجاد نشده است.</small>
+                                            )}
+                                        </div>
                                     )}
                                 </div>
-                                <div className="modal-footer">
-                                    <button type="button" className="btn btn-secondary" onClick={closeModals}>
+                                <div className="modal-footer border-0 pt-0">
+                                    <button type="button" className="btn btn-outline-secondary" onClick={closeModals}>
                                         بستن
                                     </button>
                                     {editId && (

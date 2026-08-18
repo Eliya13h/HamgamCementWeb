@@ -2,7 +2,6 @@
 using Dapper;
 using HamgamTransport.Server.Controllers.Common;
 using HamgamTransport.Server.Data;
-using HamgamTransport.Server.Data.Models.Invoice;
 using Microsoft.EntityFrameworkCore;
 
 namespace HamgamTransport.Server.Services;
@@ -17,11 +16,6 @@ public interface ISupplierReadService
         SupplierDataTableQuery query,
         CancellationToken cancellationToken = default);
 
-    Task<SupplierInvoiceDataTableResult> QueryPurchaseInvoicesDataTableAsync(
-        int supplierId,
-        SupplierInvoiceDataTableQuery query,
-        CancellationToken cancellationToken = default);
-
     Task<bool> SupplierExistsAsync(int supplierId, bool includeDeleted, CancellationToken cancellationToken = default);
 
     Task<string> GetBaseCurrencySymbolAsync(CancellationToken cancellationToken = default);
@@ -30,36 +24,16 @@ public interface ISupplierReadService
 public sealed class SupplierReadService : ISupplierReadService
 {
     private const string SummaryCte = """
-        WITH PurchaseTotals AS (
+        WITH ExpenseTotals AS (
             SELECT
-                pi.SupplierId,
-                SUM(CASE
-                    WHEN pi.DocumentType = 1 THEN pi.TotalAmountInBaseCurrency
-                    WHEN pi.DocumentType = 2 THEN -pi.TotalAmountInBaseCurrency
-                    ELSE 0
-                END) AS TotalPurchase,
-                -- پرداخت فاکتور خرید + دریافت بابت برگشت خرید (PaidAmount برگشت با علامت منفی برای فرمول مانده)
-                SUM(CASE
-                    WHEN pi.DocumentType = 1 THEN
-                        CASE
-                            WHEN pi.TotalAmount <> 0
-                                THEN ROUND(pi.PaidAmount * pi.TotalAmountInBaseCurrency / pi.TotalAmount, 4)
-                            ELSE ROUND(pi.PaidAmount * ISNULL(NULLIF(pi.BaseUnitsPerUnitAtTransaction, 0), 1), 4)
-                        END
-                    WHEN pi.DocumentType = 2 THEN
-                        -CASE
-                            WHEN pi.TotalAmount <> 0
-                                THEN ROUND(pi.PaidAmount * pi.TotalAmountInBaseCurrency / pi.TotalAmount, 4)
-                            ELSE ROUND(pi.PaidAmount * ISNULL(NULLIF(pi.BaseUnitsPerUnitAtTransaction, 0), 1), 4)
-                        END
-                    ELSE 0
-                END) AS InvoicePayment
-            FROM PurchaseInvoices pi
-            WHERE ISNULL(pi.IsDeleted, 0) = 0
-              AND pi.IsPosted = 1
-            GROUP BY pi.SupplierId
+                e.SupplierId,
+                SUM(e.AmountInBaseCurrency) AS TotalPurchase
+            FROM Expenses e
+            WHERE ISNULL(e.IsDeleted, 0) = 0
+              AND e.JournalEntryId IS NOT NULL
+              AND e.SupplierId IS NOT NULL
+            GROUP BY e.SupplierId
         ),
-        -- پرداخت/دریافت مستقل از فاکتور (تخصیص‌شده‌ها داخل PaidAmount فاکتور هستند)
         SettlementTotals AS (
             SELECT
                 ps.PartyId AS SupplierId,
@@ -67,8 +41,6 @@ public sealed class SupplierReadService : ISupplierReadService
             FROM PartySettlements ps
             WHERE ISNULL(ps.IsDeleted, 0) = 0
               AND ps.PartyType = 2
-              AND ps.SaleInvoiceId IS NULL
-              AND ps.PurchaseInvoiceId IS NULL
             GROUP BY ps.PartyId
         ),
         SupplierSummary AS (
@@ -88,27 +60,24 @@ public sealed class SupplierReadService : ISupplierReadService
                 s.SupplierType,
                 CASE WHEN ISNULL(s.IsActive, 0) = 1 THEN 1 ELSE 0 END AS IsActive,
                 CASE WHEN ISNULL(s.IsDeleted, 0) = 1 THEN 1 ELSE 0 END AS IsDeleted,
-                ISNULL(pt.TotalPurchase, 0) AS TotalPurchase,
-                ISNULL(pt.InvoicePayment, 0) + ISNULL(st.UnallocatedPayment, 0) AS TotalPayment,
-                -- بالانس = موجودی اولیه + کل خرید − کل پرداخت
+                ISNULL(et.TotalPurchase, 0) AS TotalPurchase,
+                ISNULL(st.UnallocatedPayment, 0) AS TotalPayment,
                 ISNULL(s.InitialBalance, 0)
-                    + ISNULL(pt.TotalPurchase, 0)
-                    - ISNULL(pt.InvoicePayment, 0)
+                    + ISNULL(et.TotalPurchase, 0)
                     - ISNULL(st.UnallocatedPayment, 0) AS Balance,
-                -- مانده مثبت = بدهی ما به تأمین‌کننده → تأمین‌کننده طلبکار است
                 CASE
-                    WHEN ISNULL(s.InitialBalance, 0) + ISNULL(pt.TotalPurchase, 0) - ISNULL(pt.InvoicePayment, 0) - ISNULL(st.UnallocatedPayment, 0) > 0 THEN N'طلبکار'
-                    WHEN ISNULL(s.InitialBalance, 0) + ISNULL(pt.TotalPurchase, 0) - ISNULL(pt.InvoicePayment, 0) - ISNULL(st.UnallocatedPayment, 0) < 0 THEN N'بدهکار'
+                    WHEN ISNULL(s.InitialBalance, 0) + ISNULL(et.TotalPurchase, 0) - ISNULL(st.UnallocatedPayment, 0) > 0 THEN N'طلبکار'
+                    WHEN ISNULL(s.InitialBalance, 0) + ISNULL(et.TotalPurchase, 0) - ISNULL(st.UnallocatedPayment, 0) < 0 THEN N'بدهکار'
                     ELSE N'تسویه'
                 END AS AccountStatus,
                 CASE
-                    WHEN ISNULL(s.InitialBalance, 0) + ISNULL(pt.TotalPurchase, 0) - ISNULL(pt.InvoicePayment, 0) - ISNULL(st.UnallocatedPayment, 0) > 0 THEN 'creditor'
-                    WHEN ISNULL(s.InitialBalance, 0) + ISNULL(pt.TotalPurchase, 0) - ISNULL(pt.InvoicePayment, 0) - ISNULL(st.UnallocatedPayment, 0) < 0 THEN 'debtor'
+                    WHEN ISNULL(s.InitialBalance, 0) + ISNULL(et.TotalPurchase, 0) - ISNULL(st.UnallocatedPayment, 0) > 0 THEN 'creditor'
+                    WHEN ISNULL(s.InitialBalance, 0) + ISNULL(et.TotalPurchase, 0) - ISNULL(st.UnallocatedPayment, 0) < 0 THEN 'debtor'
                     ELSE 'settled'
                 END AS AccountStatusCode,
                 s.CreatedAt
             FROM Suppliers s
-            LEFT JOIN PurchaseTotals pt ON pt.SupplierId = s.SupplierID
+            LEFT JOIN ExpenseTotals et ON et.SupplierId = s.SupplierID
             LEFT JOIN SettlementTotals st ON st.SupplierId = s.SupplierID
             LEFT JOIN Accounts acc
                 ON acc.SystemCode = CONCAT(N'SUPP_', s.SupplierID)
@@ -127,21 +96,6 @@ public sealed class SupplierReadService : ISupplierReadService
         [6] = "s.TotalPayment",
         [7] = "s.Balance",
         [8] = "s.AccountStatus",
-    };
-
-    private static readonly Dictionary<int, string> InvoiceOrderColumns = new()
-    {
-        [1] = "pi.InvoiceNumber",
-        [2] = "pi.InvoiceDate",
-        [4] = "pi.TotalAmountInBaseCurrency",
-        [5] = """
-            CASE
-                WHEN pi.TotalAmount <> 0
-                    THEN ROUND(pi.PaidAmount * pi.TotalAmountInBaseCurrency / pi.TotalAmount, 4)
-                ELSE ROUND(pi.PaidAmount * ISNULL(NULLIF(pi.BaseUnitsPerUnitAtTransaction, 0), 1), 4)
-            END
-            """,
-        [6] = "pi.Status",
     };
 
     private readonly AppDbContext _db;
@@ -305,136 +259,6 @@ public sealed class SupplierReadService : ISupplierReadService
         return new SupplierDataTableResult(rows, recordsTotal, recordsFiltered);
     }
 
-    public async Task<SupplierInvoiceDataTableResult> QueryPurchaseInvoicesDataTableAsync(
-        int supplierId,
-        SupplierInvoiceDataTableQuery query,
-        CancellationToken cancellationToken = default)
-    {
-        var search = query.Search?.Trim() ?? string.Empty;
-        var hasSearch = search.Length > 0;
-
-        var parameters = new DynamicParameters();
-        parameters.Add("SupplierId", supplierId);
-        parameters.Add("Start", query.Start);
-        parameters.Add("Length", query.Length);
-        parameters.Add("Search", hasSearch ? $"%{search}%" : null);
-        parameters.Add("SearchRaw", hasSearch ? search : null);
-        parameters.Add("StatusProforma", (int)InvoiceStatus.Proforma);
-        parameters.Add("StatusOrder", (int)InvoiceStatus.Order);
-        parameters.Add("StatusQuotation", (int)InvoiceStatus.Quotation);
-        parameters.Add("StatusInvoice", (int)InvoiceStatus.Invoice);
-
-        const string baseWhere = """
-            FROM PurchaseInvoices pi
-            WHERE ISNULL(pi.IsDeleted, 0) = 0
-              AND pi.SupplierId = @SupplierId
-            """;
-
-        var searchClause = hasSearch
-            ? """
-              AND (
-                  pi.InvoiceNumber LIKE @Search
-                  OR ISNULL(pi.Description, '') LIKE @Search
-                  OR CAST(pi.TotalAmountInBaseCurrency AS NVARCHAR(50)) LIKE @Search
-                  OR CAST(
-                        CASE
-                            WHEN pi.TotalAmount <> 0
-                                THEN ROUND(pi.PaidAmount * pi.TotalAmountInBaseCurrency / pi.TotalAmount, 4)
-                            ELSE ROUND(pi.PaidAmount * ISNULL(NULLIF(pi.BaseUnitsPerUnitAtTransaction, 0), 1), 4)
-                        END
-                     AS NVARCHAR(50)) LIKE @Search
-                  OR (@SearchRaw LIKE N'%پیش%' AND pi.Status = @StatusProforma)
-                  OR (@SearchRaw LIKE N'%آردر%' AND pi.Status = @StatusOrder)
-                  OR (@SearchRaw LIKE N'%استعلام%' AND pi.Status = @StatusQuotation)
-                  OR (@SearchRaw LIKE N'%فاکتور%' AND pi.Status = @StatusInvoice)
-              )
-              """
-            : string.Empty;
-
-        var orderClause = BuildOrderClause(InvoiceOrderColumns, query.Order, "pi.InvoiceDate DESC");
-
-        var countSql = "SELECT COUNT(*) " + baseWhere + searchClause;
-        var dataSql = $"""
-            SELECT
-                pi.PurchaseInvoiceID AS PurchaseInvoiceId,
-                pi.InvoiceNumber,
-                pi.InvoiceDate,
-                pi.Status,
-                pi.TotalAmountInBaseCurrency AS TotalAmount,
-                CASE
-                    WHEN pi.TotalAmount <> 0
-                        THEN ROUND(pi.PaidAmount * pi.TotalAmountInBaseCurrency / pi.TotalAmount, 4)
-                    ELSE ROUND(pi.PaidAmount * ISNULL(NULLIF(pi.BaseUnitsPerUnitAtTransaction, 0), 1), 4)
-                END AS PaidAmount,
-                (
-                    SELECT COUNT(*)
-                    FROM PurchaseItems x
-                    WHERE x.PurchaseInvoiceId = pi.PurchaseInvoiceID
-                      AND ISNULL(x.IsDeleted, 0) = 0
-                ) AS ItemsCount,
-                pi.IsPosted,
-                COUNT(*) OVER() AS RecordsFiltered
-            {baseWhere}
-            {searchClause}
-            {orderClause}
-            OFFSET @Start ROWS FETCH NEXT @Length ROWS ONLY
-            """;
-
-        const string totalsSql = """
-            SELECT
-                ISNULL(SUM(CASE
-                    WHEN pi.DocumentType = 1 THEN pi.TotalAmountInBaseCurrency
-                    WHEN pi.DocumentType = 2 THEN -pi.TotalAmountInBaseCurrency
-                    ELSE 0
-                END), 0) AS TotalPurchase,
-                ISNULL(SUM(CASE
-                    WHEN pi.DocumentType = 1 THEN
-                        CASE
-                            WHEN pi.TotalAmount <> 0
-                                THEN ROUND(pi.PaidAmount * pi.TotalAmountInBaseCurrency / pi.TotalAmount, 4)
-                            ELSE ROUND(pi.PaidAmount * ISNULL(NULLIF(pi.BaseUnitsPerUnitAtTransaction, 0), 1), 4)
-                        END
-                    WHEN pi.DocumentType = 2 THEN
-                        -CASE
-                            WHEN pi.TotalAmount <> 0
-                                THEN ROUND(pi.PaidAmount * pi.TotalAmountInBaseCurrency / pi.TotalAmount, 4)
-                            ELSE ROUND(pi.PaidAmount * ISNULL(NULLIF(pi.BaseUnitsPerUnitAtTransaction, 0), 1), 4)
-                        END
-                    ELSE 0
-                END), 0) AS TotalPayment
-            FROM PurchaseInvoices pi
-            WHERE ISNULL(pi.IsDeleted, 0) = 0
-              AND pi.IsPosted = 1
-              AND pi.SupplierId = @SupplierId
-            """;
-
-        var connection = await OpenConnectionAsync(cancellationToken);
-
-        var recordsTotal = await connection.ExecuteScalarAsync<int>(
-            new CommandDefinition(
-                "SELECT COUNT(*) " + baseWhere,
-                new { SupplierId = supplierId },
-                cancellationToken: cancellationToken));
-
-        var rows = (await connection.QueryAsync<SupplierInvoiceRow>(
-            new CommandDefinition(dataSql, parameters, cancellationToken: cancellationToken))).AsList();
-
-        var recordsFiltered = rows.Count > 0
-            ? rows[0].RecordsFiltered
-            : hasSearch
-                ? await connection.ExecuteScalarAsync<int>(
-                    new CommandDefinition(countSql, parameters, cancellationToken: cancellationToken))
-                : recordsTotal;
-
-        var totals = await connection.QuerySingleAsync<SupplierInvoiceTotals>(
-            new CommandDefinition(
-                totalsSql,
-                new { SupplierId = supplierId },
-                cancellationToken: cancellationToken));
-
-        return new SupplierInvoiceDataTableResult(rows, recordsTotal, recordsFiltered, totals);
-    }
-
     public async Task<bool> SupplierExistsAsync(
         int supplierId,
         bool includeDeleted,
@@ -581,36 +405,9 @@ public sealed class SupplierSummaryRow
     public int RecordsFiltered { get; set; }
 }
 
-public sealed class SupplierInvoiceRow
-{
-    public int PurchaseInvoiceId { get; set; }
-    public string InvoiceNumber { get; set; } = string.Empty;
-    public DateTime InvoiceDate { get; set; }
-    public InvoiceStatus Status { get; set; }
-    public decimal TotalAmount { get; set; }
-    public decimal PaidAmount { get; set; }
-    public int ItemsCount { get; set; }
-    public bool IsPosted { get; set; }
-    public int RecordsFiltered { get; set; }
-}
-
-public sealed class SupplierInvoiceTotals
-{
-    public decimal TotalPurchase { get; set; }
-    public decimal TotalPayment { get; set; }
-}
-
 public sealed class SupplierDataTableQuery
 {
     public bool IncludeDeleted { get; set; }
-    public int Start { get; set; }
-    public int Length { get; set; }
-    public string? Search { get; set; }
-    public List<DataTableOrder>? Order { get; set; }
-}
-
-public sealed class SupplierInvoiceDataTableQuery
-{
     public int Start { get; set; }
     public int Length { get; set; }
     public string? Search { get; set; }
@@ -621,9 +418,3 @@ public sealed record SupplierDataTableResult(
     IReadOnlyList<SupplierSummaryRow> Rows,
     int RecordsTotal,
     int RecordsFiltered);
-
-public sealed record SupplierInvoiceDataTableResult(
-    IReadOnlyList<SupplierInvoiceRow> Rows,
-    int RecordsTotal,
-    int RecordsFiltered,
-    SupplierInvoiceTotals Totals);

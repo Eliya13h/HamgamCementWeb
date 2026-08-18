@@ -21,13 +21,13 @@ public class FixedAssetCategory : BaseEntity
 
     public bool IsSystem { get; set; }
 
-    // حساب معین دارایی (بدهکار هنگام خرید)
+    // حساب معین دارایی (دیبت هنگام خرید)
     public int? AssetAccountId { get; set; }
 
-    // حساب استهلاک انباشته (بستانکار هنگام استهلاک)
+    // حساب استهلاک انباشته (کریدیت هنگام استهلاک)
     public int? AccumulatedDepreciationAccountId { get; set; }
 
-    // حساب هزینه استهلاک (بدهکار هنگام استهلاک)
+    // حساب هزینه استهلاک (دیبت هنگام استهلاک)
     public int? DepreciationExpenseAccountId { get; set; }
 
     // عمر مفید پیش‌فرض به ماه

@@ -163,6 +163,11 @@ public class SaleInvoiceController : InvoiceControllerBase
                     : null,
                 isPosted = i.IsPosted,
                 postedAt = i.PostedAt,
+                taxPercent = i.TaxPercent,
+                taxAmount = i.TaxAmount,
+                paymentTermDays = i.PaymentTermDays,
+                dueDate = i.DueDate,
+                externalInvoiceNumber = i.ExternalInvoiceNumber,
                 description = i.Description,
                 items = i.Items
                     .Where(x => x.IsDeleted != true)
@@ -352,12 +357,19 @@ public class SaleInvoiceController : InvoiceControllerBase
             TaxPercent = request.TaxPercent,
             PaymentTermDays = request.PaymentTermDays,
             DueDate = request.DueDate,
+            ExternalInvoiceNumber = request.ExternalInvoiceNumber?.Trim(),
             Description = request.Description?.Trim(),
             IsDeleted = false,
             IsActive = true,
             CreatedAt = now,
             CreatedBy = userId,
         };
+
+        var cashCreditError = ApplyCashCreditTerms(invoice, request.IsCash, request.PaymentTermDays, request.DueDate);
+        if (cashCreditError is not null)
+        {
+            return BadRequest(new { message = cashCreditError });
+        }
 
         foreach (var line in request.Items)
         {
@@ -458,12 +470,17 @@ public class SaleInvoiceController : InvoiceControllerBase
         invoice.Status = request.Status;
         invoice.CurrencyId = request.CurrencyId;
         invoice.TaxPercent = request.TaxPercent;
-        invoice.PaymentTermDays = request.PaymentTermDays;
-        invoice.DueDate = request.DueDate;
         invoice.Description = request.Description?.Trim();
+        invoice.ExternalInvoiceNumber = request.ExternalInvoiceNumber?.Trim();
         invoice.IsUpdated = true;
         invoice.UpdatedAt = now;
         invoice.UpdatedBy = userId;
+
+        var cashCreditError = ApplyCashCreditTerms(invoice, request.IsCash, request.PaymentTermDays, request.DueDate);
+        if (cashCreditError is not null)
+        {
+            return BadRequest(new { message = cashCreditError });
+        }
 
         var incomingIds = request.Items
             .Where(x => x.SalesItemId is > 0)
@@ -626,12 +643,46 @@ public class SaleInvoiceController : InvoiceControllerBase
         return Ok(new { message = "فاکتور فروش با موفقیت حذف شد." });
     }
 
+    private static string? ApplyCashCreditTerms(
+        SaleInvoice invoice,
+        bool isCash,
+        int paymentTermDays,
+        DateTime? dueDate)
+    {
+        invoice.IsCash = isCash;
+        if (isCash)
+        {
+            invoice.PaymentTermDays = 0;
+            invoice.DueDate = null;
+            return null;
+        }
+
+        invoice.PaymentTermDays = ComputePaymentTermDays(invoice.InvoiceDate, dueDate, paymentTermDays);
+        invoice.DueDate = dueDate;
+        if (dueDate is null)
+        {
+            return "برای فاکتور نسیه، تاریخ سررسید را وارد کنید.";
+        }
+
+        return null;
+    }
+
+    private static int ComputePaymentTermDays(DateTime invoiceDate, DateTime? dueDate, int fallbackDays)
+    {
+        if (dueDate is not { } due)
+        {
+            return fallbackDays;
+        }
+
+        var days = (int)Math.Round((due.Date - invoiceDate.Date).TotalDays);
+        return days > 0 ? days : fallbackDays;
+    }
+
     private static string? TrySetPaidAmount(SaleInvoice invoice, decimal paidAmount)
     {
         if (invoice.Status == InvoiceStatus.Quotation)
         {
             invoice.PaidAmount = 0;
-            invoice.IsCash = true;
             return null;
         }
 
@@ -646,7 +697,6 @@ public class SaleInvoiceController : InvoiceControllerBase
         }
 
         invoice.PaidAmount = paidAmount;
-        invoice.IsCash = invoice.TotalAmount > 0 && paidAmount >= invoice.TotalAmount;
         return null;
     }
 
@@ -671,6 +721,9 @@ public class SaleInvoiceController : InvoiceControllerBase
 
         public decimal PaidAmount { get; set; }
 
+        // نقد یا نسیه — صریح از کاربر؛ از مبلغ پرداخت استنتاج نمی‌شود
+        public bool IsCash { get; set; } = true;
+
         [Range(0, 100)]
         public decimal TaxPercent { get; set; }
 
@@ -678,6 +731,9 @@ public class SaleInvoiceController : InvoiceControllerBase
         public int PaymentTermDays { get; set; }
 
         public DateTime? DueDate { get; set; }
+
+        [MaxLength(100)]
+        public string? ExternalInvoiceNumber { get; set; }
 
         public decimal? BaseUnitsPerUnit { get; set; }
 

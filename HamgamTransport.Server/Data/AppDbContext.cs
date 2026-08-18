@@ -1,30 +1,19 @@
 ﻿using HamgamTransport.Server.Data.Models;
 using HamgamTransport.Server.Data.Models.Finance;
-using HamgamTransport.Server.Data.Models.Inventory;
-using HamgamTransport.Server.Data.Models.Invoice;
 using HamgamTransport.Server.Data.Models.People;
-using HamgamTransport.Server.Data.Models.Product;
-using HamgamTransport.Server.Data.Models.Production;
 using HamgamTransport.Server.Data.Models.Transport;
 using Microsoft.EntityFrameworkCore;
-using System.Security.Cryptography;
 
 namespace HamgamTransport.Server.Data
 {
     public class AppDbContext : DbContext
     {
         public DbSet<User> Users { get; set; }
-        public DbSet<Employee> Employees { get; set; }
-        public DbSet<Attendance> Attendances { get; set; }
-        public DbSet<SalaryPayment> SalaryPayments { get; set; }
         public DbSet<Customer> Customers { get; set; }
         public DbSet<Supplier> Suppliers { get; set; }
         public DbSet<Shareholder> Shareholders { get; set; }
         public DbSet<Role> Roles { get; set; }
         public DbSet<UserPermission> UserPermissions { get; set; }
-        public DbSet<Department> Departments { get; set; }
-
-        //finance tables
 
         public DbSet<Currency> Currencies { get; set; }
         public DbSet<CurrencyExchangeRate> CurrencyExchangeRates { get; set; }
@@ -34,7 +23,6 @@ namespace HamgamTransport.Server.Data
         public DbSet<ExpenseCategory> ExpenseCategories { get; set; }
         public DbSet<RevenueCategory> RevenueCategories { get; set; }
 
-        // دفترکل و صندوق
         public DbSet<Account> Accounts { get; set; }
         public DbSet<JournalEntry> JournalEntries { get; set; }
         public DbSet<JournalLine> JournalLines { get; set; }
@@ -51,7 +39,6 @@ namespace HamgamTransport.Server.Data
         public DbSet<FiscalPeriod> FiscalPeriods { get; set; }
         public DbSet<CostCenter> CostCenters { get; set; }
         public DbSet<Attachment> Attachments { get; set; }
-        public DbSet<InvoiceInstallment> InvoiceInstallments { get; set; }
         public DbSet<DoubtfulDebtProvision> DoubtfulDebtProvisions { get; set; }
         public DbSet<RecurringJournalTemplate> RecurringJournalTemplates { get; set; }
         public DbSet<RecurringJournalTemplateLine> RecurringJournalTemplateLines { get; set; }
@@ -60,49 +47,8 @@ namespace HamgamTransport.Server.Data
         public DbSet<FixedAsset> FixedAssets { get; set; }
         public DbSet<FixedAssetDepreciation> FixedAssetDepreciations { get; set; }
 
-        //invoice tables
-
-        public DbSet<PurchaseInvoice> PurchaseInvoices { get; set; }
-        public DbSet<PurchaseItem> PurchaseItems { get; set; }
-        public DbSet<SaleInvoice> SaleInvoices { get; set; }
-        public DbSet<SalesItem> SalesItems { get; set; }
-        public DbSet<SaleItemLotAllocation> SaleItemLotAllocations { get; set; }
-
-        //product tables
-
-        public DbSet<Meaurment> Meaurments { get; set; }
-        public DbSet<Category> Categories { get; set; }
-        public DbSet<Product> Products { get; set; }
-        public DbSet<ProductMeaurment> ProductMeaurments { get; set; }
-        public DbSet<ProductCategory> ProductCategories { get; set; }
-
-        //inventory tables
-
-        public DbSet<Warehouse> Warehouses { get; set; }
-        public DbSet<InventoryStock> InventoryStocks { get; set; }
-        public DbSet<InventoryLot> InventoryLots { get; set; }
-        public DbSet<Stocktaking> Stocktakings { get; set; }
-        public DbSet<StocktakingLine> StocktakingLines { get; set; }
-        public DbSet<WarehouseTransfer> WarehouseTransfers { get; set; }
-        public DbSet<WarehouseTransferLine> WarehouseTransferLines { get; set; }
-
-        //production tables
-
-        public DbSet<ProductionBatch> ProductionBatches { get; set; }
-        public DbSet<ProductionInputLine> ProductionInputLines { get; set; }
-        public DbSet<ProductionOutputLine> ProductionOutputLines { get; set; }
-        public DbSet<ProductionInputLotAllocation> ProductionInputLotAllocations { get; set; }
-        public DbSet<ProductionPlan> ProductionPlans { get; set; }
-        public DbSet<ProductionFormula> ProductionFormulas { get; set; }
-        public DbSet<ProductionFormulaMaterialLine> ProductionFormulaMaterialLines { get; set; }
-        public DbSet<ProductionFormulaCostLine> ProductionFormulaCostLines { get; set; }
-        public DbSet<ProductionBatchCostLine> ProductionBatchCostLines { get; set; }
-        public DbSet<ProductionCostCategory> ProductionCostCategories { get; set; }
-        public DbSet<ProductionCostCategoryDepartment> ProductionCostCategoryDepartments { get; set; }
-
         public DbSet<GeneralSettings> GeneralSettings { get; set; }
 
-        // transport tables
         public DbSet<VehicleType> VehicleTypes { get; set; }
         public DbSet<VehicleOwner> VehicleOwners { get; set; }
         public DbSet<Driver> Drivers { get; set; }
@@ -122,11 +68,6 @@ namespace HamgamTransport.Server.Data
             base.OnModelCreating(modelBuilder);
 
             modelBuilder.Entity<User>()
-                .HasOne(u => u.Employee)
-                .WithOne(e => e.User)
-                .HasForeignKey<User>(u => u.EmployeeId);
-
-            modelBuilder.Entity<User>()
                 .HasOne(u => u.Role)
                 .WithMany(r => r.Users)
                 .HasForeignKey(u => u.RoleId);
@@ -140,47 +81,6 @@ namespace HamgamTransport.Server.Data
                 .WithMany(u => u.Permissions)
                 .HasForeignKey(up => up.UserId)
                 .OnDelete(DeleteBehavior.Cascade);
-
-            modelBuilder.Entity<Employee>()
-                .HasOne(e => e.Department)
-                .WithMany(d => d.Employees)
-                .HasForeignKey(e => e.DepartmentId);
-
-            // هر کارمند در هر روز فقط یک ردیف حضور
-            modelBuilder.Entity<Attendance>()
-                .HasIndex(a => new { a.EmployeeId, a.Date })
-                .IsUnique()
-                .HasFilter("[IsDeleted] = 0");
-
-            modelBuilder.Entity<Attendance>()
-                .HasOne(a => a.Employee)
-                .WithMany()
-                .HasForeignKey(a => a.EmployeeId)
-                .OnDelete(DeleteBehavior.Restrict);
-
-            // هر کارمند در هر ماه فقط یک فیش حقوق
-            modelBuilder.Entity<SalaryPayment>()
-                .HasIndex(s => new { s.EmployeeId, s.Year, s.Month })
-                .IsUnique()
-                .HasFilter("[IsDeleted] = 0");
-
-            modelBuilder.Entity<SalaryPayment>()
-                .HasOne(s => s.Employee)
-                .WithMany()
-                .HasForeignKey(s => s.EmployeeId)
-                .OnDelete(DeleteBehavior.Restrict);
-
-            modelBuilder.Entity<SalaryPayment>()
-                .HasOne(s => s.CashBox)
-                .WithMany()
-                .HasForeignKey(s => s.CashBoxId)
-                .OnDelete(DeleteBehavior.Restrict);
-
-            modelBuilder.Entity<SalaryPayment>()
-                .HasOne(s => s.JournalEntry)
-                .WithMany()
-                .HasForeignKey(s => s.JournalEntryId)
-                .OnDelete(DeleteBehavior.SetNull);
 
             modelBuilder.Entity<Currency>()
                 .HasIndex(c => c.CurrencyCode)
@@ -225,202 +125,6 @@ namespace HamgamTransport.Server.Data
                 .WithMany()
                 .HasForeignKey(h => h.BaseCurrencyID)
                 .OnDelete(DeleteBehavior.Restrict);
-
-            // ---------- محصولات و انبار ----------
-
-            modelBuilder.Entity<Meaurment>()
-                .HasIndex(m => m.Name)
-                .IsUnique()
-                .HasFilter("[IsDeleted] = 0 AND [IsBaseUnit] = 1");
-
-            modelBuilder.Entity<Meaurment>()
-                .HasIndex(m => new { m.BaseMeaurmentId, m.Name })
-                .IsUnique()
-                .HasFilter("[IsDeleted] = 0 AND [IsBaseUnit] = 0");
-
-            modelBuilder.Entity<Meaurment>()
-                .HasOne(m => m.BaseMeaurment)
-                .WithMany(b => b.DerivedUnits)
-                .HasForeignKey(m => m.BaseMeaurmentId)
-                .OnDelete(DeleteBehavior.Restrict);
-
-            modelBuilder.Entity<Category>()
-                .HasOne(c => c.ParentCategory)
-                .WithMany(c => c.Children)
-                .HasForeignKey(c => c.ParentCategoryId)
-                .OnDelete(DeleteBehavior.Restrict);
-
-            modelBuilder.Entity<Product>()
-                .HasIndex(p => p.Code)
-                .IsUnique()
-                .HasFilter("[IsDeleted] = 0");
-
-            modelBuilder.Entity<Product>()
-                .HasOne(p => p.BaseMeaurment)
-                .WithMany()
-                .HasForeignKey(p => p.BaseMeaurmentId)
-                .OnDelete(DeleteBehavior.Restrict);
-
-            modelBuilder.Entity<Product>()
-                .HasOne(p => p.DefaultMeaurment)
-                .WithMany()
-                .HasForeignKey(p => p.DefaultMeaurmentId)
-                .OnDelete(DeleteBehavior.Restrict);
-
-            modelBuilder.Entity<ProductMeaurment>()
-                .HasIndex(pm => new { pm.ProductId, pm.MeaurmentId })
-                .IsUnique()
-                .HasFilter("[IsDeleted] = 0");
-
-            modelBuilder.Entity<ProductMeaurment>()
-                .HasOne(pm => pm.Product)
-                .WithMany(p => p.ProductMeaurments)
-                .HasForeignKey(pm => pm.ProductId)
-                .OnDelete(DeleteBehavior.Cascade);
-
-            modelBuilder.Entity<ProductMeaurment>()
-                .HasOne(pm => pm.Meaurment)
-                .WithMany(m => m.ProductMeaurments)
-                .HasForeignKey(pm => pm.MeaurmentId)
-                .OnDelete(DeleteBehavior.Restrict);
-
-            modelBuilder.Entity<ProductCategory>()
-                .HasIndex(pc => new { pc.ProductId, pc.CategoryId })
-                .IsUnique()
-                .HasFilter("[IsDeleted] = 0");
-
-            modelBuilder.Entity<ProductCategory>()
-                .HasOne(pc => pc.Product)
-                .WithMany(p => p.ProductCategories)
-                .HasForeignKey(pc => pc.ProductId)
-                .OnDelete(DeleteBehavior.Cascade);
-
-            modelBuilder.Entity<ProductCategory>()
-                .HasOne(pc => pc.Category)
-                .WithMany(c => c.ProductCategories)
-                .HasForeignKey(pc => pc.CategoryId)
-                .OnDelete(DeleteBehavior.Restrict);
-
-            modelBuilder.Entity<InventoryStock>()
-                .HasIndex(s => new { s.WarehouseId, s.ProductId })
-                .IsUnique()
-                .HasFilter("[IsDeleted] = 0");
-
-            modelBuilder.Entity<InventoryStock>()
-                .HasOne(s => s.Warehouse)
-                .WithMany(w => w.Stocks)
-                .HasForeignKey(s => s.WarehouseId)
-                .OnDelete(DeleteBehavior.Restrict);
-
-            modelBuilder.Entity<InventoryStock>()
-                .HasOne(s => s.Product)
-                .WithMany()
-                .HasForeignKey(s => s.ProductId)
-                .OnDelete(DeleteBehavior.Restrict);
-
-            modelBuilder.Entity<Warehouse>()
-                .HasOne(w => w.CapacityMeaurment)
-                .WithMany()
-                .HasForeignKey(w => w.CapacityMeaurmentId)
-                .OnDelete(DeleteBehavior.Restrict);
-
-            modelBuilder.Entity<InventoryLot>()
-                .HasIndex(l => l.LotCode)
-                .IsUnique()
-                .HasFilter("[IsDeleted] = 0");
-
-            modelBuilder.Entity<InventoryLot>()
-                .HasIndex(l => new { l.ProductId, l.WarehouseId, l.ReceiptSequence });
-
-            modelBuilder.Entity<InventoryLot>()
-                .HasOne(l => l.Product)
-                .WithMany()
-                .HasForeignKey(l => l.ProductId)
-                .OnDelete(DeleteBehavior.Restrict);
-
-            modelBuilder.Entity<InventoryLot>()
-                .HasOne(l => l.Warehouse)
-                .WithMany(w => w.Lots)
-                .HasForeignKey(l => l.WarehouseId)
-                .OnDelete(DeleteBehavior.Restrict);
-
-            modelBuilder.Entity<Stocktaking>()
-                .HasIndex(s => s.Code)
-                .IsUnique()
-                .HasFilter("[IsDeleted] = 0");
-
-            modelBuilder.Entity<Stocktaking>()
-                .HasOne(s => s.Warehouse)
-                .WithMany(w => w.Stocktakings)
-                .HasForeignKey(s => s.WarehouseId)
-                .OnDelete(DeleteBehavior.Restrict);
-
-            modelBuilder.Entity<StocktakingLine>()
-                .HasOne(l => l.Stocktaking)
-                .WithMany(s => s.Lines)
-                .HasForeignKey(l => l.StocktakingId)
-                .OnDelete(DeleteBehavior.Cascade);
-
-            modelBuilder.Entity<StocktakingLine>()
-                .HasOne(l => l.Product)
-                .WithMany()
-                .HasForeignKey(l => l.ProductId)
-                .OnDelete(DeleteBehavior.Restrict);
-
-            modelBuilder.Entity<StocktakingLine>()
-                .HasOne(l => l.CountedMeaurment)
-                .WithMany()
-                .HasForeignKey(l => l.CountedMeaurmentId)
-                .OnDelete(DeleteBehavior.Restrict);
-
-            modelBuilder.Entity<Stocktaking>()
-                .HasOne(s => s.JournalEntry)
-                .WithMany()
-                .HasForeignKey(s => s.JournalEntryId)
-                .OnDelete(DeleteBehavior.Restrict);
-
-            modelBuilder.Entity<WarehouseTransfer>()
-                .HasIndex(t => t.Code)
-                .IsUnique()
-                .HasFilter("[IsDeleted] = 0");
-
-            modelBuilder.Entity<WarehouseTransfer>()
-                .HasOne(t => t.FromWarehouse)
-                .WithMany()
-                .HasForeignKey(t => t.FromWarehouseId)
-                .OnDelete(DeleteBehavior.Restrict);
-
-            modelBuilder.Entity<WarehouseTransfer>()
-                .HasOne(t => t.ToWarehouse)
-                .WithMany()
-                .HasForeignKey(t => t.ToWarehouseId)
-                .OnDelete(DeleteBehavior.Restrict);
-
-            modelBuilder.Entity<WarehouseTransfer>()
-                .HasOne(t => t.JournalEntry)
-                .WithMany()
-                .HasForeignKey(t => t.JournalEntryId)
-                .OnDelete(DeleteBehavior.Restrict);
-
-            modelBuilder.Entity<WarehouseTransferLine>()
-                .HasOne(l => l.WarehouseTransfer)
-                .WithMany(t => t.Lines)
-                .HasForeignKey(l => l.WarehouseTransferId)
-                .OnDelete(DeleteBehavior.Cascade);
-
-            modelBuilder.Entity<WarehouseTransferLine>()
-                .HasOne(l => l.Product)
-                .WithMany()
-                .HasForeignKey(l => l.ProductId)
-                .OnDelete(DeleteBehavior.Restrict);
-
-            modelBuilder.Entity<WarehouseTransferLine>()
-                .HasOne(l => l.Meaurment)
-                .WithMany()
-                .HasForeignKey(l => l.MeaurmentId)
-                .OnDelete(DeleteBehavior.Restrict);
-
-            // ---------- مالی: مصارف و درآمد — Restrict برای جلوگیری از multiple cascade paths به Currencies ----------
 
             modelBuilder.Entity<Expense>()
                 .HasOne(e => e.Supplier)
@@ -492,174 +196,6 @@ namespace HamgamTransport.Server.Data
                 .IsUnique()
                 .HasFilter("[IsDeleted] = 0 AND [Code] IS NOT NULL");
 
-            // ---------- فاکتور خرید و فروش ----------
-
-            modelBuilder.Entity<PurchaseInvoice>()
-                .HasIndex(i => i.InvoiceNumber)
-                .IsUnique()
-                .HasFilter("[IsDeleted] = 0");
-
-            modelBuilder.Entity<PurchaseInvoice>()
-                .HasOne(i => i.Supplier)
-                .WithMany()
-                .HasForeignKey(i => i.SupplierId)
-                .OnDelete(DeleteBehavior.Restrict);
-
-            modelBuilder.Entity<PurchaseInvoice>()
-                .HasOne(i => i.Warehouse)
-                .WithMany()
-                .HasForeignKey(i => i.WarehouseId)
-                .OnDelete(DeleteBehavior.Restrict);
-
-            modelBuilder.Entity<PurchaseInvoice>()
-                .HasOne(i => i.Currency)
-                .WithMany()
-                .HasForeignKey(i => i.CurrencyId)
-                .OnDelete(DeleteBehavior.Restrict);
-
-            modelBuilder.Entity<PurchaseInvoice>()
-                .HasOne(i => i.BaseCurrency)
-                .WithMany()
-                .HasForeignKey(i => i.BaseCurrencyId)
-                .OnDelete(DeleteBehavior.Restrict);
-
-            modelBuilder.Entity<PurchaseInvoice>()
-                .HasOne(i => i.ExchangeHistory)
-                .WithMany()
-                .HasForeignKey(i => i.ExchangeHistoryId)
-                .OnDelete(DeleteBehavior.SetNull);
-
-            modelBuilder.Entity<PurchaseInvoice>()
-                .HasOne(i => i.Expense)
-                .WithOne(e => e.PurchaseInvoice)
-                .HasForeignKey<PurchaseInvoice>(i => i.ExpenseId)
-                .OnDelete(DeleteBehavior.Restrict);
-
-            modelBuilder.Entity<PurchaseInvoice>()
-                .HasOne(i => i.ReferencePurchaseInvoice)
-                .WithMany(i => i.ReturnDocuments)
-                .HasForeignKey(i => i.ReferencePurchaseInvoiceId)
-                .OnDelete(DeleteBehavior.Restrict);
-
-            modelBuilder.Entity<PurchaseInvoice>()
-                .HasOne(i => i.ProductionBatch)
-                .WithMany()
-                .HasForeignKey(i => i.ProductionBatchId)
-                .OnDelete(DeleteBehavior.Restrict);
-
-            modelBuilder.Entity<PurchaseInvoice>()
-                .HasOne(i => i.CashBox)
-                .WithMany()
-                .HasForeignKey(i => i.CashBoxId)
-                .OnDelete(DeleteBehavior.Restrict);
-
-            modelBuilder.Entity<PurchaseItem>()
-                .HasOne(i => i.Invoice)
-                .WithMany(p => p.Items)
-                .HasForeignKey(i => i.PurchaseInvoiceId)
-                .OnDelete(DeleteBehavior.Cascade);
-
-            modelBuilder.Entity<PurchaseItem>()
-                .HasOne(i => i.Product)
-                .WithMany()
-                .HasForeignKey(i => i.ProductId)
-                .OnDelete(DeleteBehavior.Restrict);
-
-            modelBuilder.Entity<PurchaseItem>()
-                .HasOne(i => i.InventoryLot)
-                .WithMany()
-                .HasForeignKey(i => i.InventoryLotId)
-                .OnDelete(DeleteBehavior.Restrict);
-
-            modelBuilder.Entity<PurchaseItem>()
-                .HasOne(i => i.ReferencePurchaseItem)
-                .WithMany()
-                .HasForeignKey(i => i.ReferencePurchaseItemId)
-                .OnDelete(DeleteBehavior.Restrict);
-
-            modelBuilder.Entity<SaleInvoice>()
-                .HasIndex(i => i.InvoiceNumber)
-                .IsUnique()
-                .HasFilter("[IsDeleted] = 0");
-
-            modelBuilder.Entity<SaleInvoice>()
-                .HasOne(i => i.Customer)
-                .WithMany()
-                .HasForeignKey(i => i.CustomerId)
-                .OnDelete(DeleteBehavior.Restrict);
-
-            modelBuilder.Entity<SaleInvoice>()
-                .HasOne(i => i.Warehouse)
-                .WithMany()
-                .HasForeignKey(i => i.WarehouseId)
-                .OnDelete(DeleteBehavior.Restrict);
-
-            modelBuilder.Entity<SaleInvoice>()
-                .HasOne(i => i.Currency)
-                .WithMany()
-                .HasForeignKey(i => i.CurrencyId)
-                .OnDelete(DeleteBehavior.Restrict);
-
-            modelBuilder.Entity<SaleInvoice>()
-                .HasOne(i => i.BaseCurrency)
-                .WithMany()
-                .HasForeignKey(i => i.BaseCurrencyId)
-                .OnDelete(DeleteBehavior.Restrict);
-
-            modelBuilder.Entity<SaleInvoice>()
-                .HasOne(i => i.ExchangeHistory)
-                .WithMany()
-                .HasForeignKey(i => i.ExchangeHistoryId)
-                .OnDelete(DeleteBehavior.SetNull);
-
-            modelBuilder.Entity<SaleInvoice>()
-                .HasOne(i => i.Revenue)
-                .WithOne(r => r.SaleInvoice)
-                .HasForeignKey<SaleInvoice>(i => i.RevenueId)
-                .OnDelete(DeleteBehavior.Restrict);
-
-            modelBuilder.Entity<SaleInvoice>()
-                .HasOne(i => i.ReferenceSaleInvoice)
-                .WithMany(i => i.ReturnDocuments)
-                .HasForeignKey(i => i.ReferenceSaleInvoiceId)
-                .OnDelete(DeleteBehavior.Restrict);
-
-            modelBuilder.Entity<SalesItem>()
-                .HasOne(i => i.Invoice)
-                .WithMany(s => s.Items)
-                .HasForeignKey(i => i.SaleInvoiceId)
-                .OnDelete(DeleteBehavior.Cascade);
-
-            modelBuilder.Entity<SalesItem>()
-                .HasOne(i => i.ReferenceSalesItem)
-                .WithMany()
-                .HasForeignKey(i => i.ReferenceSalesItemId)
-                .OnDelete(DeleteBehavior.Restrict);
-
-            modelBuilder.Entity<SaleItemLotAllocation>()
-                .HasOne(a => a.SalesItem)
-                .WithMany(i => i.LotAllocations)
-                .HasForeignKey(a => a.SalesItemId)
-                .OnDelete(DeleteBehavior.Cascade);
-
-            modelBuilder.Entity<SaleItemLotAllocation>()
-                .HasOne(a => a.InventoryLot)
-                .WithMany()
-                .HasForeignKey(a => a.InventoryLotId)
-                .OnDelete(DeleteBehavior.Restrict);
-
-            modelBuilder.Entity<PurchaseInvoice>()
-                .HasIndex(i => i.ExpenseId)
-                .IsUnique()
-                .HasFilter("[IsDeleted] = 0 AND [ExpenseId] IS NOT NULL");
-
-            modelBuilder.Entity<SaleInvoice>()
-                .HasIndex(i => i.RevenueId)
-                .IsUnique()
-                .HasFilter("[IsDeleted] = 0 AND [RevenueId] IS NOT NULL");
-
-            // ---------- دفترکل و صندوق ----------
-
             modelBuilder.Entity<Account>()
                 .HasIndex(a => a.Code)
                 .IsUnique()
@@ -729,18 +265,6 @@ namespace HamgamTransport.Server.Data
                 .HasForeignKey(r => r.JournalEntryId)
                 .OnDelete(DeleteBehavior.Restrict);
 
-            modelBuilder.Entity<PurchaseInvoice>()
-                .HasOne(i => i.JournalEntry)
-                .WithMany()
-                .HasForeignKey(i => i.JournalEntryId)
-                .OnDelete(DeleteBehavior.Restrict);
-
-            modelBuilder.Entity<SaleInvoice>()
-                .HasOne(i => i.JournalEntry)
-                .WithMany()
-                .HasForeignKey(i => i.JournalEntryId)
-                .OnDelete(DeleteBehavior.Restrict);
-
             modelBuilder.Entity<ExpenseCategory>()
                 .HasOne(c => c.Account)
                 .WithMany()
@@ -753,7 +277,6 @@ namespace HamgamTransport.Server.Data
                 .HasForeignKey(c => c.AccountId)
                 .OnDelete(DeleteBehavior.Restrict);
 
-            // ---------- دارایی‌های ثابت ----------
             modelBuilder.Entity<FixedAssetCategory>()
                 .HasOne(c => c.AssetAccount)
                 .WithMany()
@@ -930,7 +453,6 @@ namespace HamgamTransport.Server.Data
                 .HasForeignKey(l => l.CurrencyId)
                 .OnDelete(DeleteBehavior.Restrict);
 
-            // ---------- خرید/فروش ارز ----------
             modelBuilder.Entity<CurrencyExchangeTxn>()
                 .HasOne(t => t.FromCurrency)
                 .WithMany()
@@ -967,7 +489,6 @@ namespace HamgamTransport.Server.Data
                 .HasForeignKey(t => t.ToBankAccountId)
                 .OnDelete(DeleteBehavior.Restrict);
 
-            // هر دو به CurrencyExchangeHistories وصل‌اند — SET NULL چندمسیره در SQL Server می‌سازد
             modelBuilder.Entity<CurrencyExchangeTxn>()
                 .HasOne(t => t.ExchangeHistoryFrom)
                 .WithMany()
@@ -986,11 +507,28 @@ namespace HamgamTransport.Server.Data
                 .HasForeignKey(t => t.JournalEntryId)
                 .OnDelete(DeleteBehavior.Restrict);
 
-            // ---------- تکمیل حسابداری (اقساط، ذخیره، قالب تکراری، دوره ماهانه) ----------
             modelBuilder.Entity<PartySettlement>()
-                .HasOne(s => s.Installment)
+                .HasOne(s => s.Currency)
                 .WithMany()
-                .HasForeignKey(s => s.InstallmentId)
+                .HasForeignKey(s => s.CurrencyId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            modelBuilder.Entity<PartySettlement>()
+                .HasOne(s => s.CashBox)
+                .WithMany()
+                .HasForeignKey(s => s.CashBoxId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            modelBuilder.Entity<PartySettlement>()
+                .HasOne(s => s.BankAccount)
+                .WithMany()
+                .HasForeignKey(s => s.BankAccountId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            modelBuilder.Entity<PartySettlement>()
+                .HasOne(s => s.JournalEntry)
+                .WithMany()
+                .HasForeignKey(s => s.JournalEntryId)
                 .OnDelete(DeleteBehavior.Restrict);
 
             modelBuilder.Entity<DoubtfulDebtProvision>()
@@ -1027,7 +565,6 @@ namespace HamgamTransport.Server.Data
                 .IsUnique()
                 .HasFilter("[IsDeleted] = 0");
 
-            // ---------- سال مالی ----------
             modelBuilder.Entity<FiscalYear>()
                 .HasIndex(y => y.SolarYear)
                 .IsUnique()
@@ -1087,209 +624,6 @@ namespace HamgamTransport.Server.Data
                 .HasForeignKey(t => t.BaseCurrencyId)
                 .OnDelete(DeleteBehavior.Restrict);
 
-            // ---------- تولید ----------
-
-            modelBuilder.Entity<ProductionBatch>()
-                .HasIndex(b => b.BatchNumber)
-                .IsUnique()
-                .HasFilter("[IsDeleted] = 0");
-
-            modelBuilder.Entity<ProductionBatch>()
-                .HasOne(b => b.OutputWarehouse)
-                .WithMany()
-                .HasForeignKey(b => b.OutputWarehouseId)
-                .OnDelete(DeleteBehavior.Restrict);
-
-            modelBuilder.Entity<ProductionBatch>()
-                .HasOne(b => b.Formula)
-                .WithMany()
-                .HasForeignKey(b => b.ProductionFormulaId)
-                .OnDelete(DeleteBehavior.Restrict);
-
-            modelBuilder.Entity<ProductionBatch>()
-                .HasOne(b => b.Plan)
-                .WithMany()
-                .HasForeignKey(b => b.ProductionPlanId)
-                .OnDelete(DeleteBehavior.Restrict);
-
-            modelBuilder.Entity<ProductionBatch>()
-                .HasOne(b => b.JournalEntry)
-                .WithMany()
-                .HasForeignKey(b => b.JournalEntryId)
-                .OnDelete(DeleteBehavior.Restrict);
-
-            modelBuilder.Entity<ProductionInputLine>()
-                .HasOne(l => l.Batch)
-                .WithMany(b => b.InputLines)
-                .HasForeignKey(l => l.ProductionBatchId)
-                .OnDelete(DeleteBehavior.Cascade);
-
-            modelBuilder.Entity<ProductionInputLine>()
-                .HasOne(l => l.Warehouse)
-                .WithMany()
-                .HasForeignKey(l => l.WarehouseId)
-                .OnDelete(DeleteBehavior.Restrict);
-
-            modelBuilder.Entity<ProductionInputLine>()
-                .HasOne(l => l.Product)
-                .WithMany()
-                .HasForeignKey(l => l.ProductId)
-                .OnDelete(DeleteBehavior.Restrict);
-
-            modelBuilder.Entity<ProductionInputLine>()
-                .HasOne(l => l.Meaurment)
-                .WithMany()
-                .HasForeignKey(l => l.MeaurmentId)
-                .OnDelete(DeleteBehavior.Restrict);
-
-            modelBuilder.Entity<ProductionOutputLine>()
-                .HasOne(l => l.Batch)
-                .WithMany(b => b.OutputLines)
-                .HasForeignKey(l => l.ProductionBatchId)
-                .OnDelete(DeleteBehavior.Cascade);
-
-            modelBuilder.Entity<ProductionOutputLine>()
-                .HasOne(l => l.Product)
-                .WithMany()
-                .HasForeignKey(l => l.ProductId)
-                .OnDelete(DeleteBehavior.Restrict);
-
-            modelBuilder.Entity<ProductionOutputLine>()
-                .HasOne(l => l.Meaurment)
-                .WithMany()
-                .HasForeignKey(l => l.MeaurmentId)
-                .OnDelete(DeleteBehavior.Restrict);
-
-            // رابطه‌ی رسمی Lot تولیدشده با ردیف خروجی (پیش‌تر بدون relation بود) — آیتم ۶.۴
-            modelBuilder.Entity<ProductionOutputLine>()
-                .HasOne<InventoryLot>()
-                .WithMany()
-                .HasForeignKey(l => l.InventoryLotId)
-                .OnDelete(DeleteBehavior.Restrict);
-
-            // تخصیص FIFO مصرف تولید — Restrict برای جلوگیری از مسیر cascade چندگانه
-            modelBuilder.Entity<ProductionInputLotAllocation>()
-                .HasOne(a => a.InputLine)
-                .WithMany()
-                .HasForeignKey(a => a.ProductionInputLineId)
-                .OnDelete(DeleteBehavior.Restrict);
-
-            modelBuilder.Entity<ProductionInputLotAllocation>()
-                .HasOne(a => a.InventoryLot)
-                .WithMany()
-                .HasForeignKey(a => a.InventoryLotId)
-                .OnDelete(DeleteBehavior.Restrict);
-
-            modelBuilder.Entity<ProductionBatchCostLine>()
-                .HasOne(l => l.Batch)
-                .WithMany(b => b.CostLines)
-                .HasForeignKey(l => l.ProductionBatchId)
-                .OnDelete(DeleteBehavior.Cascade);
-
-            modelBuilder.Entity<ProductionBatchCostLine>()
-                .HasOne(l => l.Account)
-                .WithMany()
-                .HasForeignKey(l => l.AccountId)
-                .OnDelete(DeleteBehavior.Restrict);
-
-            modelBuilder.Entity<ProductionFormula>()
-                .HasOne(f => f.Product)
-                .WithMany()
-                .HasForeignKey(f => f.ProductId)
-                .OnDelete(DeleteBehavior.Restrict);
-
-            modelBuilder.Entity<ProductionFormula>()
-                .HasOne(f => f.Meaurment)
-                .WithMany()
-                .HasForeignKey(f => f.MeaurmentId)
-                .OnDelete(DeleteBehavior.Restrict);
-
-            // حداکثر یک فرمول پیش‌فرض فعال برای هر محصول
-            modelBuilder.Entity<ProductionFormula>()
-                .HasIndex(f => f.ProductId)
-                .IsUnique()
-                .HasFilter("[IsDefault] = 1 AND [IsDeleted] = 0");
-
-            modelBuilder.Entity<ProductionFormulaMaterialLine>()
-                .HasOne(l => l.Formula)
-                .WithMany(f => f.MaterialLines)
-                .HasForeignKey(l => l.ProductionFormulaId)
-                .OnDelete(DeleteBehavior.Cascade);
-
-            modelBuilder.Entity<ProductionFormulaMaterialLine>()
-                .HasOne(l => l.Product)
-                .WithMany()
-                .HasForeignKey(l => l.ProductId)
-                .OnDelete(DeleteBehavior.Restrict);
-
-            modelBuilder.Entity<ProductionFormulaMaterialLine>()
-                .HasOne(l => l.Meaurment)
-                .WithMany()
-                .HasForeignKey(l => l.MeaurmentId)
-                .OnDelete(DeleteBehavior.Restrict);
-
-            modelBuilder.Entity<ProductionFormulaMaterialLine>()
-                .HasOne(l => l.DefaultWarehouse)
-                .WithMany()
-                .HasForeignKey(l => l.DefaultWarehouseId)
-                .OnDelete(DeleteBehavior.Restrict);
-
-            modelBuilder.Entity<ProductionFormulaCostLine>()
-                .HasOne(l => l.Formula)
-                .WithMany(f => f.CostLines)
-                .HasForeignKey(l => l.ProductionFormulaId)
-                .OnDelete(DeleteBehavior.Cascade);
-
-            modelBuilder.Entity<ProductionFormulaCostLine>()
-                .HasOne(l => l.Account)
-                .WithMany()
-                .HasForeignKey(l => l.AccountId)
-                .OnDelete(DeleteBehavior.Restrict);
-
-            modelBuilder.Entity<ProductionFormulaCostLine>()
-                .HasOne(l => l.CostCategory)
-                .WithMany()
-                .HasForeignKey(l => l.ProductionCostCategoryId)
-                .OnDelete(DeleteBehavior.Restrict);
-
-            modelBuilder.Entity<ProductionCostCategory>()
-                .HasOne(c => c.Account)
-                .WithMany()
-                .HasForeignKey(c => c.AccountId)
-                .OnDelete(DeleteBehavior.Restrict);
-
-            modelBuilder.Entity<ProductionCostCategory>()
-                .HasIndex(c => c.Code)
-                .IsUnique()
-                .HasFilter("[Code] IS NOT NULL AND [IsDeleted] = 0");
-
-            modelBuilder.Entity<ProductionCostCategoryDepartment>()
-                .HasKey(x => new { x.ProductionCostCategoryId, x.DepartmentId });
-
-            modelBuilder.Entity<ProductionCostCategoryDepartment>()
-                .HasOne(x => x.Category)
-                .WithMany(c => c.Departments)
-                .HasForeignKey(x => x.ProductionCostCategoryId)
-                .OnDelete(DeleteBehavior.Cascade);
-
-            modelBuilder.Entity<ProductionCostCategoryDepartment>()
-                .HasOne(x => x.Department)
-                .WithMany()
-                .HasForeignKey(x => x.DepartmentId)
-                .OnDelete(DeleteBehavior.Restrict);
-
-            modelBuilder.Entity<ProductionPlan>()
-                .HasOne(p => p.Product)
-                .WithMany()
-                .HasForeignKey(p => p.ProductId)
-                .OnDelete(DeleteBehavior.Restrict);
-
-            modelBuilder.Entity<ProductionPlan>()
-                .HasOne(p => p.Meaurment)
-                .WithMany()
-                .HasForeignKey(p => p.MeaurmentId)
-                .OnDelete(DeleteBehavior.Restrict);
-
             modelBuilder.Entity<VehicleType>()
                 .HasIndex(v => v.Code)
                 .IsUnique()
@@ -1299,6 +633,17 @@ namespace HamgamTransport.Server.Data
                 .HasIndex(v => v.PlateNumber)
                 .IsUnique()
                 .HasFilter("[IsDeleted] = 0");
+
+            modelBuilder.Entity<Vehicle>()
+                .HasIndex(v => v.Code)
+                .IsUnique()
+                .HasFilter("[IsDeleted] = 0 AND [Code] <> ''");
+
+            modelBuilder.Entity<TripExpenseCategory>()
+                .HasOne(c => c.Parent)
+                .WithMany(c => c.Children)
+                .HasForeignKey(c => c.ParentCategoryId)
+                .OnDelete(DeleteBehavior.Restrict);
 
             modelBuilder.Entity<VehiclePair>()
                 .HasIndex(v => v.Code)
